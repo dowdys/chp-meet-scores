@@ -1,0 +1,336 @@
+
+============================================================
+  Black Hawk
+============================================================
+  Maeli Peverill - Vault, Beam, Floor, AA
+  Level 3 Division Jr B
+
+
+============================================================
+  CVGA
+============================================================
+  Miah Jung - Floor
+  Level 3 Division Child A
+
+  Mila Hilliard - Vault, Bars, Beam, Floor, AA
+  Level 3 Division Child B
+
+  Mallory Deutsch - Bars, Beam, Floor, AA
+  Level 3 Division Jr C
+
+  Andjela Mercurio - Vault
+  Level 3 Division Sr B
+
+  Adalyn Myhr - Floor
+  Level 4 Division Ch B
+
+  Alexis Bey - Vault, Floor
+  Level 6 Division Child B
+
+  Zoe Plummer - Vault, Beam, Floor, AA
+  Level 9 Division Junior
+
+
+============================================================
+  Chows
+============================================================
+  Stella Ruge - Vault, Bars, Beam, AA
+  Level 4 Division Ch A
+
+  Autumn Peterson - Vault
+  Level 4 Division Jr A
+
+  Cece Baumhover - Bars, Beam, Floor, AA
+  Level 4 Division Jr A
+
+  Zoey Ruge - Vault, Bars, Beam, AA
+  Level 4 Division Jr B
+
+  Korbyn Shelton - Vault, Beam, Floor, AA
+  Level 4 Division Jr C
+
+  Avie Zelinskas - Vault, Bars, Beam, Floor, AA
+  Level 5 Division Jr B
+
+  Ellie Retherford - Bars, Beam, AA
+  Level 5 Division Sr A
+
+  Ivy Burress - Floor
+  Level 5 Division Sr A
+
+  Layla Keo - Bars, Beam, AA
+  Level 6 Division Child B
+
+  Sadie Grimm - Vault, Beam, AA
+  Level 6 Division Jr A
+
+  Charley Zelinskas - Bars, Beam, AA
+  Level 6 Division Jr B
+
+  Sophia Lazutkina - Vault, Bars, AA
+  Level 7 Division Jr B
+
+  Alivia Wong - Vault, Beam
+  Level 7 Division Sr A
+
+  Reagan Shaw - Bars, Floor, AA
+  Level 7 Division Sr A
+
+  Kaylee Jackson - Vault, Bars, Beam, Floor, AA
+  Level 8 Division Jr B
+
+  Lauren Frederick - Vault, Bars, Beam, Floor, AA
+  Level 8 Division Sr A
+
+  Emily Beyer - Bars
+  Level 9 Division Senior
+
+  Jordyn Gassmann - Beam
+  Level 9 Division Senior
+
+  Ava Baumhover - Vault
+  Level 10 Division Senior
+
+  Matayia Hixson - Floor
+  Level 10 Division Senior
+
+
+============================================================
+  Emerge Academy
+============================================================
+  Makaia Johnson - Vault, Beam, AA
+  Level 5 Division Jr A
+
+  Mary Vetter - Floor
+  Level 10 Division Junior
+
+  Christiane Popovich - Bars
+  Level 10 Division Senior
+
+  Molly Vandelune - AA
+  Level 10 Division Senior
+
+
+============================================================
+  Evolve01
+============================================================
+  Drew Kraus - Vault
+  Level 6 Division Jr B
+
+
+============================================================
+  IGN
+============================================================
+  Amelia Bernabe - Beam
+  Level 2 Division Child B
+
+  Hayden Feldman - Vault
+  Level 2 Division Jr A
+
+  Kinsley Williams - Beam, AA
+  Level 3 Division Child A
+
+  Leah Nahm - Vault
+  Level 3 Division Child C
+
+  Rynn Hahn - Floor, AA
+  Level 3 Division Sr A
+
+  Lorraine Seaba - Floor
+  Level 4 Division Ch A
+
+  Bailey Madura - Vault, AA
+  Level 9 Division Senior
+
+  Brynley Applegate - Vault, Beam, AA
+  Level 10 Division Junior
+
+
+============================================================
+  In Motion Gymnastics
+============================================================
+  Ireland Young - Vault
+  Level 4 Division Ch B
+
+
+============================================================
+  PFG01
+============================================================
+  Paxten Zmolek - Vault
+  Level 6 Division Child A
+
+  Evie Nicol - Floor
+  Level 6 Division Jr A
+
+
+============================================================
+  Platinum
+============================================================
+  Lennox Kuhlman - Vault
+  Level 3 Division Child A
+
+
+============================================================
+  SUCCESS Gym
+============================================================
+  Alina Ewing - Beam, Floor, AA
+  Level 2 Division Jr A
+
+  Lillian Malovrh - Bars
+  Level 2 Division Jr A
+
+  McKinley Collen - Bars
+  Level 2 Division Jr B
+
+  Sloan Tiefenthaler - Vault, Beam, Floor, AA
+  Level 2 Division Jr B
+
+  Lexi Pudenz - Bars
+  Level 3 Division Sr B
+
+  Ruth Henely - Beam, Floor, AA
+  Level 3 Division Sr B
+
+  Katherine Fang - Bars
+  Level 4 Division Jr C
+
+  Huntleigh Phillips - Bars
+  Level 4 Division Sr A
+
+  Julia Shehan - Beam, AA
+  Level 6 Division Child A
+
+  Kyla Schilling - Floor
+  Level 6 Division Jr B
+
+  Cassie Rouse - Floor
+  Level 6 Division Jr C
+
+  Jemma Crawford - AA
+  Level 6 Division Jr C
+
+  Charlee Rasmussen - Vault, Beam, AA
+  Level 7 Division Jr A
+
+  Brooklyn Banning - Bars
+  Level 10 Division Junior
+
+
+============================================================
+  Sapphire Gymnastics
+============================================================
+  Ruby Steenblock - Bars, Beam, Floor, AA
+  Level 3 Division Child C
+
+  Mila Alexander - Vault
+  Level 3 Division Jr C
+
+  Odessa Colston - Floor
+  Level 4 Division Jr B
+
+  Charlotte Florke - Beam
+  Level 4 Division Sr A
+
+  Lexie Gowdy - Vault, Floor, AA
+  Level 4 Division Sr A
+
+  Ellie Wallukait - Vault, Beam
+  Level 6 Division Jr C
+
+  Lilly Lanpher - Beam
+  Level 7 Division Jr B
+
+  Penelope Pederson - Bars
+  Level 8 Division Jr A
+
+
+============================================================
+  Somersaults Gym
+============================================================
+  Delaney Werner - Bars
+  Level 3 Division Jr B
+
+
+============================================================
+  Synergy
+============================================================
+  Ellie Laubenthal - Bars
+  Level 9 Division Junior
+
+
+============================================================
+  Triad
+============================================================
+  Harper Poetting - Bars
+  Level 3 Division Child A
+
+  Cora Torrence - Vault, Bars, Beam, Floor, AA
+  Level 3 Division Jr A
+
+  Lily Sheets - Vault
+  Level 3 Division Sr A
+
+  Jayden Elling - Bars, Beam, AA
+  Level 4 Division Ch B
+
+  Kenzie Drewis - Bars
+  Level 5 Division Jr A
+
+  Romy Schechinger - Floor
+  Level 5 Division Jr A
+
+  Bronwyn Boettger - Vault
+  Level 5 Division Sr A
+
+  Addelynn Jones - Bars, Floor
+  Level 6 Division Child A
+
+  Reagan Neurohr - Bars
+  Level 6 Division Jr A
+
+  Calla Mogard - Bars
+  Level 6 Division Jr C
+
+  Jovi Reyes - Bars, Floor
+  Level 7 Division Jr A
+
+  Tinlee Tyler - Floor
+  Level 7 Division Jr B
+
+  Jaya Robb - Beam
+  Level 8 Division Jr A
+
+  Madelyn Gray - Vault, Floor, AA
+  Level 8 Division Jr A
+
+  Lucy Purcell - Floor
+  Level 9 Division Senior
+
+
+============================================================
+  Twisters
+============================================================
+  Kaylynn Fisher - Bars
+  Level 2 Division Child A
+
+  Mila Wagner - Beam, Floor, AA
+  Level 2 Division Child A
+
+  Olivia Ferencak - Vault
+  Level 2 Division Child A
+
+  Spencer Minick - Floor, AA
+  Level 2 Division Child B
+
+  Corrigan Cook - Bars, Beam, AA
+  Level 3 Division Sr A
+
+  Aubrey Gilliland - Beam
+  Level 10 Division Senior
+
+
+============================================================
+  Valley
+============================================================
+  Kensley Kooima - Vault, Bars
+  Level 2 Division Child B
