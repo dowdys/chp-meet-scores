@@ -1,0 +1,39 @@
+appId: com.dowdysarvis.chp-meet-scores
+productName: Gymnastics Meet Scores
+copyright: Copyright (C) 2026 Dowdy Sarvis
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - package.json
+
+extraResources:
+  - from: python/
+    to: python/
+    filter:
+      - "**/*.py"
+      - "**/*.exe"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Gymnastics Meet Scores
+
+publish:
+  provider: github
+  owner: dowdys
+  repo: chp-meet-scores
