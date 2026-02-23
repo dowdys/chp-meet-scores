@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+dist/
+out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+*.spec
+
+# Runtime data
+data/chp_results.db
+data/chrome-profile/
+data/outputs/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Electron
+release/
+
+# PyInstaller
+*.exe
+!assets/*.exe
+
+# Skills drafts (agent-generated, review before committing)
+# skills/drafts/
+
+# Test artifacts
+tests/temp/
