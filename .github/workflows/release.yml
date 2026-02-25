@@ -39,7 +39,10 @@ jobs:
       - name: Install Node.js dependencies
         run: npm ci
 
-      - name: Build and publish
+      - name: Build app (webpack)
+        run: npm run build
+
+      - name: Build and publish installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --x64 --publish always
