@@ -38,6 +38,7 @@ export interface ElectronAPI {
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
+  restartAndUpdate: () => Promise<void>;
 }
 
 declare global {

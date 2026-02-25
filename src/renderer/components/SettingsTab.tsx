@@ -218,14 +218,14 @@ const SettingsTab: React.FC = () => {
       </div>
 
       <div className="settings-footer">
-        <p className="version-info">Gymnastics Meet Scores v0.1.0</p>
+        <p className="version-info">Gymnastics Meet Scores v0.1.2</p>
         <button
           className="update-button"
           onClick={async () => {
             setUpdateStatus('Checking...');
             try {
               const result = await window.electronAPI.checkForUpdates();
-              setUpdateStatus(result.message);
+              setUpdateStatus(result.status === 'ready' ? 'ready' : result.message);
             } catch {
               setUpdateStatus('Could not check for updates.');
             }
@@ -233,7 +233,16 @@ const SettingsTab: React.FC = () => {
         >
           Check for Updates
         </button>
-        {updateStatus && <span className="update-status">{updateStatus}</span>}
+        {updateStatus === 'ready' ? (
+          <button
+            className="restart-update-button"
+            onClick={() => window.electronAPI.restartAndUpdate()}
+          >
+            Restart &amp; Update Now
+          </button>
+        ) : (
+          updateStatus && <span className="update-status">{updateStatus}</span>
+        )}
       </div>
     </div>
   );

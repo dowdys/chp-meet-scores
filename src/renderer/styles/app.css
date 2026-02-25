@@ -742,6 +742,24 @@ body {
   color: #7f8c8d;
 }
 
+.restart-update-button {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.restart-update-button:hover {
+  background: #219a52;
+}
+
 /* === Output Files === */
 .output-files {
   flex-shrink: 0;

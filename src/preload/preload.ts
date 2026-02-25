@@ -40,6 +40,7 @@ export interface ElectronAPI {
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
+  restartAndUpdate: () => Promise<void>;
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -105,5 +106,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   checkForUpdates: () => {
     return ipcRenderer.invoke('check-for-updates');
+  },
+  restartAndUpdate: () => {
+    return ipcRenderer.invoke('restart-and-update');
   },
 } as ElectronAPI);

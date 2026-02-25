@@ -329,9 +329,17 @@ function setupIPC(): void {
   });
 
   // Check for updates
+  let updateDownloaded = false;
+  autoUpdater.on('update-downloaded', () => {
+    updateDownloaded = true;
+  });
+
   ipcMain.handle('check-for-updates', async () => {
     if (!app.isPackaged) {
       return { status: 'dev', message: 'Updates are not available in dev mode.' };
+    }
+    if (updateDownloaded) {
+      return { status: 'ready', message: 'Update is ready to install.' };
     }
     try {
       const result = await autoUpdater.checkForUpdates();
@@ -343,6 +351,10 @@ function setupIPC(): void {
       const msg = err instanceof Error ? err.message : String(err);
       return { status: 'error', message: `Could not check for updates: ${msg}` };
     }
+  });
+
+  ipcMain.handle('restart-and-update', () => {
+    autoUpdater.quitAndInstall();
   });
 
   // Check model availability
