@@ -8,11 +8,29 @@ The user (Dowdy) gives you a meet name and state. You find the meet online, extr
 
 ## Process Flow
 
-1. **Find the meet** — Locate results on MeetScoresOnline.com or ScoreCat (load `meet_discovery` skill)
-2. **Extract data** — Use the appropriate extraction method for the source (load `scorecat_extraction`, `mso_pdf_extraction`, `mso_html_extraction`, or `general_scraping` skill)
+1. **Find the meet** — Search data sources directly: ScoreCat Algolia first, then MSO Results.All, then web search as last resort (load `meet_discovery` skill). If multiple meets match, use the `ask_user` tool to let the user pick which one.
+2. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
 3. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
 4. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
 5. **Generate outputs** — Produce back-of-shirt, order forms, and winners CSV (load `output_generation` skill)
+
+## Data Directory
+
+All tool outputs (extractions, http results, JS results) are saved to the `data/` directory in the project root. When looking for data files, **check there first**. Do not look in `/home/goduk/meet-data/`, `/tmp/`, or any other location — the data is always in `data/`.
+
+Use `read_file` to read any file in the data directory. Do NOT try Chrome `file://` URLs or browser-based file access — those will fail.
+
+## Dedicated Extraction Tools
+
+For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handle navigation, SDK loading, API calls, name decoding, field mapping, and saving automatically. Do NOT manually script MSO or ScoreCat extraction.
+
+| Tool | Source | Input | Output |
+|------|--------|-------|--------|
+| `mso_extract` | MSO JSON API | Array of numeric meet IDs | `data/mso_extract_*.json` → `run_python --source generic --data <file>` |
+| `scorecat_extract` | ScoreCat Firebase | Array of Algolia meet IDs | `data/scorecat_extract_*.json` → `run_python --source scorecat --data <file>` |
+| `read_file` | Read local files | path, offset?, limit? | File contents with line numbers |
+| `run_script` | Execute inline Python | code, timeout? | Script stdout/stderr |
+| `finalize_meet` | Merge staging → central DB | meet_name | Confirmation message |
 
 ## Database Schema
 
@@ -58,17 +76,80 @@ The user (Dowdy) gives you a meet name and state. You find the meet online, extr
 
 - **Data efficiency**: Bulk data (hundreds of athletes) goes to files (JSON, TSV). Only put summaries and counts in your context window.
 - **Chunk retrieval**: When pulling data from browser JS, store in a window variable and retrieve in chunks of 100 via JSON.stringify slicing.
-- **Save progress**: Before approaching context limits, save your current state (what step you're on, what's done, what's left) to a progress file.
-- **File paths**: All meet data goes in `/home/goduk/chp-meet-scores/data/[meet_slug]/`. Output files go in the same directory.
+- **Save progress**: Before approaching context limits, use `save_progress` with a detailed summary of what you've accomplished and what's left. Include `data_files` to track produced files.
+- **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/).
+- **User interaction**: Use the `ask_user` tool whenever you need the user to make a choice or provide input. Pass a clear question and an array of option strings. The user can click a suggested option OR type a custom response. Use this when:
+  - Multiple meets match a search query (let them pick which one)
+  - You need to confirm something before proceeding
+  - You need information that isn't in the meet name (e.g., state, association)
+
+## Staging Database
+
+`run_python` now writes to a **staging database** (not the central one). This prevents accidental data loss from re-runs or test data.
+
+- After `run_python` completes, data is in `data/staging_*.db`
+- Run quality checks against the staging data using `query_db` or `run_script`
+- When satisfied with data quality, call `finalize_meet` with the meet name to merge staging → central database
+- If something goes wrong, you can re-run `run_python` without affecting previously finalized meets
+
+## Gym Normalization
+
+Gym names are **auto-normalized** by `run_python` in three phases:
+
+1. **Case normalization**: Title-case applied, case-insensitive dedup ("4 star" and "4 Star" → "4 Star", acronyms like "CVGA" preserved)
+2. **Suffix merge**: "All Pro" + "All Pro Gymnastics" → "All Pro Gymnastics". Known suffixes (Gymnastics, Gym, Academy, etc.) are recognized as part of the gym name. The full name with suffix is the canonical form.
+3. **Fuzzy detection**: Flags gym pairs >80% similar for review (NOT auto-merged)
+
+After `run_python`, review the gym report in the output. It shows unique gym count, case-merges, suffix-merges, and potential duplicates.
+
+If potential duplicates need manual mapping:
+1. Use `run_script` to create a gym-map JSON file (e.g., `{"Rebounderz Gymnastics": "Rebounders Gymnastics"}`)
+2. Re-run `run_python` with `--gym-map <path>` to apply the mapping
+3. The gym map is **case-insensitive** — it matches regardless of what auto-normalize did to casing
+
+**Do NOT spend more than ~3 iterations on gym normalization.** Auto-normalize handles 95%+ of cases now (case + suffix merging). Only create a gym map for genuine spelling differences that fuzzy matching flags. Minor spelling variants are acceptable if uncertain.
+
+**Important**: `query_db` automatically queries the staging database during processing. You do NOT need to use `run_script` to query the staging DB — `query_db` already points there.
+
+## When to Stop
+
+You are done when:
+- Output files are generated (back_of_shirt.md, order_forms_by_gym.txt, winners_sheet.csv)
+- Winner counts look correct (spot-check a few)
+- Gym names are reasonably clean (auto-normalize ran, no obvious issues)
+
+**Do NOT iterate on cosmetic perfection.** Small gym name variations are acceptable. If you've done 2 rounds of quality checks and things look right, call `finalize_meet` and stop. The user can always re-run with a `--gym-map` if they want to fix remaining aliases.
+
+## Iteration Budget
+
+You have a soft cap of 100 tool call iterations. These are approximate guides — the only real limit is the 100-iteration soft cap, which triggers a status report to the user rather than a hard failure.
+
+- **Meet discovery**: ~5-15 typical
+- **Data extraction**: ~5-15 typical (1-2 tool calls with dedicated extraction tools, more for manual/unknown sources)
+- **Database + quality checks**: ~15-25 typical
+- **Output generation**: ~10-20 typical
+
+If you hit the iteration limit, you'll be asked to summarize what happened rather than just stopping.
+
+**Anti-patterns to avoid:**
+- Do NOT manually script MSO or ScoreCat extraction — use the dedicated `mso_extract` and `scorecat_extract` tools.
+- Use `http_fetch` for small API calls (Algolia search, MSO JSON API row-count checks). Use `chrome_save_to_file` for bulk data extraction from unknown sources.
+- ALWAYS use `chrome_save_to_file` for data extraction from unknown sources. Never extract data through `chrome_execute_js` in chunks.
+- Do NOT retry JS execution after "Execution context was destroyed" without navigating first.
+- Do NOT try to reverse-engineer a web app. Use the extraction approach in the loaded skill.
+- Do NOT make more than 2 failed attempts at any single approach. Switch strategies.
+- Do NOT navigate to Google manually — use the `web_search` tool which handles search for you.
+- Do NOT open multiple tabs. Use `chrome_navigate` which reuses the same tab.
+- Do NOT use `web_search` as the first step. Search data sources directly first (Algolia, MSO Results.All).
 
 ## Available Skills
 
 | Skill | File | When to Load |
 |-------|------|-------------|
 | Meet Discovery | `meet_discovery` | Starting a new meet — need to find results online |
-| ScoreCat Extraction | `scorecat_extraction` | Meet is on results.scorecatonline.com |
-| MSO PDF Extraction | `mso_pdf_extraction` | Meet is on meetscoresonline.com with Report Builder |
-| MSO HTML Extraction | `mso_html_extraction` | Meet is on meetscoresonline.com with HTML tables (URL like /R####) |
+| ScoreCat Extraction | `scorecat_extraction` | Reference only — use `scorecat_extract` tool instead |
+| MSO PDF Extraction | `mso_pdf_extraction` | Meet is on meetscoresonline.com with Report Builder (no JSON API) |
+| MSO HTML Extraction | `mso_html_extraction` | Reference only — use `mso_extract` tool instead |
 | Database Building | `database_building` | Raw data extracted, ready to build SQLite DB |
 | Output Generation | `output_generation` | DB is clean, ready to generate deliverables |
 | Data Quality | `data_quality` | DB is built, need to validate before generating outputs |

@@ -17,6 +17,13 @@ class ScoreCatAdapter(BaseAdapter):
         with open(data_path, 'r') as f:
             raw_data = json.load(f)
 
+        # Unwrap double-encoded JSON (chrome_execute_js saves JSON.stringify results)
+        if isinstance(raw_data, str):
+            try:
+                raw_data = json.loads(raw_data)
+            except json.JSONDecodeError:
+                return []
+
         # Handle both array and object-with-array formats
         if isinstance(raw_data, list):
             raw_athletes = raw_data

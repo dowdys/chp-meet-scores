@@ -1,6 +1,6 @@
 {
   "name": "chp-meet-scores",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Gymnastics Meet Scoring System - Desktop App",
   "main": "dist/main/main.js",
   "scripts": {
@@ -33,6 +33,7 @@
   "dependencies": {
     "better-sqlite3": "^9.4.0",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "puppeteer-core": "^21.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

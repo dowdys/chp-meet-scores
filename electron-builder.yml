@@ -16,6 +16,10 @@ extraResources:
     filter:
       - "**/*.py"
       - "**/*.exe"
+  - from: skills/
+    to: skills/
+    filter:
+      - "**/*.md"
 
 win:
   target:

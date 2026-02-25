@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pyinstaller pymupdf
+
+      - name: Build process_meet.exe
+        run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
+
+      - name: Copy process_meet.exe to python/
+        run: Copy-Item -Path "dist/pyinstaller/process_meet.exe" -Destination "python/process_meet.exe" -Force
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --x64 --publish always

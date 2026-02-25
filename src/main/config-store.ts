@@ -3,7 +3,7 @@ import * as path from 'path';
 import { app } from 'electron';
 
 export interface AppConfig {
-  apiProvider: 'anthropic' | 'openrouter';
+  apiProvider: 'anthropic' | 'openrouter' | 'subscription';
   apiKey: string;
   model: string;
   githubToken: string;

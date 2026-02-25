@@ -12,3 +12,4 @@ class MeetConfig:
     source_type: str          # "scorecat", "mso_pdf", "mso_html"
     title_lines: tuple = ()   # ("2025 Gymnastics", "State Champions of Iowa", "Levels 2-10")
     division_order: dict = field(default_factory=dict)  # Division age ordering for CSV sort
+    year: str = ''            # Championship year (e.g. "2026") for PDF titles

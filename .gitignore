@@ -15,6 +15,25 @@ build/
 data/chp_results.db
 data/chrome-profile/
 data/outputs/
+data/js_result_*
+data/http_result_*
+data/mso_extract_*
+data/scorecat_extract_*
+data/staging_*
+data/agent_progress.json
+data/logs/
+data/*.json
+data/*.tsv
+data/*.db
+data/*.txt
+data/*.csv
+data/*.md
+data/*.sql
+data/*.py
+data/*.html
+data/*.png
+data/iowa_chunks/
+data/meets/
 
 # Environment
 .env

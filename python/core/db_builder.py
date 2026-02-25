@@ -16,6 +16,10 @@ EVENTS = ['vault', 'bars', 'beam', 'floor', 'aa']
 def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> str:
     """Build a SQLite database from parsed athlete data.
 
+    Uses a central database model: creates tables if they don't exist,
+    deletes existing data for this specific meet, then inserts fresh data.
+    This allows multiple meets to coexist in one database.
+
     Args:
         db_path: Path for the output SQLite database.
         config: MeetConfig with state, meet_name, association, source_type.
@@ -24,14 +28,11 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
     Returns:
         The db_path for convenience.
     """
-    if os.path.exists(db_path):
-        os.remove(db_path)
-
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    # Create results table
-    cur.execute('''CREATE TABLE results (
+    # Create results table if it doesn't exist
+    cur.execute('''CREATE TABLE IF NOT EXISTS results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         state TEXT,
         meet_name TEXT,
@@ -50,9 +51,16 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
         num TEXT
     )''')
 
-    # Insert all athletes
+    # Unique index as safety net for any duplicate rows within the same extraction
+    cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
+        ON results(meet_name, name, gym, session, level, division)''')
+
+    # Delete existing data for this meet first (clean slate for full re-runs),
+    # then INSERT OR REPLACE as safety net for edge-case duplicates within the data
+    cur.execute('DELETE FROM results WHERE meet_name = ?', (config.meet_name,))
+
     for a in athletes:
-        cur.execute('''INSERT INTO results
+        cur.execute('''INSERT OR REPLACE INTO results
             (state, meet_name, association, name, gym, session, level, division,
              vault, bars, beam, floor, aa, rank, num)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -64,7 +72,12 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
     conn.commit()
 
     # Build winners table using appropriate strategy
-    if config.source_type == 'scorecat':
+    # Auto-detect: if any athletes have per-event ranks, use rank-based
+    has_ranks = any(
+        a.get('vault_rank') is not None or a.get('bars_rank') is not None
+        for a in athletes
+    )
+    if config.source_type == 'scorecat' or has_ranks:
         _build_winners_rank_based(conn, config, athletes)
     else:
         _build_winners_score_based(conn, config)
@@ -73,10 +86,9 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
     return db_path
 
 
-def _create_winners_table(cur):
-    """Create the winners table schema."""
-    cur.execute('DROP TABLE IF EXISTS winners')
-    cur.execute('''CREATE TABLE winners (
+def _create_winners_table(cur, meet_name: str):
+    """Create the winners table if needed and clear data for this meet."""
+    cur.execute('''CREATE TABLE IF NOT EXISTS winners (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         state TEXT,
         meet_name TEXT,
@@ -90,6 +102,10 @@ def _create_winners_table(cur):
         score REAL,
         is_tie INTEGER
     )''')
+    cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
+        ON winners(meet_name, name, session, level, division, event)''')
+    # Winners are always fully rebuilt per meet
+    cur.execute('DELETE FROM winners WHERE meet_name = ?', (meet_name,))
 
 
 def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
@@ -98,7 +114,7 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
     Used for MSO PDF and MSO HTML sources.
     """
     cur = conn.cursor()
-    _create_winners_table(cur)
+    _create_winners_table(cur, config.meet_name)
 
     cur.execute('''SELECT DISTINCT session, level, division FROM results
                    WHERE meet_name = ?
@@ -125,7 +141,7 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
 
             is_tie = 1 if len(winners) > 1 else 0
             for name, gym in winners:
-                cur.execute('''INSERT INTO winners
+                cur.execute('''INSERT OR REPLACE INTO winners
                     (state, meet_name, association, name, gym, session, level, division,
                      event, score, is_tie)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -144,7 +160,7 @@ def _build_winners_rank_based(conn: sqlite3.Connection, config: MeetConfig,
     We need to use a temporary table for rank lookups.
     """
     cur = conn.cursor()
-    _create_winners_table(cur)
+    _create_winners_table(cur, config.meet_name)
 
     # Create temporary rank lookup table from athlete data
     cur.execute('''CREATE TEMPORARY TABLE rank_lookup (
@@ -215,7 +231,7 @@ def _build_winners_rank_based(conn: sqlite3.Connection, config: MeetConfig,
             is_tie = 1 if len(rank1_athletes) > 1 else 0
             for row in rank1_athletes:
                 name, gym, score = row[0], row[1], row[2]
-                cur.execute('''INSERT INTO winners
+                cur.execute('''INSERT OR REPLACE INTO winners
                     (state, meet_name, association, name, gym, session, level, division,
                      event, score, is_tie)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',

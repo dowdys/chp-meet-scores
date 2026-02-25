@@ -1,6 +1,7 @@
 import { app } from 'electron';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
+import { getProjectRoot } from './paths';
 
 export interface PythonResult {
   stdout: string;
@@ -9,6 +10,22 @@ export interface PythonResult {
 }
 
 type LineCallback = (line: string) => void;
+
+/**
+ * Find a working Python command. On Windows, `python3` often doesn't exist —
+ * `python` is the standard name. Try `python` first, then `python3`.
+ */
+function findPythonCommand(): string {
+  for (const cmd of ['python', 'python3']) {
+    try {
+      const result = spawnSync(cmd, ['--version'], { timeout: 5000, stdio: 'pipe' });
+      if (result.status === 0) return cmd;
+    } catch {
+      // Command not found, try next
+    }
+  }
+  return 'python';
+}
 
 class PythonManager {
   /**
@@ -22,9 +39,10 @@ class PythonManager {
       const exePath = path.join(process.resourcesPath, 'python', scriptName.replace(/\.py$/, '.exe'));
       return { command: exePath, args: [] };
     } else {
-      // Development: run with python3
-      const scriptPath = path.join(app.getAppPath(), 'python', scriptName);
-      return { command: 'python3', args: [scriptPath] };
+      // Development: use shared project root
+      const projectRoot = getProjectRoot();
+      const scriptPath = path.join(projectRoot, 'python', scriptName);
+      return { command: findPythonCommand(), args: [scriptPath] };
     }
   }
 

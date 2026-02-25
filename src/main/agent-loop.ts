@@ -7,10 +7,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse } from './llm-client';
-import { chromeController } from './chrome-controller';
 import { pythonManager } from './python-manager';
 import { configStore } from './config-store';
-import Database from 'better-sqlite3';
+import { getStagingDbPath, resetStagingDb } from './tools/python-tools';
+import { getProjectRoot as sharedGetProjectRoot, getDataDir as sharedGetDataDir } from './paths';
 
 // --- Types ---
 
@@ -23,6 +23,7 @@ interface AgentContext {
   totalInputTokens: number;
   totalOutputTokens: number;
   onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
+  abortRequested: boolean;
 }
 
 interface ToolExecutor {
@@ -35,6 +36,7 @@ interface ProgressData {
   loaded_skills: string[];
   meet_name: string;
   timestamp: string;
+  data_files?: Array<{ path: string; description: string }>;
 }
 
 // --- Tool definitions exposed to the LLM ---
@@ -42,8 +44,23 @@ interface ProgressData {
 function getToolDefinitions(): ToolDefinition[] {
   return [
     {
+      name: 'http_fetch',
+      description: 'Make a headless HTTP request (no browser needed). Use for REST APIs like Algolia search, MSO JSON API, or any URL that returns data. Responses over 5KB are auto-saved to a file and a summary is returned instead.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The URL to fetch' },
+          method: { type: 'string', description: 'HTTP method (GET, POST, etc.). Defaults to GET.' },
+          headers: { type: 'string', description: 'JSON string of headers object, e.g. {"Content-Type": "application/json"}' },
+          body: { type: 'string', description: 'Request body (for POST/PUT). Can be JSON string or form-encoded.' },
+          max_response_size: { type: 'number', description: 'Max inline response size in chars (default 50000). Responses larger than 5000 chars are always saved to file.' },
+        },
+        required: ['url'],
+      },
+    },
+    {
       name: 'web_search',
-      description: 'Search for meet results pages. Returns search results as text.',
+      description: 'Search for meet results pages using Google. Returns search results as text. Only use as a last resort — try http_fetch with Algolia or MSO APIs first.',
       input_schema: {
         type: 'object',
         properties: {
@@ -65,13 +82,26 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'chrome_execute_js',
-      description: 'Run JavaScript in the Chrome page context and return the result. For large data, save to a window variable and retrieve in chunks.',
+      description: 'Run JavaScript in the Chrome page context and return the result. Only use for small results (< 10KB). For bulk data extraction, use chrome_save_to_file instead.',
       input_schema: {
         type: 'object',
         properties: {
           script: { type: 'string', description: 'JavaScript code to execute in the page' },
         },
         required: ['script'],
+      },
+    },
+    {
+      name: 'chrome_save_to_file',
+      description: 'Run JavaScript in Chrome and save the result directly to a file. The script can be async (returns a Promise) — it will be awaited up to timeout. Use this for bulk data extraction. The result goes to a file, not into context.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          script: { type: 'string', description: 'JavaScript code to execute in the page' },
+          filename: { type: 'string', description: 'Filename for the output (saved in the data directory)' },
+          timeout_ms: { type: 'number', description: 'Timeout in milliseconds (default 60000, max 120000)' },
+        },
+        required: ['script', 'filename'],
       },
     },
     {
@@ -94,6 +124,36 @@ function getToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'mso_extract',
+      description: 'Extract all athlete data from MeetScoresOnline.com using the proven JSON API method. Handles navigation, same-origin cookies, API calls, HTML entity decoding, name cleaning (strips event annotations), and field mapping. Saves a clean JSON array of athlete objects to data/mso_extract_*.json. Use run_python --source generic on the output file.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of numeric MSO meet IDs (e.g. ["34670", "34671"])',
+          },
+        },
+        required: ['meet_ids'],
+      },
+    },
+    {
+      name: 'scorecat_extract',
+      description: 'Extract all athlete data from ScoreCat/Firebase using the proven Firestore SDK method. Handles navigation to ScoreCat (loads Firebase SDK), waits for SDK init, queries ff_scores collection by meetId, and maps all fields. Saves a clean JSON array of athlete objects to data/scorecat_extract_*.json. Use run_python --source scorecat on the output file.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of Algolia meet IDs (e.g. ["VQS0J5FI"])',
+          },
+        },
+        required: ['meet_ids'],
+      },
+    },
+    {
       name: 'save_to_file',
       description: 'Save string data to a file in the meet data directory.',
       input_schema: {
@@ -107,11 +167,11 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'run_python',
-      description: 'Run process_meet.py with the given arguments. Returns stdout summary.',
+      description: 'Run process_meet.py to build the database and generate outputs. The --db (central database path) and --output (output directory) are ALWAYS auto-injected (do NOT pass them). You only need: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. Back-of-shirt PDF and order forms PDF are always generated (title auto-derived from --state and --year). The --year defaults to the current year. For --data: can be a single file, a directory of JSON files, or a glob pattern (e.g. /path/to/data/js_result_*.json). Use --source generic for JSON/TSV data from any source.',
       input_schema: {
         type: 'object',
         properties: {
-          args: { type: 'string', description: 'Command-line arguments for process_meet.py' },
+          args: { type: 'string', description: 'Command-line arguments: --source {scorecat,mso_pdf,mso_html,generic} --data <path_to_data_file> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. The --year sets championship year for PDF titles (defaults to current year). Use "generic" for JSON or TSV data from any source (auto-detects format, maps column names flexibly).' },
         },
         required: ['args'],
       },
@@ -141,7 +201,44 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'list_output_files',
-      description: 'List files in the meet output directory.',
+      description: 'List files in the meet output directory. If no meet_name is provided, uses the current meet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_name: { type: 'string', description: 'Optional meet name to list files for (defaults to current meet)' },
+        },
+      },
+    },
+    {
+      name: 'chrome_network',
+      description: 'Monitor network requests in the Chrome page. Returns recent network request URLs and types.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'list_meets',
+      description: 'List all meets in the database with their state, association, and result count.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'get_meet_summary',
+      description: 'Get summary statistics for a specific meet (athlete count, gym count, session/level/division breakdown, winner count).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_name: { type: 'string', description: 'The meet name to summarize' },
+        },
+        required: ['meet_name'],
+      },
+    },
+    {
+      name: 'list_skills',
+      description: 'List all available skill documents.',
       input_schema: {
         type: 'object',
         properties: {},
@@ -182,6 +279,22 @@ function getToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'ask_user',
+      description: 'Pause and ask the user to choose from a list of options. Use this when you find multiple meets matching a search and need the user to pick one, or any time you need user input to continue. Returns the text of the option the user clicked.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The question to display to the user' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of option strings for the user to choose from',
+          },
+        },
+        required: ['question', 'options'],
+      },
+    },
+    {
       name: 'save_progress',
       description: 'Save current progress state so work can be resumed if context limits are reached.',
       input_schema: {
@@ -189,6 +302,7 @@ function getToolDefinitions(): ToolDefinition[] {
         properties: {
           summary: { type: 'string', description: 'Summary of what has been accomplished so far' },
           next_steps: { type: 'string', description: 'What needs to be done next' },
+          data_files: { type: 'string', description: 'Optional JSON-encoded array of {path, description} for data files produced so far. Example: [{"path":"data/mso_extract_123.json","description":"1804 athletes from MSO meetId 34670"}]' },
         },
         required: ['summary', 'next_steps'],
       },
@@ -201,30 +315,74 @@ function getToolDefinitions(): ToolDefinition[] {
         properties: {},
       },
     },
+    {
+      name: 'read_file',
+      description: 'Read a local file from the data directory or output directory. Returns file contents with line numbers. Use this instead of Chrome file:// URLs or browser-based file access.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute path or filename in the data directory' },
+          offset: { type: 'number', description: 'Starting line number (1-based, default 1)' },
+          limit: { type: 'number', description: 'Max lines to return (default: all)' },
+        },
+        required: ['path'],
+      },
+    },
+    {
+      name: 'run_script',
+      description: 'Execute inline Python code. Environment variables DB_PATH, DATA_DIR, and STAGING_DB_PATH are set. Print results to stdout. Use this for data transforms, DB queries with pandas, gym name analysis, etc.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'Python source code to execute' },
+          timeout: { type: 'number', description: 'Max execution time in ms (default 30000)' },
+        },
+        required: ['code'],
+      },
+    },
+    {
+      name: 'finalize_meet',
+      description: 'Merge staging database into central database. Call this after data quality checks pass. run_python writes to a staging DB — this tool copies the verified data into the permanent central database.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_name: { type: 'string', description: 'The meet name to finalize' },
+        },
+        required: ['meet_name'],
+      },
+    },
   ];
 }
 
-// --- Helper: resolve meet data directory ---
+// --- Helper: resolve directories ---
 
-function getMeetDataDir(meetName: string): string {
-  const slug = meetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const dataDir = path.join(app.getAppPath(), 'data', slug);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+function getProjectRoot(): string {
+  return sharedGetProjectRoot();
+}
+
+function getOutputDir(meetName: string): string {
+  const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
+  const meetDir = path.join(outputBase, meetName);
+  if (!fs.existsSync(meetDir)) {
+    fs.mkdirSync(meetDir, { recursive: true });
   }
-  return dataDir;
+  return meetDir;
+}
+
+function getDataDir(): string {
+  return sharedGetDataDir();
+}
+
+function getDbPath(): string {
+  return path.join(getDataDir(), 'chp_results.db');
 }
 
 function getProgressFilePath(): string {
-  const dataDir = path.join(app.getAppPath(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  return path.join(dataDir, 'agent_progress.json');
+  return path.join(getDataDir(), 'agent_progress.json');
 }
 
 function getSkillsDir(): string {
-  return path.join(app.getAppPath(), 'skills');
+  return path.join(getProjectRoot(), 'skills');
 }
 
 // --- Agent Loop ---
@@ -234,6 +392,7 @@ export class AgentLoop {
   private toolExecutors: ToolExecutor;
   private onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
   private queryConversation: LLMMessage[] = [];
+  private activeContext: AgentContext | null = null;
 
   constructor(
     llmClient: LLMClient,
@@ -246,6 +405,17 @@ export class AgentLoop {
   }
 
   /**
+   * Request the agent loop to stop gracefully.
+   * The loop checks this flag at the top of each iteration.
+   */
+  requestStop(): void {
+    if (this.activeContext) {
+      this.activeContext.abortRequested = true;
+      this.onActivity('Stop requested — finishing current step...', 'warning');
+    }
+  }
+
+  /**
    * Process a meet (main entry point for Process tab).
    */
   async processMeet(meetName: string): Promise<{ success: boolean; message: string }> {
@@ -254,6 +424,9 @@ export class AgentLoop {
     try {
       // Load system prompt
       const systemPrompt = this.loadSystemPrompt();
+      // Reset staging DB for a fresh meet
+      resetStagingDb();
+
       const context: AgentContext = {
         meetName,
         systemPrompt,
@@ -262,16 +435,50 @@ export class AgentLoop {
         totalInputTokens: 0,
         totalOutputTokens: 0,
         onActivity: this.onActivity,
+        abortRequested: false,
       };
+
+      // Store context ref for external abort
+      this.activeContext = context;
 
       // Check for saved progress
       const savedProgress = await this.loadProgress();
       if (savedProgress && savedProgress.meet_name === meetName) {
         this.onActivity('Found saved progress, resuming...', 'info');
         context.loadedSkills = savedProgress.loaded_skills;
+
+        // Build file inventory from data/ directory
+        const dataDir = getDataDir();
+        let fileInventory = '';
+        try {
+          const allFiles = fs.readdirSync(dataDir)
+            .filter(f => f.endsWith('.json') && f !== 'agent_progress.json');
+          if (allFiles.length > 0) {
+            const fileLines = allFiles.map(f => {
+              const stats = fs.statSync(path.join(dataDir, f));
+              const sizeKB = (stats.size / 1024).toFixed(1);
+              return `  ${path.join(dataDir, f)} (${sizeKB} KB)`;
+            });
+            fileInventory = `\n\nData directory: ${dataDir}\nData files:\n${fileLines.join('\n')}`;
+          }
+        } catch {
+          // data dir might not exist yet
+        }
+
+        // Verify tracked data files if any
+        let trackedFileStatus = '';
+        if (savedProgress.data_files && savedProgress.data_files.length > 0) {
+          const statusLines = savedProgress.data_files.map(df => {
+            const exists = fs.existsSync(df.path);
+            const marker = exists ? '[EXISTS]' : '[MISSING]';
+            return `  ${marker} ${df.path} — ${df.description}`;
+          });
+          trackedFileStatus = `\n\nTracked data files:\n${statusLines.join('\n')}`;
+        }
+
         context.messages.push({
           role: 'user',
-          content: `You are resuming work on meet "${meetName}". Here is your previous progress:\n\nSummary: ${savedProgress.summary}\n\nNext steps: ${savedProgress.next_steps}\n\nPlease continue from where you left off.`,
+          content: `You are resuming work on meet "${meetName}". Here is your previous progress:\n\nSummary: ${savedProgress.summary}\n\nNext steps: ${savedProgress.next_steps}${fileInventory}${trackedFileStatus}\n\nPlease continue from where you left off.`,
         });
       } else {
         // Fresh start
@@ -286,8 +493,14 @@ export class AgentLoop {
 
       // Run the agent loop
       const result = await this.runLoop(context);
+
+      // Save the full process log for review
+      this.saveProcessLog(context, result);
+      this.activeContext = null;
+
       return result;
     } catch (err) {
+      this.activeContext = null;
       const message = err instanceof Error ? err.message : String(err);
       this.onActivity(`Agent error: ${message}`, 'error');
       return { success: false, message };
@@ -324,6 +537,7 @@ export class AgentLoop {
         totalInputTokens: 0,
         totalOutputTokens: 0,
         onActivity: this.onActivity,
+        abortRequested: false,
       };
       this.buildToolExecutors(dummyContext);
 
@@ -374,11 +588,14 @@ export class AgentLoop {
    */
   private loadSystemPrompt(): string {
     const promptPath = path.join(getSkillsDir(), 'system-prompt.md');
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    let prompt: string;
     try {
-      return fs.readFileSync(promptPath, 'utf-8');
+      prompt = fs.readFileSync(promptPath, 'utf-8');
     } catch {
-      return 'You are a gymnastics meet scoring assistant. Process meet data and generate outputs.';
+      prompt = 'You are a gymnastics meet scoring assistant. Process meet data and generate outputs.';
     }
+    return `Today's date is ${today}.\n\n${prompt}`;
   }
 
   /**
@@ -403,21 +620,47 @@ export class AgentLoop {
     while (iterations < maxIterations) {
       iterations++;
 
-      // Check token usage against context limit (80% threshold)
-      const totalTokens = context.totalInputTokens + context.totalOutputTokens;
-      if (totalTokens > contextLimit * 0.8) {
-        this.onActivity('Approaching context limit, saving progress...', 'warning');
+      // Check if abort was requested
+      if (context.abortRequested) {
+        this.onActivity('Stop requested by user. Saving progress...', 'warning');
         await this.autoSaveProgress(context);
+        this.saveProcessLog(context, { success: true, message: 'Run stopped by user.' });
+        return { success: true, message: 'Run stopped by user. Progress has been saved.' };
+      }
+
+      // Check context usage: input_tokens from last call reflects the full conversation size.
+      // When the last request took >80% of the context window, save progress before the next
+      // call (which will be even larger after we add the response + tool results).
+      if (context.totalInputTokens > contextLimit * 0.8) {
+        const pct = Math.round((context.totalInputTokens / contextLimit) * 100);
+        this.onActivity(
+          `Context is ${pct}% full (${context.totalInputTokens.toLocaleString()} of ${contextLimit.toLocaleString()} tokens). The agent's memory is almost full and needs to pause.`,
+          'warning'
+        );
+        this.onActivity(
+          `Iteration ${iterations}: saving progress so you can continue where you left off...`,
+          'warning'
+        );
+        await this.autoSaveProgress(context);
+        this.onActivity(
+          `Progress saved! To continue, click "Process Meet" again with the same meet name — it will offer to resume.`,
+          'success'
+        );
         return {
           success: true,
-          message: 'Progress saved due to context limit. Run again to continue.',
+          message: `Paused at ${pct}% context usage after ${iterations} iterations. Progress saved — run again to continue.`,
         };
       }
 
       this.onActivity('Thinking...', 'info');
+      console.log(`[AGENT] Iteration ${iterations}/${maxIterations}, tokens: in=${context.totalInputTokens} out=${context.totalOutputTokens}`);
+
+      // Defensive: validate message sequence before sending
+      this.validateMessageSequence(context.messages);
 
       let response: LLMResponse;
       try {
+        console.log(`[AGENT] Sending LLM request...`);
         response = await this.llmClient.sendMessage({
           system: buildSystem(),
           messages: context.messages,
@@ -426,12 +669,16 @@ export class AgentLoop {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.onActivity(`LLM API error: ${message}`, 'error');
+        await this.autoSaveProgress(context);
+        this.onActivity('Progress auto-saved before error return.', 'warning');
         return { success: false, message: `LLM error: ${message}` };
       }
 
-      // Track tokens
-      context.totalInputTokens += response.usage.input_tokens;
+      // Track tokens: input_tokens from last call = actual current context size
+      // (because the API receives the full message history each time)
+      context.totalInputTokens = response.usage.input_tokens;
       context.totalOutputTokens += response.usage.output_tokens;
+      console.log(`[AGENT] LLM responded: stop_reason=${response.stop_reason}, in=${response.usage.input_tokens}, out=${response.usage.output_tokens}, blocks=${response.content.length}`);
 
       // Log any text blocks from the response
       for (const block of response.content) {
@@ -450,12 +697,25 @@ export class AgentLoop {
       }
 
       if (response.stop_reason === 'max_tokens') {
-        // Response was truncated — add what we got and continue
+        // Response was truncated — add what we got
         context.messages.push({ role: 'assistant', content: response.content });
-        context.messages.push({
-          role: 'user',
-          content: 'Your response was truncated due to length. Please continue.',
-        });
+
+        // If the truncated response contains tool_use blocks, we must add
+        // matching tool_result blocks or the next API call will fail
+        const orphanedToolUses = response.content.filter(b => b.type === 'tool_use');
+        if (orphanedToolUses.length > 0) {
+          const dummyResults: ContentBlock[] = orphanedToolUses.map(tu => ({
+            type: 'tool_result' as const,
+            tool_use_id: tu.id,
+            content: 'Error: Response was truncated before this tool could be executed. Please try again.',
+          }));
+          context.messages.push({ role: 'user', content: dummyResults });
+        } else {
+          context.messages.push({
+            role: 'user',
+            content: 'Your response was truncated due to length. Please continue.',
+          });
+        }
         continue;
       }
 
@@ -469,8 +729,88 @@ export class AgentLoop {
       }
     }
 
-    this.onActivity('Agent reached maximum iterations.', 'warning');
-    return { success: false, message: 'Agent reached maximum iteration limit.' };
+    // Instead of hard-failing, ask the agent to summarize what's wrong
+    // and whether it needs system changes or is close to finishing
+    this.onActivity('Reached iteration limit — asking agent for status summary...', 'warning');
+    const totalTokens = context.totalInputTokens + context.totalOutputTokens;
+    context.messages.push({
+      role: 'user',
+      content: `You have reached the iteration limit (${maxIterations} iterations). Token usage: ${context.totalInputTokens.toLocaleString()} input + ${context.totalOutputTokens.toLocaleString()} output = ${totalTokens.toLocaleString()} total (context limit: ${this.llmClient.getContextLimit().toLocaleString()}).\n\nInstead of stopping, please provide a brief summary for the user:\n1. What have you accomplished so far?\n2. What is blocking you or taking so many iterations?\n3. Do you think this is a system/tool limitation that needs a code fix, or are you close to finishing and just need more iterations?\n4. What would you recommend as next steps?\n\nKeep it concise — the user will see this directly.`,
+    });
+
+    try {
+      const summaryResponse = await this.llmClient.sendMessage({
+        system: buildSystem(),
+        messages: context.messages,
+        tools: [], // No tools — just want a text summary
+      });
+
+      const summaryText = summaryResponse.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text ?? '')
+        .join('\n');
+
+      context.messages.push({ role: 'assistant', content: summaryResponse.content });
+      await this.autoSaveProgress(context);
+
+      this.onActivity(summaryText || 'Agent could not provide a summary.', 'warning');
+      return {
+        success: false,
+        message: summaryText || 'Agent reached iteration limit. Progress has been saved.',
+      };
+    } catch {
+      await this.autoSaveProgress(context);
+      return { success: false, message: 'Agent reached iteration limit. Progress has been saved.' };
+    }
+  }
+
+  /**
+   * Validate that every tool_use in the message history has a matching tool_result.
+   * Fixes orphaned tool_use blocks by injecting dummy tool_result blocks.
+   */
+  private validateMessageSequence(messages: LLMMessage[]): void {
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant' || typeof msg.content === 'string') continue;
+
+      const toolUseIds = msg.content
+        .filter(b => b.type === 'tool_use' && b.id)
+        .map(b => b.id!);
+
+      if (toolUseIds.length === 0) continue;
+
+      // Check the next message for matching tool_result blocks
+      const nextMsg = messages[i + 1];
+      if (!nextMsg || nextMsg.role !== 'user' || typeof nextMsg.content === 'string') {
+        // Missing tool_result — inject dummy results
+        const dummyResults: ContentBlock[] = toolUseIds.map(id => ({
+          type: 'tool_result' as const,
+          tool_use_id: id,
+          content: 'Error: Tool result was lost. Please retry this action.',
+        }));
+
+        // Insert after the assistant message
+        messages.splice(i + 1, 0, { role: 'user', content: dummyResults });
+        continue;
+      }
+
+      // Check that ALL tool_use ids have matching tool_result blocks
+      if (Array.isArray(nextMsg.content)) {
+        const resultIds = new Set(
+          nextMsg.content.filter(b => b.type === 'tool_result').map(b => b.tool_use_id)
+        );
+        const missingIds = toolUseIds.filter(id => !resultIds.has(id));
+        if (missingIds.length > 0) {
+          // Add missing tool_results
+          const dummyResults: ContentBlock[] = missingIds.map(id => ({
+            type: 'tool_result' as const,
+            tool_use_id: id,
+            content: 'Error: Tool result was lost. Please retry this action.',
+          }));
+          (nextMsg.content as ContentBlock[]).push(...dummyResults);
+        }
+      }
+    }
   }
 
   /**
@@ -489,6 +829,7 @@ export class AgentLoop {
       const toolId = call.id!;
 
       this.onActivity(`Running tool: ${toolName}...`, 'info');
+      console.log(`[AGENT] Running tool: ${toolName} args=${JSON.stringify(toolArgs).substring(0, 200)}`);
 
       let result: string;
       try {
@@ -496,10 +837,12 @@ export class AgentLoop {
         // Log a brief summary
         const preview = result.length > 200 ? result.substring(0, 200) + '...' : result;
         this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
+        console.log(`[AGENT] Tool ${toolName} completed, result length: ${result.length}`);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         result = `Error: ${errMsg}`;
         this.onActivity(`Tool ${toolName} failed: ${errMsg}`, 'error');
+        console.log(`[AGENT] Tool ${toolName} FAILED: ${errMsg}`);
       }
 
       results.push({
@@ -525,37 +868,18 @@ export class AgentLoop {
       return this.toolExecutors[name](args);
     }
 
-    // Built-in tool implementations
+    // Context-aware tools (need meetName, loadedSkills, etc.)
+    // Tools handled by external executors (browser-tools, search-tools, db-tools, python-tools)
+    // are NOT listed here — they run via this.toolExecutors above.
     switch (name) {
-      case 'web_search':
-        return this.toolWebSearch(args.query as string);
-
-      case 'chrome_navigate':
-        return this.toolChromeNavigate(args.url as string);
-
-      case 'chrome_execute_js':
-        return this.toolChromeExecuteJS(args.script as string);
-
-      case 'chrome_screenshot':
-        return this.toolChromeScreenshot();
-
-      case 'chrome_click':
-        return this.toolChromeClick(args.selector as string);
-
-      case 'save_to_file':
-        return this.toolSaveToFile(context.meetName, args.filename as string, args.content as string);
-
       case 'run_python':
-        return this.toolRunPython(args.args as string);
-
-      case 'query_db':
-        return this.toolQueryDb(context.meetName, args.sql as string);
-
-      case 'query_db_to_file':
-        return this.toolQueryDbToFile(context.meetName, args.sql as string, args.filename as string);
+        return this.toolRunPython(context.meetName, args.args as string);
 
       case 'list_output_files':
-        return this.toolListOutputFiles(context.meetName);
+        return this.toolListOutputFiles((args.meet_name as string) || context.meetName);
+
+      case 'list_skills':
+        return this.toolListSkills();
 
       case 'load_skill':
         return this.toolLoadSkill(args.skill_name as string, context);
@@ -567,7 +891,7 @@ export class AgentLoop {
         return this.toolSaveDraftSkill(args.platform_name as string, args.content as string);
 
       case 'save_progress':
-        return this.toolSaveProgress(context, args.summary as string, args.next_steps as string);
+        return this.toolSaveProgress(context, args.summary as string, args.next_steps as string, args.data_files as string | undefined);
 
       case 'load_progress':
         return this.toolLoadProgress();
@@ -577,63 +901,26 @@ export class AgentLoop {
     }
   }
 
-  // --- Tool implementations ---
+  // --- Tool implementations (context-aware, inline only) ---
 
-  private async toolWebSearch(query: string): Promise<string> {
-    // Use a simple web search via fetch to a search API
-    // For now, return a message that the agent should use Chrome to search
-    return `Web search is not yet configured. Please use chrome_navigate to go to Google and search manually, or navigate directly to meetscoresonline.com or results.scorecatonline.com to find the meet.`;
-  }
+  private async toolRunPython(meetName: string, args: string): Promise<string> {
+    // Split args respecting quoted strings (e.g. --meet "2025 Iowa State Championships")
+    const argParts = (args.match(/(?:[^\s"]+|"[^"]*")+/g) || [])
+      .map(a => a.replace(/^"(.*)"$/, '$1'));
 
-  private async toolChromeNavigate(url: string): Promise<string> {
-    if (!chromeController.isConnected()) {
-      await chromeController.launch();
-      await chromeController.connect();
+    // ALWAYS enforce --db and --output to the correct paths.
+    // Strip any agent-provided values first, then inject ours.
+    const stripFlags = ['--db', '--output'];
+    for (const flag of stripFlags) {
+      const idx = argParts.indexOf(flag);
+      if (idx !== -1) {
+        argParts.splice(idx, 2); // remove flag and its value
+      }
     }
-    await chromeController.navigate(url);
-    const title = await chromeController.executeJS('document.title') as string;
-    return `Navigated to ${url}. Page title: ${title}`;
-  }
+    // Write to staging DB instead of central — use finalize_meet to merge later
+    argParts.push('--db', getStagingDbPath());
+    argParts.push('--output', getOutputDir(meetName));
 
-  private async toolChromeExecuteJS(script: string): Promise<string> {
-    if (!chromeController.isConnected()) {
-      return 'Error: Chrome is not connected. Use chrome_navigate first.';
-    }
-    const result = await chromeController.executeJS(script);
-    if (result === undefined || result === null) {
-      return 'undefined';
-    }
-    if (typeof result === 'string') {
-      return result;
-    }
-    return JSON.stringify(result, null, 2);
-  }
-
-  private async toolChromeScreenshot(): Promise<string> {
-    if (!chromeController.isConnected()) {
-      return 'Error: Chrome is not connected. Use chrome_navigate first.';
-    }
-    const filePath = await chromeController.screenshot();
-    return `Screenshot saved to: ${filePath}`;
-  }
-
-  private async toolChromeClick(selector: string): Promise<string> {
-    if (!chromeController.isConnected()) {
-      return 'Error: Chrome is not connected. Use chrome_navigate first.';
-    }
-    await chromeController.executeJS(`document.querySelector(${JSON.stringify(selector)}).click()`);
-    return `Clicked element: ${selector}`;
-  }
-
-  private async toolSaveToFile(meetName: string, filename: string, content: string): Promise<string> {
-    const dir = getMeetDataDir(meetName);
-    const filePath = path.join(dir, filename);
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return `Saved ${content.length} bytes to ${filePath}`;
-  }
-
-  private async toolRunPython(args: string): Promise<string> {
-    const argParts = args.split(/\s+/).filter((a) => a.length > 0);
     const result = await pythonManager.runScript('process_meet.py', argParts, (line) => {
       this.onActivity(`[python] ${line}`, 'info');
     });
@@ -644,99 +931,8 @@ export class AgentLoop {
     return result.stdout || 'Script completed successfully (no output).';
   }
 
-  private async toolQueryDb(meetName: string, sql: string): Promise<string> {
-    // Validate the query is a SELECT
-    const trimmed = sql.trim().toUpperCase();
-    if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH') && !trimmed.startsWith('PRAGMA')) {
-      return 'Error: Only SELECT/WITH/PRAGMA queries are allowed.';
-    }
-
-    const dbPath = path.join(getMeetDataDir(meetName), 'meet.db');
-    if (!fs.existsSync(dbPath)) {
-      return `Error: Database not found at ${dbPath}. Has the meet been processed yet?`;
-    }
-
-    let db: InstanceType<typeof Database> | null = null;
-    try {
-      db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare(sql).all() as Record<string, unknown>[];
-
-      if (rows.length === 0) {
-        return 'Query returned 0 rows.';
-      }
-
-      // Format as text table (up to 50 rows)
-      const limited = rows.slice(0, 50);
-      const columns = Object.keys(limited[0]);
-      const lines: string[] = [columns.join('\t')];
-      for (const row of limited) {
-        lines.push(columns.map((c) => String(row[c] ?? '')).join('\t'));
-      }
-
-      let result = lines.join('\n');
-      if (rows.length > 50) {
-        result += `\n\n... (${rows.length - 50} more rows not shown, ${rows.length} total)`;
-      }
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return `SQL error: ${message}`;
-    } finally {
-      if (db) {
-        db.close();
-      }
-    }
-  }
-
-  private async toolQueryDbToFile(meetName: string, sql: string, filename: string): Promise<string> {
-    const trimmed = sql.trim().toUpperCase();
-    if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH')) {
-      return 'Error: Only SELECT/WITH queries are allowed.';
-    }
-
-    const dbPath = path.join(getMeetDataDir(meetName), 'meet.db');
-    if (!fs.existsSync(dbPath)) {
-      return `Error: Database not found at ${dbPath}.`;
-    }
-
-    let db: InstanceType<typeof Database> | null = null;
-    try {
-      db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare(sql).all() as Record<string, unknown>[];
-
-      if (rows.length === 0) {
-        return 'Query returned 0 rows. No file written.';
-      }
-
-      const columns = Object.keys(rows[0]);
-      const csvLines: string[] = [columns.join(',')];
-      for (const row of rows) {
-        csvLines.push(columns.map((c) => {
-          const val = String(row[c] ?? '');
-          // Escape CSV values containing commas or quotes
-          if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-            return `"${val.replace(/"/g, '""')}"`;
-          }
-          return val;
-        }).join(','));
-      }
-
-      const dir = getMeetDataDir(meetName);
-      const filePath = path.join(dir, filename);
-      fs.writeFileSync(filePath, csvLines.join('\n'), 'utf-8');
-      return `Saved ${rows.length} rows to ${filePath}`;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return `SQL error: ${message}`;
-    } finally {
-      if (db) {
-        db.close();
-      }
-    }
-  }
-
   private async toolListOutputFiles(meetName: string): Promise<string> {
-    const dir = getMeetDataDir(meetName);
+    const dir = getOutputDir(meetName);
     if (!fs.existsSync(dir)) {
       return 'Output directory does not exist yet.';
     }
@@ -752,6 +948,20 @@ export class AgentLoop {
       return `  ${f} (${sizeKB} KB)`;
     });
     return `Files in ${dir}:\n${lines.join('\n')}`;
+  }
+
+  private async toolListSkills(): Promise<string> {
+    const skillsDir = getSkillsDir();
+    if (!fs.existsSync(skillsDir)) {
+      return 'No skills directory found.';
+    }
+
+    const files = fs.readdirSync(skillsDir)
+      .filter(f => f.endsWith('.md') && fs.statSync(path.join(skillsDir, f)).isFile())
+      .map(f => f.replace(/\.md$/, ''));
+
+    if (files.length === 0) return 'No skills available.';
+    return `Available skills: ${files.join(', ')}`;
   }
 
   private async toolLoadSkill(skillName: string, context: AgentContext): Promise<string> {
@@ -802,14 +1012,25 @@ export class AgentLoop {
   private async toolSaveProgress(
     context: AgentContext,
     summary: string,
-    nextSteps: string
+    nextSteps: string,
+    dataFilesJson?: string
   ): Promise<string> {
+    let dataFiles: Array<{ path: string; description: string }> | undefined;
+    if (dataFilesJson) {
+      try {
+        dataFiles = JSON.parse(dataFilesJson);
+      } catch {
+        // Ignore parse errors — data_files is optional
+      }
+    }
+
     const progressData: ProgressData = {
       summary,
       next_steps: nextSteps,
       loaded_skills: context.loadedSkills,
       meet_name: context.meetName,
       timestamp: new Date().toISOString(),
+      data_files: dataFiles,
     };
 
     const filePath = getProgressFilePath();
@@ -829,11 +1050,16 @@ export class AgentLoop {
 
   /**
    * Auto-save progress when approaching context limit.
+   * Extracts real context from the conversation history instead of saving generic boilerplate.
    */
   private async autoSaveProgress(context: AgentContext): Promise<void> {
+    // Extract meaningful summary from the conversation history
+    const summary = this.extractProgressSummary(context);
+    const nextSteps = this.extractNextSteps(context);
+
     const progressData: ProgressData = {
-      summary: 'Auto-saved due to context limit. Check conversation for details.',
-      next_steps: 'Resume processing from where the agent left off.',
+      summary,
+      next_steps: nextSteps,
       loaded_skills: context.loadedSkills,
       meet_name: context.meetName,
       timestamp: new Date().toISOString(),
@@ -842,6 +1068,59 @@ export class AgentLoop {
     const filePath = getProgressFilePath();
     fs.writeFileSync(filePath, JSON.stringify(progressData, null, 2), 'utf-8');
     this.onActivity(`Progress auto-saved to ${filePath}`, 'info');
+  }
+
+  /**
+   * Extract a meaningful summary from the conversation messages.
+   * Focuses on tool results and agent reasoning from the last several turns.
+   */
+  private extractProgressSummary(context: AgentContext): string {
+    const parts: string[] = [];
+
+    for (const msg of context.messages) {
+      if (typeof msg.content === 'string') continue;
+
+      for (const block of msg.content) {
+        // Collect agent text (reasoning about what it's doing)
+        if (block.type === 'text' && block.text && msg.role === 'assistant') {
+          parts.push(`Agent: ${block.text.substring(0, 300)}`);
+        }
+        // Collect tool call names and their results
+        if (block.type === 'tool_use' && block.name) {
+          const argsPreview = block.input ? JSON.stringify(block.input).substring(0, 100) : '';
+          parts.push(`Called ${block.name}(${argsPreview})`);
+        }
+        if (block.type === 'tool_result' && block.content) {
+          const preview = block.content.substring(0, 200);
+          parts.push(`  -> ${preview}`);
+        }
+      }
+    }
+
+    // Keep the last ~2000 chars of context (most recent actions are most relevant)
+    const combined = parts.join('\n');
+    if (combined.length > 2000) {
+      return '...\n' + combined.substring(combined.length - 2000);
+    }
+    return combined || 'Auto-saved with no meaningful progress captured.';
+  }
+
+  /**
+   * Extract next steps by looking at the agent's last text message.
+   */
+  private extractNextSteps(context: AgentContext): string {
+    // Walk backward through messages to find the last agent text
+    for (let i = context.messages.length - 1; i >= 0; i--) {
+      const msg = context.messages[i];
+      if (msg.role !== 'assistant' || typeof msg.content === 'string') continue;
+
+      for (const block of msg.content) {
+        if (block.type === 'text' && block.text) {
+          return `Continue from agent's last action: ${block.text.substring(0, 500)}`;
+        }
+      }
+    }
+    return 'Resume processing from the beginning of the current step.';
   }
 
   /**
@@ -868,5 +1147,84 @@ export class AgentLoop {
   private buildToolExecutors(_context: AgentContext): void {
     // Tool executors are handled via the executeTool switch + this.toolExecutors.
     // No extra setup needed here; the constructor-provided executors are already stored.
+  }
+
+  /**
+   * Save the full process log as a readable markdown file.
+   * Saved to data/logs/[meetName]_[timestamp].md
+   */
+  private saveProcessLog(
+    context: AgentContext,
+    result: { success: boolean; message: string }
+  ): void {
+    try {
+      const logsDir = path.join(getDataDir(), 'logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeName = context.meetName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+      const logPath = path.join(logsDir, `${safeName}_${timestamp}.md`);
+
+      const lines: string[] = [];
+      lines.push(`# Process Log: ${context.meetName}`);
+      lines.push(`**Date**: ${new Date().toISOString()}`);
+      lines.push(`**Result**: ${result.success ? 'SUCCESS' : 'FAILED'} — ${result.message}`);
+      lines.push(`**Tokens**: ${context.totalInputTokens.toLocaleString()} input, ${context.totalOutputTokens.toLocaleString()} output`);
+      lines.push(`**Skills loaded**: ${context.loadedSkills.join(', ') || 'none'}`);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+
+      let iterationNum = 0;
+
+      for (const msg of context.messages) {
+        if (typeof msg.content === 'string') {
+          lines.push(`## ${msg.role === 'user' ? 'User' : 'Agent'}`);
+          lines.push('');
+          lines.push(msg.content);
+          lines.push('');
+          continue;
+        }
+
+        // ContentBlock array
+        for (const block of msg.content) {
+          if (block.type === 'text' && block.text) {
+            if (msg.role === 'assistant') {
+              lines.push(`## Agent (iteration ${++iterationNum})`);
+            }
+            lines.push('');
+            lines.push(block.text);
+            lines.push('');
+          }
+
+          if (block.type === 'tool_use') {
+            lines.push(`### Tool Call: \`${block.name}\``);
+            lines.push('```json');
+            lines.push(JSON.stringify(block.input, null, 2).substring(0, 2000));
+            lines.push('```');
+            lines.push('');
+          }
+
+          if (block.type === 'tool_result') {
+            lines.push(`### Tool Result`);
+            lines.push('```');
+            // Truncate very long results to keep the log file manageable
+            const content = block.content || '';
+            lines.push(content.length > 3000 ? content.substring(0, 3000) + '\n... (truncated)' : content);
+            lines.push('```');
+            lines.push('');
+          }
+        }
+      }
+
+      fs.writeFileSync(logPath, lines.join('\n'), 'utf-8');
+      this.onActivity(`Process log saved: ${logPath}`, 'info');
+    } catch (err) {
+      // Don't let log saving failure crash the process
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.onActivity(`Warning: Could not save process log: ${errMsg}`, 'warning');
+    }
   }
 }

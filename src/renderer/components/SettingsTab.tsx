@@ -13,6 +13,7 @@ const SettingsTab: React.FC = () => {
   const [showGithubToken, setShowGithubToken] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
+  const [updateStatus, setUpdateStatus] = useState<string>('');
 
   useEffect(() => {
     loadSettings();
@@ -69,6 +70,19 @@ const SettingsTab: React.FC = () => {
             <input
               type="radio"
               name="apiProvider"
+              value="subscription"
+              checked={settings.apiProvider === 'subscription'}
+              onChange={() => {
+                updateSetting('apiProvider', 'subscription');
+                updateSetting('model', 'claude-sonnet-4-6');
+              }}
+            />
+            Claude Subscription (uses your Claude Code login)
+          </label>
+          <label className="radio-label">
+            <input
+              type="radio"
+              name="apiProvider"
               value="anthropic"
               checked={settings.apiProvider === 'anthropic'}
               onChange={() => {
@@ -76,7 +90,7 @@ const SettingsTab: React.FC = () => {
                 updateSetting('model', 'claude-sonnet-4-6');
               }}
             />
-            Anthropic (Direct)
+            Anthropic API Key
           </label>
           <label className="radio-label">
             <input
@@ -92,30 +106,38 @@ const SettingsTab: React.FC = () => {
             OpenRouter
           </label>
         </div>
+        {settings.apiProvider === 'subscription' && (
+          <p className="setting-description" style={{ marginTop: '8px', color: '#4a9' }}>
+            No API key needed. Uses your Claude Code OAuth token automatically.
+            Make sure Claude Code is logged in.
+          </p>
+        )}
       </div>
 
-      <div className="settings-section">
-        <h3>API Key</h3>
-        <div className="input-with-toggle">
-          <input
-            type={showApiKey ? 'text' : 'password'}
-            className="settings-input"
-            placeholder={settings.apiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-or-...'}
-            value={settings.apiKey}
-            onChange={e => updateSetting('apiKey', e.target.value)}
-          />
-          <button
-            className="toggle-button"
-            onClick={() => setShowApiKey(!showApiKey)}
-          >
-            {showApiKey ? 'Hide' : 'Show'}
-          </button>
+      {settings.apiProvider !== 'subscription' && (
+        <div className="settings-section">
+          <h3>API Key</h3>
+          <div className="input-with-toggle">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              className="settings-input"
+              placeholder={settings.apiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-or-...'}
+              value={settings.apiKey}
+              onChange={e => updateSetting('apiKey', e.target.value)}
+            />
+            <button
+              className="toggle-button"
+              onClick={() => setShowApiKey(!showApiKey)}
+            >
+              {showApiKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="settings-section">
         <h3>Model</h3>
-        {settings.apiProvider === 'anthropic' ? (
+        {settings.apiProvider === 'anthropic' || settings.apiProvider === 'subscription' ? (
           <select
             className="settings-select"
             value={settings.model}
@@ -197,9 +219,21 @@ const SettingsTab: React.FC = () => {
 
       <div className="settings-footer">
         <p className="version-info">Gymnastics Meet Scores v0.1.0</p>
-        <button className="update-button" onClick={() => {/* TODO: check for updates */}}>
+        <button
+          className="update-button"
+          onClick={async () => {
+            setUpdateStatus('Checking...');
+            try {
+              const result = await window.electronAPI.checkForUpdates();
+              setUpdateStatus(result.message);
+            } catch {
+              setUpdateStatus('Could not check for updates.');
+            }
+          }}
+        >
           Check for Updates
         </button>
+        {updateStatus && <span className="update-status">{updateStatus}</span>}
       </div>
     </div>
   );

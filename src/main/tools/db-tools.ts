@@ -1,29 +1,41 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
+import { app } from 'electron';
+import { configStore } from '../config-store';
+import { getStagingDbPath } from './python-tools';
 
-function getDbPath(): string {
-  const isDev = !require('electron').app.isPackaged;
-  if (isDev) {
-    return path.join(__dirname, '..', '..', 'data', 'chp_results.db');
-  }
-  return path.join(require('electron').app.getPath('userData'), 'data', 'chp_results.db');
+function getProjectRoot(): string {
+  return app.isPackaged ? process.resourcesPath! : path.join(app.getAppPath(), '..', '..');
 }
 
-function getDataDir(): string {
-  const isDev = !require('electron').app.isPackaged;
-  if (isDev) {
-    return path.join(__dirname, '..', '..', 'data');
-  }
-  return path.join(require('electron').app.getPath('userData'), 'data');
+function getCentralDbPath(): string {
+  return path.join(getProjectRoot(), 'data', 'chp_results.db');
 }
 
+function getOutputDir(meetName: string): string {
+  const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
+  return path.join(outputBase, meetName);
+}
+
+/**
+ * Open the active database for reading.
+ * During processing: uses the staging DB (if it exists).
+ * In query tab (no staging): uses the central DB.
+ */
 function openDb(): Database.Database {
-  const dbPath = getDbPath();
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found at ${dbPath}. Run a meet processing first to create it.`);
+  // Check if a staging DB exists — prefer it during processing
+  const stagingPath = getStagingDbPath();
+  if (fs.existsSync(stagingPath)) {
+    return new Database(stagingPath, { readonly: true });
   }
-  return new Database(dbPath, { readonly: true });
+
+  // Fall back to central DB
+  const centralPath = getCentralDbPath();
+  if (!fs.existsSync(centralPath)) {
+    throw new Error(`Database not found. No staging database and no central database at ${centralPath}. Run a meet processing first.`);
+  }
+  return new Database(centralPath, { readonly: true });
 }
 
 function isSelectOnly(sql: string): boolean {
@@ -144,8 +156,9 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         ];
         const csvContent = csvLines.join('\n');
 
-        const dataDir = getDataDir();
-        const filepath = path.join(dataDir, filename);
+        const meetName = (args.meet_name as string) || 'query-output';
+        const outDir = getOutputDir(meetName);
+        const filepath = path.join(outDir, filename);
         const dir = path.dirname(filepath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -199,7 +212,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         const counts = db.prepare(
           `SELECT
             COUNT(*) as total_results,
-            COUNT(DISTINCT athlete_name) as unique_athletes,
+            COUNT(DISTINCT name) as unique_athletes,
             COUNT(DISTINCT gym) as unique_gyms
            FROM results
            WHERE meet_name = ?`
@@ -218,22 +231,18 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
            ORDER BY session, level, division`
         ).all(meetName) as Record<string, unknown>[];
 
-        // Winner counts (place = 1)
+        // Winner counts from winners table
         const winners = db.prepare(
           `SELECT COUNT(*) as winner_count
-           FROM results
-           WHERE meet_name = ? AND place = 1`
+           FROM winners
+           WHERE meet_name = ?`
         ).get(meetName) as Record<string, unknown> | undefined;
 
-        // Tie detection (same event, session, level, division, place with multiple athletes)
+        // Tie count from winners table
         const ties = db.prepare(
-          `SELECT COUNT(*) as tie_count FROM (
-            SELECT event, session, level, division, place
-            FROM results
-            WHERE meet_name = ? AND place IS NOT NULL
-            GROUP BY event, session, level, division, place
-            HAVING COUNT(*) > 1
-          )`
+          `SELECT COUNT(*) as tie_count
+           FROM winners
+           WHERE meet_name = ? AND is_tie = 1`
         ).get(meetName) as Record<string, unknown> | undefined;
 
         let summary = `Meet Summary: ${meetName}\n`;
@@ -241,8 +250,8 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         summary += `Total results: ${counts.total_results}\n`;
         summary += `Unique athletes: ${counts.unique_athletes}\n`;
         summary += `Unique gyms: ${counts.unique_gyms}\n`;
-        summary += `Winners (1st place): ${winners?.winner_count ?? 0}\n`;
-        summary += `Tied placements: ${ties?.tie_count ?? 0}\n`;
+        summary += `Winners: ${winners?.winner_count ?? 0}\n`;
+        summary += `Tied winners: ${ties?.tie_count ?? 0}\n`;
         summary += `\nSession / Level / Division breakdown:\n`;
         summary += formatTable(['session', 'level', 'division', 'count'], breakdown);
 

@@ -2,7 +2,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = (env = {}) => {
-  const target = env.target || 'main';
+  const target = env.target || 'all';
 
   const mainConfig = {
     mode: env.mode || 'development',
@@ -29,6 +29,7 @@ module.exports = (env = {}) => {
       'electron-store': 'commonjs electron-store',
       'puppeteer-core': 'commonjs puppeteer-core',
       'better-sqlite3': 'commonjs better-sqlite3',
+      'electron-updater': 'commonjs electron-updater',
     },
     node: {
       __dirname: false,
@@ -100,8 +101,12 @@ module.exports = (env = {}) => {
     },
   };
 
+  if (target === 'renderer') {
+    return rendererConfig;
+  }
   if (target === 'main') {
     return [mainConfig, preloadConfig];
   }
-  return rendererConfig;
+  // Default: build everything
+  return [mainConfig, preloadConfig, rendererConfig];
 };

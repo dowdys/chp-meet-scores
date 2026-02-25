@@ -1,7 +1,11 @@
 /**
- * LLM Client - Provider abstraction for Anthropic and OpenRouter APIs.
+ * LLM Client - Provider abstraction for Anthropic, OpenRouter, and Claude Subscription APIs.
  * Uses Node.js built-in fetch (Node 18+).
  */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 
 // --- Shared types ---
 
@@ -25,7 +29,7 @@ export interface ToolDefinition {
   description: string;
   input_schema: {
     type: 'object';
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, { type: string; description: string; items?: { type: string }; enum?: string[] }>;
     required?: string[];
   };
 }
@@ -38,9 +42,79 @@ export interface LLMResponse {
 }
 
 export interface LLMClientConfig {
-  provider: 'anthropic' | 'openrouter';
+  provider: 'anthropic' | 'openrouter' | 'subscription';
   apiKey: string;
   model: string;
+}
+
+// --- Custom error types for retry logic ---
+
+export class RateLimitError extends Error {
+  retryAfterMs: number;
+  constructor(retryAfterMs: number, message?: string) {
+    super(message || `Rate limited. Retry after ${retryAfterMs}ms`);
+    this.name = 'RateLimitError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+export class ApiError extends Error {
+  statusCode: number;
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = statusCode;
+  }
+}
+
+// --- Claude Subscription OAuth token reader ---
+
+interface ClaudeCredentials {
+  claudeAiOauth?: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+    scopes: string[];
+    subscriptionType: string;
+  };
+}
+
+function getClaudeCredentialsPath(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || app.getPath('home');
+  return path.join(home, '.claude', '.credentials.json');
+}
+
+function readClaudeOAuthToken(): { token: string; expiresAt: number } {
+  const credPath = getClaudeCredentialsPath();
+  if (!fs.existsSync(credPath)) {
+    throw new Error(
+      `Claude Code credentials not found at ${credPath}. ` +
+      'Make sure Claude Code is installed and you are logged in.'
+    );
+  }
+
+  const raw = fs.readFileSync(credPath, 'utf-8');
+  const creds = JSON.parse(raw) as ClaudeCredentials;
+
+  if (!creds.claudeAiOauth?.accessToken) {
+    throw new Error(
+      'No OAuth token found in Claude Code credentials. ' +
+      'Make sure you are logged into Claude Code with your subscription.'
+    );
+  }
+
+  const now = Date.now();
+  if (creds.claudeAiOauth.expiresAt && creds.claudeAiOauth.expiresAt < now) {
+    throw new Error(
+      'Claude Code OAuth token has expired. ' +
+      'Please run any Claude Code command to refresh it, then try again.'
+    );
+  }
+
+  return {
+    token: creds.claudeAiOauth.accessToken,
+    expiresAt: creds.claudeAiOauth.expiresAt,
+  };
 }
 
 // --- Model context limits ---
@@ -121,17 +195,58 @@ export class LLMClient {
 
   /**
    * Send a message to the LLM and return the response.
+   * Retries up to 3 times on transient network errors (fetch failed, timeouts).
    */
   async sendMessage(options: {
     system: string;
     messages: LLMMessage[];
     tools: ToolDefinition[];
   }): Promise<LLMResponse> {
-    if (this.config.provider === 'anthropic') {
-      return this.sendAnthropic(options);
-    } else {
-      return this.sendOpenRouter(options);
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (this.config.provider === 'anthropic') {
+          return await this.sendAnthropic(options);
+        } else if (this.config.provider === 'subscription') {
+          return await this.sendSubscription(options);
+        } else {
+          return await this.sendOpenRouter(options);
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // Rate limit: use retry-after header timing instead of exponential backoff
+        if (err instanceof RateLimitError) {
+          if (attempt === maxRetries) throw err;
+          console.log(`[LLM] Rate limited, waiting ${err.retryAfterMs}ms before retry ${attempt}/${maxRetries}`);
+          await new Promise(resolve => setTimeout(resolve, err.retryAfterMs));
+          continue;
+        }
+
+        const msg = lastError.message.toLowerCase();
+        // Only retry on transient network/server errors, not auth/validation errors
+        const isTransient = msg.includes('fetch failed') ||
+          msg.includes('econnreset') ||
+          msg.includes('etimedout') ||
+          msg.includes('socket hang up') ||
+          msg.includes('network') ||
+          msg.includes('api error (500)') ||
+          msg.includes('api error (502)') ||
+          msg.includes('api error (520)') ||
+          msg.includes('api error (529)');
+
+        if (!isTransient || attempt === maxRetries) {
+          throw lastError;
+        }
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`[LLM] Transient error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries}): ${msg.substring(0, 100)}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+    throw lastError!;
   }
 
   /**
@@ -140,7 +255,7 @@ export class LLMClient {
    * OpenRouter: query their models API.
    */
   async checkModelAvailability(model: string): Promise<boolean> {
-    if (this.config.provider === 'anthropic') {
+    if (this.config.provider === 'anthropic' || this.config.provider === 'subscription') {
       const knownModels = [
         'claude-opus-4-6',
         'claude-sonnet-4-6',
@@ -203,13 +318,86 @@ export class LLMClient {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
+        throw new RateLimitError(waitMs);
+      }
       const errorText = await response.text();
-      throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+      throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);
     }
 
     const data = await response.json() as AnthropicResponseBody;
 
     // Anthropic response maps directly to our format
+    const content: ContentBlock[] = data.content.map((block) => {
+      if (block.type === 'text') {
+        return { type: 'text' as const, text: block.text };
+      } else {
+        return {
+          type: 'tool_use' as const,
+          id: block.id,
+          name: block.name,
+          input: block.input,
+        };
+      }
+    });
+
+    return {
+      content,
+      stop_reason: data.stop_reason as LLMResponse['stop_reason'],
+      usage: data.usage,
+      model: data.model,
+    };
+  }
+
+  // --- Subscription implementation (uses Claude Code OAuth token) ---
+
+  private async sendSubscription(options: {
+    system: string;
+    messages: LLMMessage[];
+    tools: ToolDefinition[];
+  }): Promise<LLMResponse> {
+    // Read the OAuth token fresh each time (in case it was refreshed by Claude Code)
+    const { token } = readClaudeOAuthToken();
+
+    const body = {
+      model: this.config.model,
+      max_tokens: 4096,
+      system: options.system,
+      messages: options.messages,
+      tools: options.tools.length > 0 ? options.tools : undefined,
+    };
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'oauth-2025-04-20',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
+        throw new RateLimitError(waitMs);
+      }
+      const errorText = await response.text();
+      if (response.status === 401) {
+        throw new ApiError(401,
+          'OAuth token rejected. Your Claude Code token may have expired. ' +
+          'Run any Claude Code command to refresh it, then try again.'
+        );
+      }
+      throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json() as AnthropicResponseBody;
+
     const content: ContentBlock[] = data.content.map((block) => {
       if (block.type === 'text') {
         return { type: 'text' as const, text: block.text };
