@@ -334,6 +334,10 @@ function setupIPC(): void {
     updateDownloaded = true;
   });
 
+  ipcMain.handle('get-version', () => {
+    return app.getVersion();
+  });
+
   ipcMain.handle('check-for-updates', async () => {
     if (!app.isPackaged) {
       return { status: 'dev', message: 'Updates are not available in dev mode.' };

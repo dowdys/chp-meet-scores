@@ -39,6 +39,7 @@ export interface ElectronAPI {
   getOutputFiles: (meetName: string) => Promise<{ success: boolean; files: OutputFile[]; error?: string }>;
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
+  getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
   restartAndUpdate: () => Promise<void>;
 }
@@ -103,6 +104,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   checkModelAvailability: (provider: string, model: string) => {
     return ipcRenderer.invoke('check-model', provider, model);
+  },
+  getVersion: () => {
+    return ipcRenderer.invoke('get-version');
   },
   checkForUpdates: () => {
     return ipcRenderer.invoke('check-for-updates');

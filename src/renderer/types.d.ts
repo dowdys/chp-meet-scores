@@ -37,6 +37,7 @@ export interface ElectronAPI {
   getOutputFiles: (meetName: string) => Promise<{ success: boolean; files: OutputFile[]; error?: string }>;
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
+  getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
   restartAndUpdate: () => Promise<void>;
 }

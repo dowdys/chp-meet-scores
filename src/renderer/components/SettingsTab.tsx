@@ -14,9 +14,11 @@ const SettingsTab: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [appVersion, setAppVersion] = useState<string>('');
 
   useEffect(() => {
     loadSettings();
+    window.electronAPI.getVersion().then((v: string) => setAppVersion(v)).catch(() => {});
   }, []);
 
   const loadSettings = async () => {
@@ -218,7 +220,7 @@ const SettingsTab: React.FC = () => {
       </div>
 
       <div className="settings-footer">
-        <p className="version-info">Gymnastics Meet Scores v0.1.2</p>
+        <p className="version-info">Gymnastics Meet Scores v{appVersion}</p>
         <button
           className="update-button"
           onClick={async () => {
