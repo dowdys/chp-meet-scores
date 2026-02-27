@@ -41,6 +41,7 @@ export interface ElectronAPI {
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
+  onUpdateReady: (callback: () => void) => () => void;
   restartAndUpdate: () => Promise<void>;
 }
 
@@ -110,6 +111,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   checkForUpdates: () => {
     return ipcRenderer.invoke('check-for-updates');
+  },
+  onUpdateReady: (callback: () => void) => {
+    const handler = () => { callback(); };
+    ipcRenderer.on('update-ready', handler);
+    return () => { ipcRenderer.removeListener('update-ready', handler); };
   },
   restartAndUpdate: () => {
     return ipcRenderer.invoke('restart-and-update');

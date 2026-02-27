@@ -39,6 +39,7 @@ export interface ElectronAPI {
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
+  onUpdateReady: (callback: () => void) => () => void;
   restartAndUpdate: () => Promise<void>;
 }
 

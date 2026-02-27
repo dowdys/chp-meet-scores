@@ -85,7 +85,12 @@ export class ApiError extends Error {
   }
 }
 
-// --- Claude Subscription OAuth token reader ---
+// --- Claude Subscription OAuth token management ---
+
+const OAUTH_TOKEN_ENDPOINT = 'https://console.anthropic.com/api/oauth/token';
+const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+// Refresh 5 minutes before expiry to avoid mid-request failures
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 interface ClaudeCredentials {
   claudeAiOauth?: {
@@ -102,7 +107,7 @@ function getClaudeCredentialsPath(): string {
   return path.join(home, '.claude', '.credentials.json');
 }
 
-function readClaudeOAuthToken(): { token: string; expiresAt: number } {
+function readClaudeCredentials(): ClaudeCredentials {
   const credPath = getClaudeCredentialsPath();
   if (!fs.existsSync(credPath)) {
     throw new Error(
@@ -110,9 +115,14 @@ function readClaudeOAuthToken(): { token: string; expiresAt: number } {
       'Make sure Claude Code is installed and you are logged in.'
     );
   }
+  return JSON.parse(fs.readFileSync(credPath, 'utf-8')) as ClaudeCredentials;
+}
 
-  const raw = fs.readFileSync(credPath, 'utf-8');
-  const creds = JSON.parse(raw) as ClaudeCredentials;
+/**
+ * Read the OAuth token, auto-refreshing if expired or about to expire.
+ */
+async function getClaudeOAuthToken(forceRefresh = false): Promise<string> {
+  const creds = readClaudeCredentials();
 
   if (!creds.claudeAiOauth?.accessToken) {
     throw new Error(
@@ -122,17 +132,74 @@ function readClaudeOAuthToken(): { token: string; expiresAt: number } {
   }
 
   const now = Date.now();
-  if (creds.claudeAiOauth.expiresAt && creds.claudeAiOauth.expiresAt < now) {
+  const needsRefresh = forceRefresh || (
+    creds.claudeAiOauth.expiresAt &&
+    creds.claudeAiOauth.expiresAt < (now + REFRESH_BUFFER_MS)
+  );
+
+  if (!needsRefresh) {
+    return creds.claudeAiOauth.accessToken;
+  }
+
+  // Token expired or about to expire — try to refresh
+  console.log('[OAuth] Token expired or expiring soon, attempting refresh...');
+
+  if (!creds.claudeAiOauth.refreshToken) {
     throw new Error(
-      'Claude Code OAuth token has expired. ' +
-      'Please run any Claude Code command to refresh it, then try again.'
+      'OAuth token expired and no refresh token available. ' +
+      'Please run "claude" in a terminal to re-authenticate.'
     );
   }
 
-  return {
-    token: creds.claudeAiOauth.accessToken,
-    expiresAt: creds.claudeAiOauth.expiresAt,
-  };
+  try {
+    const response = await fetch(OAUTH_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: creds.claudeAiOauth.refreshToken,
+        client_id: OAUTH_CLIENT_ID,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[OAuth] Refresh failed (${response.status}): ${errorText}`);
+      throw new Error(
+        `Token refresh failed (${response.status}). ` +
+        'Please run "claude" in a terminal to re-authenticate.'
+      );
+    }
+
+    const data = await response.json() as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+    };
+
+    // Write updated tokens back to credentials file
+    const updatedCreds = readClaudeCredentials();
+    if (updatedCreds.claudeAiOauth) {
+      updatedCreds.claudeAiOauth.accessToken = data.access_token;
+      updatedCreds.claudeAiOauth.refreshToken = data.refresh_token;
+      updatedCreds.claudeAiOauth.expiresAt = Date.now() + (data.expires_in * 1000);
+    }
+
+    const credPath = getClaudeCredentialsPath();
+    fs.writeFileSync(credPath, JSON.stringify(updatedCreds, null, 2), 'utf-8');
+    console.log('[OAuth] Token refreshed successfully');
+
+    return data.access_token;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Token refresh failed')) {
+      throw err;
+    }
+    console.error('[OAuth] Refresh error:', err);
+    throw new Error(
+      'Could not refresh OAuth token. ' +
+      'Please run "claude" in a terminal to re-authenticate.'
+    );
+  }
 }
 
 // --- Model context limits ---
@@ -376,8 +443,8 @@ export class LLMClient {
     messages: LLMMessage[];
     tools: ToolDefinition[];
   }): Promise<LLMResponse> {
-    // Read the OAuth token fresh each time (in case it was refreshed by Claude Code)
-    const { token } = readClaudeOAuthToken();
+    // Get the OAuth token, auto-refreshing if expired
+    const token = await getClaudeOAuthToken();
 
     const body = {
       model: this.config.model,
@@ -406,9 +473,38 @@ export class LLMClient {
       }
       const errorText = await response.text();
       if (response.status === 401) {
+        // Token might have been revoked server-side — force a refresh and retry once
+        console.log('[OAuth] Got 401, forcing token refresh and retrying...');
+        try {
+          const freshToken = await getClaudeOAuthToken(true);
+          // Retry the request with the fresh token
+          const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${freshToken}`,
+              'anthropic-version': '2023-06-01',
+              'anthropic-beta': 'oauth-2025-04-20',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          });
+          if (retryResponse.ok) {
+            const retryData = await retryResponse.json() as AnthropicResponseBody;
+            const retryContent: ContentBlock[] = retryData.content.map((block) => {
+              if (block.type === 'text') {
+                return { type: 'text' as const, text: block.text };
+              } else {
+                return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input };
+              }
+            });
+            return { content: retryContent, stop_reason: retryData.stop_reason as LLMResponse['stop_reason'], usage: retryData.usage, model: retryData.model };
+          }
+        } catch (refreshErr) {
+          console.error('[OAuth] Refresh-and-retry failed:', refreshErr);
+        }
         throw new ApiError(401,
-          'OAuth token rejected. Your Claude Code token may have expired. ' +
-          'Run any Claude Code command to refresh it, then try again.'
+          'OAuth token rejected and refresh failed. ' +
+          'Please run "claude" in a terminal to re-authenticate.'
         );
       }
       throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);

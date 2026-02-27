@@ -19,6 +19,10 @@ const SettingsTab: React.FC = () => {
   useEffect(() => {
     loadSettings();
     window.electronAPI.getVersion().then((v: string) => setAppVersion(v)).catch(() => {});
+    const cleanup = window.electronAPI.onUpdateReady(() => {
+      setUpdateStatus('ready');
+    });
+    return cleanup;
   }, []);
 
   const loadSettings = async () => {

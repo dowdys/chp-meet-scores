@@ -332,6 +332,10 @@ function setupIPC(): void {
   let updateDownloaded = false;
   autoUpdater.on('update-downloaded', () => {
     updateDownloaded = true;
+    // Notify the renderer so the UI updates immediately
+    if (mainWindow) {
+      mainWindow.webContents.send('update-ready');
+    }
   });
 
   ipcMain.handle('get-version', () => {
