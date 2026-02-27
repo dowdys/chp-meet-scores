@@ -1,4 +1,5 @@
 const path = require('path');
+const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = (env = {}) => {
@@ -31,6 +32,11 @@ module.exports = (env = {}) => {
       'better-sqlite3': 'commonjs better-sqlite3',
       'electron-updater': 'commonjs electron-updater',
     },
+    plugins: [
+      new webpack.DefinePlugin({
+        'process.env.UPDATER_TOKEN': JSON.stringify(process.env.UPDATER_TOKEN || ''),
+      }),
+    ],
     node: {
       __dirname: false,
       __filename: false,

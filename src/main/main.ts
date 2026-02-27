@@ -398,6 +398,16 @@ app.whenReady().then(() => {
 
   // Auto-update: silently check GitHub Releases for a newer version
   if (app.isPackaged) {
+    const updaterToken = process.env.UPDATER_TOKEN;
+    if (updaterToken) {
+      autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'dowdys',
+        repo: 'chp-meet-scores',
+        private: true,
+        token: updaterToken,
+      });
+    }
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on('update-available', (info) => {
