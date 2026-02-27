@@ -87,8 +87,9 @@ export class ApiError extends Error {
 
 // --- Claude Subscription OAuth token management ---
 
-const OAUTH_TOKEN_ENDPOINT = 'https://console.anthropic.com/api/oauth/token';
+const OAUTH_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
 const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const OAUTH_SCOPES = 'user:profile user:inference user:sessions:claude_code user:mcp_servers';
 // Refresh 5 minutes before expiry to avoid mid-request failures
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
@@ -159,6 +160,7 @@ async function getClaudeOAuthToken(forceRefresh = false): Promise<string> {
         grant_type: 'refresh_token',
         refresh_token: creds.claudeAiOauth.refreshToken,
         client_id: OAUTH_CLIENT_ID,
+        scope: OAUTH_SCOPES,
       }),
     });
 
@@ -173,7 +175,7 @@ async function getClaudeOAuthToken(forceRefresh = false): Promise<string> {
 
     const data = await response.json() as {
       access_token: string;
-      refresh_token: string;
+      refresh_token?: string;
       expires_in: number;
     };
 
@@ -181,7 +183,10 @@ async function getClaudeOAuthToken(forceRefresh = false): Promise<string> {
     const updatedCreds = readClaudeCredentials();
     if (updatedCreds.claudeAiOauth) {
       updatedCreds.claudeAiOauth.accessToken = data.access_token;
-      updatedCreds.claudeAiOauth.refreshToken = data.refresh_token;
+      // Use new refresh token if provided, otherwise keep the original
+      if (data.refresh_token) {
+        updatedCreds.claudeAiOauth.refreshToken = data.refresh_token;
+      }
       updatedCreds.claudeAiOauth.expiresAt = Date.now() + (data.expires_in * 1000);
     }
 
