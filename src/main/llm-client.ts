@@ -9,6 +9,24 @@ import { app } from 'electron';
 
 // --- Shared types ---
 
+export interface ImageSource {
+  type: 'base64';
+  media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  data: string;
+}
+
+export interface ImageContentPart {
+  type: 'image';
+  source: ImageSource;
+}
+
+export interface TextContentPart {
+  type: 'text';
+  text: string;
+}
+
+export type ToolResultContent = string | (TextContentPart | ImageContentPart)[];
+
 export interface ContentBlock {
   type: 'text' | 'tool_use' | 'tool_result';
   text?: string;
@@ -16,7 +34,7 @@ export interface ContentBlock {
   name?: string;
   input?: Record<string, unknown>;
   tool_use_id?: string;
-  content?: string;
+  content?: ToolResultContent;
 }
 
 export interface LLMMessage {

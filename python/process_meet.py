@@ -19,7 +19,7 @@ if not getattr(sys, 'frozen', False):
 from python.core.models import MeetConfig
 from python.core.db_builder import build_database
 from python.core.output_generator import (
-    generate_back_of_shirt, generate_order_forms, generate_winners_csv
+    generate_order_forms, generate_winners_csv
 )
 from python.core.pdf_generator import generate_shirt_pdf
 from python.core.order_form_generator import generate_order_forms_pdf
@@ -58,6 +58,16 @@ def main():
                         help='Championship year for PDF titles (default: current year)')
     parser.add_argument('--gym-map', default=None,
                         help='Path to JSON file mapping gym name aliases to canonical names')
+    parser.add_argument('--line-spacing', type=float, default=None,
+                        help='Line height ratio for shirt PDF (default 1.15). Lower = tighter.')
+    parser.add_argument('--level-gap', type=float, default=None,
+                        help='Vertical gap before each level section in shirt PDF (default 6).')
+    parser.add_argument('--max-fill', type=float, default=None,
+                        help='Max page fill fraction for shirt PDF (default 0.90). E.g. 0.85 = 85%%.')
+    parser.add_argument('--min-font-size', type=float, default=None,
+                        help='Minimum name font size in points for shirt PDF (default 6.5).')
+    parser.add_argument('--max-font-size', type=float, default=None,
+                        help='Maximum/starting name font size in points for shirt PDF (default 9). Raise for meets with few winners.')
 
     args = parser.parse_args()
 
@@ -121,12 +131,6 @@ def main():
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
 
     # Generate outputs
-    shirt_path = os.path.join(args.output, 'back_of_shirt.md')
-    generate_back_of_shirt(db_path, config.meet_name, shirt_path,
-                           shirt_title=args.shirt_title,
-                           format=args.shirt_format)
-    print(f"Generated {shirt_path}")
-
     orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
     generate_order_forms(db_path, config.meet_name, orders_path)
     print(f"Generated {orders_path}")
@@ -138,7 +142,12 @@ def main():
     # Always generate back-of-shirt PDF
     pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
     generate_shirt_pdf(db_path, config.meet_name, pdf_path,
-                       year=args.year, state=args.state)
+                       year=args.year, state=args.state,
+                       line_spacing=args.line_spacing,
+                       level_gap=args.level_gap,
+                       max_fill=args.max_fill,
+                       min_font_size=args.min_font_size,
+                       max_font_size=args.max_font_size)
     print(f"Generated {pdf_path}")
 
     # Generate order forms PDF

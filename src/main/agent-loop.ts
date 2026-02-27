@@ -6,16 +6,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse } from './llm-client';
+import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse, ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import { configStore } from './config-store';
 import { getStagingDbPath, resetStagingDb } from './tools/python-tools';
 import { getProjectRoot as sharedGetProjectRoot, getDataDir as sharedGetDataDir } from './paths';
 
+/** Extract the text portion of a tool result content (ignoring images). */
+function toolResultText(content: ToolResultContent | undefined): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return content.filter((p): p is TextContentPart => p.type === 'text').map(p => p.text).join('\n');
+}
+
 // --- Types ---
 
 interface AgentContext {
   meetName: string;
+  outputName?: string; // Clean folder name set by set_output_name tool
   state?: string;
   systemPrompt: string;
   loadedSkills: string[];
@@ -167,11 +175,11 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'run_python',
-      description: 'Run process_meet.py to build the database and generate outputs. The --db (central database path) and --output (output directory) are ALWAYS auto-injected (do NOT pass them). You only need: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. Back-of-shirt PDF and order forms PDF are always generated (title auto-derived from --state and --year). The --year defaults to the current year. For --data: can be a single file, a directory of JSON files, or a glob pattern (e.g. /path/to/data/js_result_*.json). Use --source generic for JSON/TSV data from any source.',
+      description: 'Run process_meet.py to build the database and generate outputs. The --db (central database path) and --output (output directory) are ALWAYS auto-injected (do NOT pass them). You only need: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. Back-of-shirt PDF and order forms PDF are always generated (title auto-derived from --state and --year). The --year defaults to the current year. For --data: can be a single file, a directory of JSON files, or a glob pattern (e.g. /path/to/data/js_result_*.json). Use --source generic for JSON/TSV data from any source. PDF layout tuning: --line-spacing <float> (line height ratio, default 1.15, lower=tighter), --level-gap <float> (gap before each level section, default 6), --max-fill <float> (max page fill 0-1, default 0.90), --min-font-size <float> (minimum name font size in pt, default 6.5), --max-font-size <float> (maximum/starting name font size in pt, default 9; raise to 11-12 for meets with few winners). Use render_pdf_page after generating to visually inspect and tune these values.',
       input_schema: {
         type: 'object',
         properties: {
-          args: { type: 'string', description: 'Command-line arguments: --source {scorecat,mso_pdf,mso_html,generic} --data <path_to_data_file> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. The --year sets championship year for PDF titles (defaults to current year). Use "generic" for JSON or TSV data from any source (auto-detects format, maps column names flexibly).' },
+          args: { type: 'string', description: 'Command-line arguments: --source {scorecat,mso_pdf,mso_html,generic} --data <path_to_data_file> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY] [--line-spacing 1.15] [--level-gap 6] [--max-fill 0.90] [--min-font-size 6.5] [--max-font-size 9]. The --year sets championship year for PDF titles (defaults to current year). Use "generic" for JSON or TSV data from any source (auto-detects format, maps column names flexibly). Layout params let you tune the back-of-shirt PDF spacing and sizing. Raise --max-font-size (e.g. 12) for meets with few winners so names appear larger.' },
         },
         required: ['args'],
       },
@@ -349,6 +357,28 @@ function getToolDefinitions(): ToolDefinition[] {
           meet_name: { type: 'string', description: 'The meet name to finalize' },
         },
         required: ['meet_name'],
+      },
+    },
+    {
+      name: 'set_output_name',
+      description: 'Set a clean, short name for the output folder. Call this BEFORE run_python. The user\'s raw input is often a long sentence — use this tool to set a proper folder name like "2025 SC State Championships" instead. Keep it concise: "{year} {state abbreviation} State Championships" or similar.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Clean folder name, e.g. "2025 SC State Championships"' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'render_pdf_page',
+      description: 'Render a PDF page as an image so you can visually inspect it. Use this after generating back_of_shirt.pdf to check sizing, spacing, and layout. Returns the rendered page as an image you can see. If the layout needs adjustment, re-run run_python with different --line-spacing, --level-gap, --max-fill, --min-font-size, or --max-font-size values.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pdf_path: { type: 'string', description: 'Absolute path to the PDF file. If omitted, defaults to back_of_shirt.pdf in the output directory.' },
+          page_number: { type: 'number', description: 'Page number to render (1-based). Defaults to 1.' },
+        },
       },
     },
   ];
@@ -831,13 +861,14 @@ export class AgentLoop {
       this.onActivity(`Running tool: ${toolName}...`, 'info');
       console.log(`[AGENT] Running tool: ${toolName} args=${JSON.stringify(toolArgs).substring(0, 200)}`);
 
-      let result: string;
+      let result: ToolResultContent;
       try {
         result = await this.executeTool(toolName, toolArgs, context);
         // Log a brief summary
-        const preview = result.length > 200 ? result.substring(0, 200) + '...' : result;
+        const textPreview = toolResultText(result);
+        const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
         this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
-        console.log(`[AGENT] Tool ${toolName} completed, result length: ${result.length}`);
+        console.log(`[AGENT] Tool ${toolName} completed, result length: ${textPreview.length}`);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         result = `Error: ${errMsg}`;
@@ -862,7 +893,7 @@ export class AgentLoop {
     name: string,
     args: Record<string, unknown>,
     context: AgentContext
-  ): Promise<string> {
+  ): Promise<ToolResultContent> {
     // Check for external tool executors first
     if (this.toolExecutors[name]) {
       return this.toolExecutors[name](args);
@@ -873,10 +904,21 @@ export class AgentLoop {
     // are NOT listed here — they run via this.toolExecutors above.
     switch (name) {
       case 'run_python':
-        return this.toolRunPython(context.meetName, args.args as string);
+        return this.toolRunPython(context.outputName || context.meetName, args.args as string);
+
+      case 'set_output_name':
+        context.outputName = args.name as string;
+        return `Output folder name set to: "${context.outputName}"`;
+
+      case 'render_pdf_page':
+        return this.toolRenderPdfPage(
+          args.pdf_path as string | undefined,
+          args.page_number as number | undefined,
+          context.outputName || context.meetName
+        );
 
       case 'list_output_files':
-        return this.toolListOutputFiles((args.meet_name as string) || context.meetName);
+        return this.toolListOutputFiles((args.meet_name as string) || context.outputName || context.meetName);
 
       case 'list_skills':
         return this.toolListSkills();
@@ -929,6 +971,89 @@ export class AgentLoop {
       return `Python script failed (exit code ${result.exitCode}).\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;
     }
     return result.stdout || 'Script completed successfully (no output).';
+  }
+
+  private async toolRenderPdfPage(
+    pdfPath: string | undefined,
+    pageNumber: number | undefined,
+    meetName: string
+  ): Promise<ToolResultContent> {
+    const page = pageNumber ?? 1;
+
+    // Default to back_of_shirt.pdf in the output directory
+    const resolvedPath = pdfPath || path.join(getOutputDir(meetName), 'back_of_shirt.pdf');
+
+    if (!fs.existsSync(resolvedPath)) {
+      return `Error: PDF file not found at ${resolvedPath}. Generate the PDF first with run_python.`;
+    }
+
+    // Use PyMuPDF to render the page to a PNG, base64-encoded
+    const pythonCode = `
+import sys, fitz, base64
+doc = fitz.open(${JSON.stringify(resolvedPath)})
+page_idx = ${page - 1}
+if page_idx < 0 or page_idx >= len(doc):
+    print(f"Error: Page {${page}} out of range (PDF has {len(doc)} pages)")
+    sys.exit(1)
+page = doc[page_idx]
+# Render at 2x resolution for clarity
+pix = page.get_pixmap(dpi=200)
+png_bytes = pix.tobytes("png")
+print(base64.b64encode(png_bytes).decode('ascii'))
+doc.close()
+`;
+
+    // Spawn python directly with inline code
+    const { spawn: spawnProc, spawnSync } = require('child_process') as typeof import('child_process');
+
+    // Find python command
+    let pythonCmd = 'python3';
+    for (const cmd of ['python', 'python3']) {
+      try {
+        const check = spawnSync(cmd, ['--version'], { timeout: 5000, stdio: 'pipe' });
+        if (check.status === 0) { pythonCmd = cmd; break; }
+      } catch { /* try next */ }
+    }
+
+    return new Promise<ToolResultContent>((resolve) => {
+      const proc = spawnProc(pythonCmd, ['-c', pythonCode], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 30000,
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+      proc.on('close', (exitCode: number | null) => {
+        if (exitCode !== 0 || !stdout.trim()) {
+          resolve(`Error rendering PDF page: ${stderr || 'No output from Python'}`);
+          return;
+        }
+
+        const base64Data = stdout.trim();
+        const textPart: TextContentPart = {
+          type: 'text',
+          text: `Rendered page ${page} of ${resolvedPath} (200 DPI). Inspect the layout — if names are too small, spacing too tight/loose, or the page is too full/empty, re-run run_python with adjusted --line-spacing, --level-gap, --max-fill, or --min-font-size values.`,
+        };
+        const imagePart: ImageContentPart = {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: base64Data,
+          },
+        };
+
+        resolve([textPart, imagePart]);
+      });
+
+      proc.on('error', (err: Error) => {
+        resolve(`Error spawning Python: ${err.message}`);
+      });
+    });
   }
 
   private async toolListOutputFiles(meetName: string): Promise<string> {
@@ -1091,7 +1216,7 @@ export class AgentLoop {
           parts.push(`Called ${block.name}(${argsPreview})`);
         }
         if (block.type === 'tool_result' && block.content) {
-          const preview = block.content.substring(0, 200);
+          const preview = toolResultText(block.content).substring(0, 200);
           parts.push(`  -> ${preview}`);
         }
       }
@@ -1211,7 +1336,7 @@ export class AgentLoop {
             lines.push(`### Tool Result`);
             lines.push('```');
             // Truncate very long results to keep the log file manageable
-            const content = block.content || '';
+            const content = toolResultText(block.content);
             lines.push(content.length > 3000 ? content.substring(0, 3000) + '\n... (truncated)' : content);
             lines.push('```');
             lines.push('');

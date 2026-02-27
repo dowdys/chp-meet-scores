@@ -3,10 +3,12 @@
 Generates championship-style PDFs with:
 - Small-caps title and state line
 - Red filled oval with level group label
-- Small-caps column headers
+- Small-caps column headers with red underlines
 - Red line level dividers with letter-spaced text
-- Dynamic font sizing (9pt down to 6pt minimum)
+- Dynamic font sizing: keeps names as BIG as possible
+- Tight line spacing (1.15 ratio) to maximize name size
 - Auto-grouping: Xcel levels together, numbered levels bin-packed
+- No page should be more than ~90% full
 - Copyright footer
 """
 
@@ -55,20 +57,27 @@ TITLE2_SMALL = 15
 HEADER_LARGE = 11
 HEADER_SMALL = 8
 DEFAULT_NAME_SIZE = 9
-MIN_NAME_SIZE = 6
+MIN_NAME_SIZE = 6.5
 LEVEL_DIVIDER_SIZE = 10
 COPYRIGHT_SIZE = 7
 OVAL_LABEL_SIZE = 12
 
-LINE_HEIGHT_RATIO = 1.4
-LEVEL_GAP = 10
+# Tight spacing: 1.15 ratio keeps names close together, maximizing font size
+LINE_HEIGHT_RATIO = 1.15
+LEVEL_GAP = 6
 
 FONT_REGULAR = 'Times-Roman'
 FONT_BOLD = 'Times-Bold'
 
+# Target page fill: don't fill more than 90% of available space
+MAX_PAGE_FILL = 0.90
+
 
 def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
-                       year: str = '2026', state: str = 'Maryland'):
+                       year: str = '2026', state: str = 'Maryland',
+                       line_spacing: float = None, level_gap: float = None,
+                       max_fill: float = None, min_font_size: float = None,
+                       max_font_size: float = None):
     """Generate enhanced back-of-shirt PDF.
 
     Args:
@@ -77,7 +86,19 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         output_path: Where to save the PDF.
         year: Championship year for title.
         state: State name for title.
+        line_spacing: Line height ratio (default 1.15). Lower = tighter.
+        level_gap: Vertical gap before each level section (default 6).
+        max_fill: Max page fill fraction (default 0.90). E.g. 0.85 = 85%.
+        min_font_size: Minimum name font size in points (default 6.5).
+        max_font_size: Maximum/starting name font size in points (default 9).
     """
+    # Apply overrides or use module defaults
+    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
+    lgap = level_gap if level_gap is not None else LEVEL_GAP
+    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
+    mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
+    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+
     levels, data = _get_winners_by_event_and_level(db_path, meet_name)
     if not levels:
         doc = fitz.open()
@@ -109,12 +130,12 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         page_groups.append(('XCEL', xcel_levels))
 
     if numbered_levels:
-        available = NAMES_BOTTOM_Y - NAMES_START_Y
-        groups = _bin_pack_levels(numbered_levels, data, available)
+        available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
+        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
         for group in groups:
             nums = sorted([int(lv) for lv in group if lv.isdigit()])
             if len(nums) >= 2:
-                label = f'LEVELS {nums[0]}-{nums[-1]}'
+                label = f'LEVELS {nums[-1]}-{nums[0]}'
             elif len(nums) == 1:
                 label = f'LEVEL {nums[0]}'
             else:
@@ -137,19 +158,25 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         # Red oval with group label
         _draw_oval(page, label, OVAL_CENTER_Y)
 
-        # Column headers (small caps)
+        # Column headers (small caps) with red underlines
         for i, header in enumerate(COL_HEADERS):
             _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
                              header, HEADER_LARGE, HEADER_SMALL)
+            # Red underline below header
+            hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
+            line_y = HEADERS_Y + 3
+            page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
+                           fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
+                           color=RED, width=0.5)
 
         # Determine best font size for this page's content
-        font_size = _fit_font_size(group_levels, data)
-        line_height = font_size * LINE_HEIGHT_RATIO
+        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+        line_height = font_size * lhr
 
         # Draw each level's names
         y = NAMES_START_Y
         for level in group_levels:
-            y += LEVEL_GAP
+            y += lgap
 
             # Level divider text
             if level in XCEL_MAP:
@@ -157,7 +184,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
             else:
                 divider_text = f'LEVEL {level}'
             _draw_level_divider(page, y, divider_text)
-            y += LEVEL_DIVIDER_SIZE * 1.5
+            y += LEVEL_DIVIDER_SIZE * 1.3
 
             # Names in 5 columns
             max_names = 0
@@ -166,7 +193,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                 if names:
                     _draw_names(page, y, col_idx, names, font_size, line_height)
                     max_names = max(max_names, len(names))
-            y += max_names * line_height + 2
+            y += max_names * line_height + 1
 
         # Copyright footer
         _draw_copyright(page)
@@ -203,9 +230,12 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str):
 
 # --- Layout helpers ---
 
-def _bin_pack_levels(levels, data, available_height):
-    """Bin-pack levels into page-sized groups using default font size."""
-    line_height = DEFAULT_NAME_SIZE * LINE_HEIGHT_RATIO
+def _bin_pack_levels(levels, data, available_height,
+                     line_height_ratio=LINE_HEIGHT_RATIO,
+                     level_gap=LEVEL_GAP,
+                     max_font_size=DEFAULT_NAME_SIZE):
+    """Bin-pack levels into page-sized groups."""
+    line_height = max_font_size * line_height_ratio
     pages = []
     current_page = []
     current_height = 0
@@ -215,7 +245,7 @@ def _bin_pack_levels(levels, data, available_height):
             len(data[event].get(level, []))
             for event in EVENT_KEYS
         )
-        needed = LEVEL_GAP + LEVEL_DIVIDER_SIZE * 1.5 + max_names * line_height + 2
+        needed = level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * line_height + 1
 
         if current_page and current_height + needed > available_height:
             pages.append(current_page)
@@ -230,24 +260,35 @@ def _bin_pack_levels(levels, data, available_height):
     return pages
 
 
-def _fit_font_size(levels, data):
-    """Find the largest font size (9pt-6pt) that fits all levels on one page."""
-    available = NAMES_BOTTOM_Y - NAMES_START_Y
+def _fit_font_size(levels, data,
+                   line_height_ratio=LINE_HEIGHT_RATIO,
+                   level_gap=LEVEL_GAP,
+                   max_page_fill=MAX_PAGE_FILL,
+                   min_name_size=MIN_NAME_SIZE,
+                   max_font_size=DEFAULT_NAME_SIZE):
+    """Find the largest font size that fits all levels on page.
 
-    for size_10x in range(90, 59, -1):  # 9.0 down to 6.0 in 0.1 steps
+    Tries max_font_size down to min_name_size in 0.1 steps.
+    Targets max_page_fill fraction of available space.
+    """
+    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * max_page_fill
+    min_10x = int(min_name_size * 10)
+    max_10x = int(max_font_size * 10)
+
+    for size_10x in range(max_10x, min_10x - 1, -1):
         size = size_10x / 10
-        lh = size * LINE_HEIGHT_RATIO
+        lh = size * line_height_ratio
         total = 0
         for level in levels:
             max_names = max(
                 len(data[event].get(level, []))
                 for event in EVENT_KEYS
             )
-            total += LEVEL_GAP + LEVEL_DIVIDER_SIZE * 1.5 + max_names * lh + 2
+            total += level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * lh + 1
         if total <= available:
             return size
 
-    return MIN_NAME_SIZE
+    return min_name_size
 
 
 # --- Drawing functions ---

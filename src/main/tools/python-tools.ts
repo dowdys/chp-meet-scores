@@ -176,7 +176,20 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
         return 'Error: meet_name parameter is required';
       }
 
-      const stagingPath = currentStagingDbPath;
+      // Find staging DB: use module-level path, or fall back to scanning data dir
+      let stagingPath = currentStagingDbPath;
+      if (!stagingPath || !fs.existsSync(stagingPath)) {
+        // Fallback: find most recent staging_*.db in data dir
+        const dataDir = getDataDir();
+        const stagingFiles = fs.readdirSync(dataDir)
+          .filter(f => f.startsWith('staging_') && f.endsWith('.db'))
+          .sort()
+          .reverse();
+        if (stagingFiles.length > 0) {
+          stagingPath = path.join(dataDir, stagingFiles[0]);
+        }
+      }
+
       if (!stagingPath || !fs.existsSync(stagingPath)) {
         return 'Error: No staging database found. Run run_python first to create staging data.';
       }
@@ -187,6 +200,23 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       const centralDb = new Database(centralPath);
 
       try {
+        // Ensure central DB has the required tables
+        centralDb.exec(`
+          CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT, meet_name TEXT, association TEXT,
+            name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
+            vault REAL, bars REAL, beam REAL, floor REAL, aa REAL,
+            rank TEXT, num TEXT
+          );
+          CREATE TABLE IF NOT EXISTS winners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT, meet_name TEXT, association TEXT,
+            name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
+            event TEXT, score REAL, is_tie INTEGER DEFAULT 0
+          );
+        `);
+
         // Attach staging DB
         centralDb.exec(`ATTACH DATABASE '${stagingPath.replace(/'/g, "''")}' AS staging`);
 

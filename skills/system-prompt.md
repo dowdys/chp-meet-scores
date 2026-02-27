@@ -9,10 +9,12 @@ The user (Dowdy) gives you a meet name and state. You find the meet online, extr
 ## Process Flow
 
 1. **Find the meet** — Search data sources directly: ScoreCat Algolia first, then MSO Results.All, then web search as last resort (load `meet_discovery` skill). If multiple meets match, use the `ask_user` tool to let the user pick which one.
-2. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
-3. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
-4. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
-5. **Generate outputs** — Produce back-of-shirt, order forms, and winners CSV (load `output_generation` skill)
+2. **Set a clean output folder name** — IMMEDIATELY after identifying the meet, call `set_output_name` with a short, clean name like "2025 SC State Championships". The user's raw input is often a long sentence — do NOT use it as the folder name.
+3. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
+4. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
+5. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
+6. **Generate outputs** — Produce back-of-shirt PDF, order forms PDF, and winners CSV (load `output_generation` skill)
+7. **Visually inspect shirt PDF** — Use `render_pdf_page` to see the back_of_shirt.pdf. Check that names are as large as possible, spacing looks good, and no page is too full or cut off. If layout needs adjustment, re-run `run_python` with `--line-spacing`, `--level-gap`, `--max-fill`, or `--min-font-size` flags and inspect again. One round of adjustment is usually enough.
 
 ## Data Directory
 
@@ -30,6 +32,8 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 | `scorecat_extract` | ScoreCat Firebase | Array of Algolia meet IDs | `data/scorecat_extract_*.json` → `run_python --source scorecat --data <file>` |
 | `read_file` | Read local files | path, offset?, limit? | File contents with line numbers |
 | `run_script` | Execute inline Python | code, timeout? | Script stdout/stderr |
+| `set_output_name` | Set clean output folder name | name (e.g. "2025 SC State Champs") | Call BEFORE run_python |
+| `render_pdf_page` | Visual PDF inspection | pdf_path?, page_number? | Image of rendered page — use to check layout |
 | `finalize_meet` | Merge staging → central DB | meet_name | Confirmation message |
 
 ## Database Schema
@@ -114,7 +118,7 @@ If potential duplicates need manual mapping:
 ## When to Stop
 
 You are done when:
-- Output files are generated (back_of_shirt.md, order_forms_by_gym.txt, winners_sheet.csv)
+- Output files are generated (back_of_shirt.pdf, order_forms.pdf, order_forms_by_gym.txt, winners_sheet.csv)
 - Winner counts look correct (spot-check a few)
 - Gym names are reasonably clean (auto-normalize ran, no obvious issues)
 
