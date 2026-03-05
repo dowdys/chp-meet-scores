@@ -40,6 +40,19 @@ class ChromeController {
       }
     }
 
+    // macOS paths
+    if (process.platform === 'darwin') {
+      const macPaths = [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        path.join(app.getPath('home'), 'Applications', 'Google Chrome.app', 'Contents', 'MacOS', 'Google Chrome'),
+      ];
+      for (const chromePath of macPaths) {
+        if (fs.existsSync(chromePath)) {
+          return chromePath;
+        }
+      }
+    }
+
     // Try Linux Chrome
     try {
       const linuxChrome = execSync('which google-chrome || which google-chrome-stable || which chromium-browser', { encoding: 'utf8' }).trim();

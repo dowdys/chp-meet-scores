@@ -48,3 +48,102 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --x64 --publish always
+
+  build-python-macos-x64:
+    runs-on: macos-13
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pyinstaller pymupdf
+
+      - name: Build process_meet (x64)
+        run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
+
+      - name: Upload x64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: process_meet-x64
+          path: dist/pyinstaller/process_meet
+
+  build-python-macos-arm64:
+    runs-on: macos-14
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pyinstaller pymupdf
+
+      - name: Build process_meet (arm64)
+        run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
+
+      - name: Upload arm64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: process_meet-arm64
+          path: dist/pyinstaller/process_meet
+
+  build-macos:
+    needs: [build-python-macos-x64, build-python-macos-arm64]
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Download x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: process_meet-x64
+          path: artifacts/x64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: process_meet-arm64
+          path: artifacts/arm64
+
+      - name: Create universal Python binary with lipo
+        run: |
+          lipo -create artifacts/x64/process_meet artifacts/arm64/process_meet -output python/process_meet
+          chmod +x python/process_meet
+          file python/process_meet
+          lipo -info python/process_meet
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Build app (webpack)
+        env:
+          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
+        run: npm run build
+
+      - name: Build and publish DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --universal --publish always

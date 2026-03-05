@@ -35,9 +35,11 @@ class PythonManager {
    */
   private resolvePath(scriptName: string): { command: string; args: string[] } {
     if (app.isPackaged) {
-      // Production: run bundled .exe
-      const exePath = path.join(process.resourcesPath, 'python', scriptName.replace(/\.py$/, '.exe'));
-      return { command: exePath, args: [] };
+      // Production: run bundled binary (.exe on Windows, bare name on macOS/Linux)
+      const baseName = scriptName.replace(/\.py$/, '');
+      const binaryName = process.platform === 'win32' ? `${baseName}.exe` : baseName;
+      const binaryPath = path.join(process.resourcesPath, 'python', binaryName);
+      return { command: binaryPath, args: [] };
     } else {
       // Development: use shared project root
       const projectRoot = getProjectRoot();
@@ -60,6 +62,7 @@ class PythonManager {
     return new Promise((resolve, reject) => {
       const proc = spawn(resolved.command, [...resolved.args, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONUTF8: '1' },
       });
 
       let stdout = '';
