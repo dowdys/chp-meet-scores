@@ -26,14 +26,14 @@ mac:
   target:
     - target: dmg
       arch:
-        - universal
+        - arm64
+        - x64
   icon: assets/icon.png
   category: public.app-category.business
   darkModeSupport: true
   hardenedRuntime: false
   gatekeeperAssess: false
   identity: null
-  x64ArchFiles: "Contents/Resources/python/process_meet"
 
 dmg:
   title: "Gymnastics Meet Scores"

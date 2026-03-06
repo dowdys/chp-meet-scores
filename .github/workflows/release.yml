@@ -129,13 +129,6 @@ jobs:
           name: process_meet-arm64
           path: artifacts/arm64
 
-      - name: Create universal Python binary with lipo
-        run: |
-          lipo -create artifacts/x64/process_meet artifacts/arm64/process_meet -output python/process_meet
-          chmod +x python/process_meet
-          file python/process_meet
-          lipo -info python/process_meet
-
       - name: Install Node.js dependencies
         run: npm ci
 
@@ -144,7 +137,26 @@ jobs:
           UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
         run: npm run build
 
-      - name: Build and publish DMG
+      # Build arm64 DMG with arm64 process_meet binary
+      - name: Place arm64 binary
+        run: |
+          cp artifacts/arm64/process_meet python/process_meet
+          chmod +x python/process_meet
+          file python/process_meet
+
+      - name: Build and publish arm64 DMG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac --universal --publish always
+        run: npx electron-builder --mac --arm64 --publish always
+
+      # Build x64 DMG with x64 process_meet binary
+      - name: Place x64 binary
+        run: |
+          cp artifacts/x64/process_meet python/process_meet
+          chmod +x python/process_meet
+          file python/process_meet
+
+      - name: Build and publish x64 DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --x64 --publish always
