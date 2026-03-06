@@ -43,6 +43,7 @@ export interface ElectronAPI {
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
+  onUpdateProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
   onUpdateReady: (callback: () => void) => () => void;
   restartAndUpdate: () => Promise<void>;
 }
@@ -121,6 +122,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   checkForUpdates: () => {
     return ipcRenderer.invoke('check-for-updates');
+  },
+  onUpdateProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+      callback(progress);
+    };
+    ipcRenderer.on('update-progress', handler);
+    return () => { ipcRenderer.removeListener('update-progress', handler); };
   },
   onUpdateReady: (callback: () => void) => {
     const handler = () => { callback(); };

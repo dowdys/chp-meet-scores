@@ -363,11 +363,27 @@ function setupIPC(): void {
 
   // Check for updates
   let updateDownloaded = false;
+  let updateTriggeredByUser = false;
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('update-progress', {
+        percent: Math.round(progress.percent),
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total,
+      });
+    }
+  });
   autoUpdater.on('update-downloaded', () => {
     updateDownloaded = true;
-    // Notify the renderer so the UI updates immediately
     if (mainWindow) {
       mainWindow.webContents.send('update-ready');
+    }
+    // If the user manually triggered the check, auto-relaunch after a short delay
+    if (updateTriggeredByUser) {
+      setTimeout(() => {
+        autoUpdater.quitAndInstall();
+      }, 1500);
     }
   });
 
@@ -383,12 +399,15 @@ function setupIPC(): void {
       return { status: 'ready', message: 'Update is ready to install.' };
     }
     try {
+      updateTriggeredByUser = true;
       const result = await autoUpdater.checkForUpdates();
       if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
         return { status: 'available', message: `Version ${result.updateInfo.version} is available and downloading.` };
       }
+      updateTriggeredByUser = false;
       return { status: 'current', message: `You are on the latest version (${app.getVersion()}).` };
     } catch (err) {
+      updateTriggeredByUser = false;
       const msg = err instanceof Error ? err.message : String(err);
       return { status: 'error', message: `Could not check for updates: ${msg}` };
     }

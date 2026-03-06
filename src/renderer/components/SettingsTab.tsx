@@ -14,15 +14,22 @@ const SettingsTab: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
 
   useEffect(() => {
     loadSettings();
     window.electronAPI.getVersion().then((v: string) => setAppVersion(v)).catch(() => {});
-    const cleanup = window.electronAPI.onUpdateReady(() => {
+    const cleanupReady = window.electronAPI.onUpdateReady(() => {
       setUpdateStatus('ready');
+      setUpdateProgress(100);
     });
-    return cleanup;
+    const cleanupProgress = window.electronAPI.onUpdateProgress((progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+      setUpdateProgress(progress.percent);
+      const mbPerSec = (progress.bytesPerSecond / 1024 / 1024).toFixed(1);
+      setUpdateStatus(`Downloading... ${progress.percent}% (${mbPerSec} MB/s)`);
+    });
+    return () => { cleanupReady(); cleanupProgress(); };
   }, []);
 
   const loadSettings = async () => {
@@ -240,25 +247,37 @@ const SettingsTab: React.FC = () => {
           className="update-button"
           onClick={async () => {
             setUpdateStatus('Checking...');
+            setUpdateProgress(null);
             try {
               const result = await window.electronAPI.checkForUpdates();
-              setUpdateStatus(result.status === 'ready' ? 'ready' : result.message);
+              if (result.status === 'ready') {
+                setUpdateStatus('ready');
+                setUpdateProgress(100);
+              } else {
+                setUpdateStatus(result.message);
+              }
             } catch {
               setUpdateStatus('Could not check for updates.');
             }
           }}
+          disabled={updateProgress !== null && updateProgress < 100}
         >
           Check for Updates
         </button>
+        {updateProgress !== null && updateProgress < 100 && (
+          <div className="update-progress-container">
+            <div className="update-progress-bar">
+              <div className="update-progress-fill" style={{ width: `${updateProgress}%` }} />
+            </div>
+            <span className="update-progress-text">{updateStatus}</span>
+          </div>
+        )}
         {updateStatus === 'ready' ? (
-          <button
-            className="restart-update-button"
-            onClick={() => window.electronAPI.restartAndUpdate()}
-          >
-            Restart &amp; Update Now
-          </button>
+          <span className="update-status" style={{ color: '#27ae60' }}>
+            Update downloaded — restarting automatically...
+          </span>
         ) : (
-          updateStatus && <span className="update-status">{updateStatus}</span>
+          updateProgress === null && updateStatus && <span className="update-status">{updateStatus}</span>
         )}
       </div>
     </div>
