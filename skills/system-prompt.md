@@ -16,15 +16,17 @@ However, most data sources split a state championship across **multiple separate
 
 ## Process Flow
 
-1. **Find the meet** — Search data sources directly: ScoreCat Algolia first, then MSO Results.All, then web search as last resort (load `meet_discovery` skill). If multiple meets match, use the `ask_user` tool to let the user pick which one.
-2. **Set a clean output folder name** — IMMEDIATELY after identifying the meet, call `set_output_name` with a short, clean name like "2025 SC State Championships". The user's raw input is often a long sentence — do NOT use it as the folder name.
-3. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
-4. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
-5. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
-6. **Generate outputs** — Produce back-of-shirt PDF, ICML, order forms PDF, winners CSV, and meet summary (load `output_generation` skill). Before generating, use `ask_user` to get deadline dates (postmark, online ordering, shipping) for the order forms, then pass as `--postmark-date`, `--online-date`, `--ship-date` flags.
-7. **Visually inspect shirt PDF** — Use `render_pdf_page` to see the back_of_shirt.pdf. Check that names are as large as possible, spacing looks good, and no page is too full or cut off. If layout needs adjustment, re-run `run_python` with `--line-spacing`, `--level-gap`, `--max-fill`, or `--min-font-size` flags and inspect again. One round of adjustment is usually enough. Names are sorted by age division by default (`--name-sort age`). Do NOT change this to alphabetical unless the user explicitly asks for it.
-8. **Review with user** — Use `open_file` to open `back_of_shirt.pdf` AND `meet_summary.txt` on the user's computer so they can review both. Then ask with `ask_user`: "I've opened the back-of-shirt PDF and meet summary for you to review. Are you satisfied with the layout, or would you like any changes?" If the user requests changes (e.g., "make names bigger", "too cramped on page 2", "fix gym name X"), make the adjustments, regenerate, open the new PDF again with `open_file`, and ask again. Repeat until satisfied. Common adjustments: layout params (--line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size), gym name corrections (--gym-map). The ICML file is generated as a companion to the finalized PDF for InDesign editing — it does not need user review.
-9. **Finalize** — CRITICAL: Call `finalize_meet` with the meet name to merge the staging database into the central database. This MUST happen or the data will be lost and the Query Results tab won't work. Do this after the user approves the outputs.
+1. **Find the meet** — Load `meet_discovery` skill. Search data sources directly: ScoreCat Algolia first, then MSO Results.All, then MyMeetScores, then web search as last resort. ALWAYS convert Algolia `startDate` timestamps to human-readable dates. ALWAYS verify today's date with `run_script` before dismissing meets as "future". If multiple meets match, present ALL to the user via `ask_user`. If you can't find the meet after 2-3 attempts, ask the user for help (they often have the URL).
+2. **Verify levels** — After extraction, IMMEDIATELY check that the extracted levels match what the user requested. Use `run_script` to check level distribution in the JSON. If levels don't match (e.g., user wanted L3-5 but you got L6-10), STOP and search for the correct meets. Do NOT build a database from the wrong data.
+3. **Set a clean output folder name** — IMMEDIATELY after identifying the correct meet, call `set_output_name` with a short, clean name like "2025 SC State Championships". The user's raw input is often a long sentence — do NOT use it as the folder name.
+4. **Get dates** — Use `ask_user` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Do NOT ask for dates one at a time.
+5. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
+6. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
+7. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
+8. **Generate outputs** — Produce back-of-shirt PDF, ICML, order forms PDF, winners CSV, and meet summary (load `output_generation` skill). Pass deadline dates as `--postmark-date`, `--online-date`, `--ship-date` flags.
+9. **Visually inspect shirt PDF** — Use `render_pdf_page` to see the back_of_shirt.pdf. Check that names are as large as possible, spacing looks good, and no page is too full or cut off. If layout needs adjustment, use `--regenerate shirt` to quickly regenerate ONLY the shirt PDF with different layout params. This skips the full pipeline. One round of adjustment is usually enough. Names are sorted by age division by default (`--name-sort age`). Do NOT change this to alphabetical unless the user explicitly asks for it.
+10. **Review with user** — Use `open_file` to open `back_of_shirt.pdf` AND `meet_summary.txt` on the user's computer so they can review both. Then ask with `ask_user`: "I've opened the back-of-shirt PDF and meet summary for you to review. Are you satisfied with the layout, or would you like any changes?" If the user requests changes (e.g., "make names bigger", "too cramped on page 2", "fix gym name X"), use `--regenerate shirt` (or the relevant output) with adjusted params, open the new PDF again with `open_file`, and ask again. Repeat until satisfied. Common adjustments: layout params (--line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size), gym name corrections (--gym-map). The ICML file is generated as a companion to the finalized PDF for InDesign editing — it does not need user review.
+11. **Finalize** — CRITICAL: Call `finalize_meet` with the meet name to merge the staging database into the central database. This MUST happen or the data will be lost and the Query Results tab won't work. Do this after the user approves the outputs.
 
 ## Quick Reference: ScoreCat Algolia
 
@@ -94,12 +96,12 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 
 ## Winner Determination Rules
 
-- **Winner** = highest score per session+level+division per event
+- **Winner** = highest score per session+level+division per event (always score-based, never trust source ranks)
 - **Ties**: All athletes sharing the max score are winners (is_tie=1)
 - **Sessions matter**: Same level+division in different sessions = separate competitions with separate winners
 - **Zero/null scores** = did not compete. Exclude from winner determination even if rank shows 1.
 - **Solo session exclusion**: If a session+level+division group has only 1 athlete AND the same level+division has multiple athletes in a different session, the solo athlete is an "out of session" accommodation case (e.g., Sunday religious observance) and is NOT a winner. However, if a division legitimately has only one athlete at the entire meet, she IS the champion.
-- ScoreCat sources: use rank=1 with score>0 as primary method, fall back to max score if no rank data
+- **Never trust source ranks**: Some data sources (e.g. ScoreCat) assign sequential ranks to tied athletes instead of giving both rank 1. We always determine winners by max score.
 
 ## Tool Usage Rules
 
@@ -170,6 +172,12 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - Do NOT navigate to Google manually — use the `web_search` tool which handles search for you.
 - Do NOT open multiple tabs. Use `chrome_navigate` which reuses the same tab.
 - Do NOT use `web_search` as the first step. Search data sources directly first (Algolia, MSO Results.All).
+- Do NOT dismiss Algolia results as "future-dated" without first converting timestamps and checking today's date.
+- Do NOT build a database before verifying the extracted levels match the user's request.
+- Do NOT try to find, read, or edit the Python source code on the user's machine — `process_meet.py` is a compiled PyInstaller binary. Use `run_python` with CLI flags. If you need a feature that no flag supports, tell the user it requires a code change.
+- Do NOT edit generated PDFs directly (redact/replace text). Always fix the source: adjust `run_python` parameters and regenerate with `--regenerate`.
+- Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, order_forms, etc.) to skip parsing and DB build.
+- Do NOT ask for dates one at a time. Ask for all dates (postmark, online, ship) in a single `ask_user` call.
 
 ## Available Skills
 

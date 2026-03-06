@@ -9,6 +9,15 @@ Find gymnastics meet results online given a meet name.
 - Priority order: ScoreCat (Algolia) → MSO (Results.All) → MyMeetScores → Web search (last resort).
 - If multiple meets match (e.g., "Dev State" + "Xcel State"), use the `ask_user` tool with the matches as options so the user can pick. Never silently combine separate meets.
 
+## BEFORE YOU START: Establish Context
+
+Before searching, determine the following. If the user's request is ambiguous, use `ask_user` to clarify:
+
+1. **Today's date**: Use `run_script` to check: `import datetime; print(datetime.date.today())`. Do NOT assume you know the date — verify it. This prevents mistakes with "future" meets that have already happened.
+2. **Approximate meet date**: If you're unsure when the meet took place, ask the user. They often know the month/year even if not the exact date. This helps filter search results.
+3. **State**: Usually in the meet name, but confirm if ambiguous.
+4. **Levels/programs**: The user may want only certain levels (e.g., "L3-5 and Xcel Bronze-Silver"). Note this for later verification.
+
 ## Step 1: ScoreCat — Algolia Search (headless, fastest)
 
 ScoreCat uses Algolia for meet search. It's a public API, no browser needed.
@@ -35,7 +44,36 @@ Each hit returns: `meet_id`, `name`, `state`, `startDate`, `endDate`, `hostGym`,
 - If found, extract `meet_id` and load `scorecat_extraction` skill
 - See `skills/details/scorecat_schema.md` for full Algolia schema
 
+### CRITICAL: Handling Multiple ScoreCat Results
+
+When Algolia returns multiple hits:
+
+1. **Convert ALL `startDate` timestamps to human-readable dates** using `run_script`:
+   ```python
+   import datetime
+   ts = 1765540800000 / 1000
+   dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+   print(f"{dt.strftime('%B %d, %Y')}")
+   ```
+2. **Never dismiss a meet as "future" without checking today's date first.**
+3. **Group related meets** — state championships are almost always split into color-coded sessions (BLUE, RED, WHITE) or by level range. Same director + same dates = same championship.
+4. **Present ALL plausible matches to the user** via `ask_user`. Include the date, director, host gym, and meet name for each. Let the user pick.
+
 **Important**: A state championship is almost always split across multiple meets on every data source (e.g., "Dev State" for levels 1-5, "Levels 6-10 State", "Xcel State"). A complete championship should cover Levels 1-10 and Xcel Bronze/Silver/Gold/Platinum/Diamond/Sapphire (some states skip lower levels). Present ALL matching meets to the user via `ask_user` so they can select which ones to combine. Each selected meet gets extracted separately but feeds into the same database.
+
+### After Extraction: Verify Levels
+
+After `scorecat_extract` returns data, **immediately verify** that the levels match what the user requested. Use `run_script` to check levels in the extracted JSON:
+```python
+import json
+with open('<extract_file>') as f:
+    data = json.load(f)
+from collections import Counter
+levels = Counter(a.get('level', '') for a in data)
+print("Levels found:", dict(levels))
+```
+
+If the levels don't match the user's request (e.g., user wanted L3-5 but you got L6-10), **stop and search for the correct meets** before building the database. Do NOT build a database from the wrong meets.
 
 ## Step 2: MSO — Results.All Page (headless or browser)
 
@@ -96,7 +134,9 @@ https://www.mymeetscores.com/gym.pl?list=2&year=2025&state=MI
 
 The page returns an HTML table with all completed meets for that state/year. Parse it to find matching meet names and extract the `meetid` from links like `/meet.pl?meetid=92680`.
 
-If found, load `mymeetscores_extraction` skill. The meetid is what you need.
+**Important**: Check if the MyMeetScores meet actually has scores loaded. Navigate to the meet page and check — some meets are listed but have "We have not yet received scores from this meet." If that's the case, look for a link to where scores are posted (often links back to ScoreCat or MSO).
+
+If found with scores, load `mymeetscores_extraction` skill. The meetid is what you need.
 
 ## Step 4: Web Search (last resort)
 
@@ -107,6 +147,34 @@ web_search: "2025 Alabama State Championships" gymnastics results scores
 ```
 
 Look for links to known platforms or new sources. If found on an unknown site, load `general_scraping` skill.
+
+## Asking the User for Help
+
+If after 2-3 search attempts you haven't found the meet, **use `ask_user`**:
+```
+"I'm having trouble finding the results for [meet name]. Could you help with any of the following?"
+Options:
+- "I have a direct URL to the results"
+- "The meet was on [date] — try searching for that"
+- "Try searching for [alternative name]"
+- "Let me look it up and get back to you"
+```
+
+The user often has the meet URL bookmarked or knows exactly where to find it. Don't burn 10+ iterations searching blindly.
+
+## Asking for Dates (All at Once)
+
+When you need deadline dates for order forms, ask for ALL dates in a single `ask_user` call:
+
+```
+"I need the order form deadline dates. What are they?"
+Options:
+- "Postmark: [date], Online: [date], Ship: [date]"
+- "I'll enter them — give me a moment"
+- "Use placeholder dates for now"
+```
+
+Do NOT ask for dates one at a time across multiple ask_user calls.
 
 ## State Abbreviation Map
 | State | Abbrev | State | Abbrev |

@@ -122,7 +122,26 @@ The `process_meet.py` script accepts:
 - `--online-date` — Online ordering deadline date for order forms (e.g. "March 20, 2026"). Defaults to "TBD".
 - `--ship-date` — Shipping date for order forms (e.g. "April 5, 2026"). Defaults to "TBD".
 - PDFs are always generated; no `--title-line` flags needed
-- **Important**: Use `ask_user` to get deadline dates from the user before generating order forms
+- **Important**: Use `ask_user` to get ALL deadline dates from the user in a single prompt before generating order forms
+
+## Selective Regeneration (`--regenerate`)
+
+Use `--regenerate` to skip parsing/normalization/DB build and regenerate specific outputs from the existing database. **This is MUCH faster** and should be used for layout adjustments.
+
+```
+--regenerate shirt              # just back_of_shirt.pdf
+--regenerate shirt icml         # back_of_shirt.pdf + .icml
+--regenerate order_forms        # just order_forms.pdf
+--regenerate all                # all outputs (but skip DB build)
+```
+
+Available values: `shirt`, `icml`, `order_forms`, `order_txt`, `csv`, `gym_highlights`, `summary`, `all`.
+
+**When to use**: Adjusting layout params (font size, spacing, fill), changing dates on order forms, or any change that doesn't affect the underlying data.
+
+**When NOT to use**: When the source data or gym map has changed — run the full pipeline instead.
+
+**IMPORTANT**: Never try to edit a generated PDF directly (using PyMuPDF redaction, text replacement, etc.). Always regenerate with the correct parameters.
 
 ## Copy to Windows Downloads
 After generating all outputs:

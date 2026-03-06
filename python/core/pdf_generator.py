@@ -29,6 +29,7 @@ COL_CENTERS = [72, 192, 306, 420, 546]
 RED = (1, 0, 0)
 WHITE = (1, 1, 1)
 BLACK = (0, 0, 0)
+YELLOW_HL = (1.0, 1.0, 0.0)
 
 # Xcel level mapping (abbreviation and full-name forms)
 XCEL_MAP = {
@@ -123,7 +124,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
         for group in groups:
             nums = sorted([int(lv) for lv in group if lv.isdigit()])
             if len(nums) >= 2:
-                label = f'LEVELS {nums[-1]}-{nums[0]}'
+                label = f'LEVELS {nums[0]}-{nums[-1]}'
             elif len(nums) == 1:
                 label = f'LEVEL {nums[0]}'
             else:
@@ -447,13 +448,14 @@ def _fit_font_size(levels, data,
                    level_gap=LEVEL_GAP,
                    max_page_fill=MAX_PAGE_FILL,
                    min_name_size=MIN_NAME_SIZE,
-                   max_font_size=DEFAULT_NAME_SIZE):
+                   max_font_size=DEFAULT_NAME_SIZE,
+                   names_start_y=NAMES_START_Y):
     """Find the largest font size that fits all levels on page.
 
     Tries max_font_size down to min_name_size in 0.1 steps.
     Targets max_page_fill fraction of available space.
     """
-    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * max_page_fill
+    available = (NAMES_BOTTOM_Y - names_start_y) * max_page_fill
     min_10x = int(min_name_size * 10)
     max_10x = int(max_font_size * 10)
 
@@ -572,30 +574,49 @@ def _draw_names(page, y, col_idx, names, font_size, line_height,
 
     Args:
         highlight_names: Optional set of name strings. Names in this set
-            render in bold instead of regular font.
+            render in bold with a yellow highlight rectangle behind them.
         star_names: Optional set of name strings. Names in this set get
-            a red ★ drawn just to the left of the name text.
+            a large red ★ drawn just to the left of the name text.
     """
     cx = COL_CENTERS[col_idx]
     current_y = y
     for name in names:
-        if highlight_names and name in highlight_names:
-            font = FONT_BOLD
-        else:
-            font = FONT_REGULAR
+        is_highlighted = highlight_names and name in highlight_names
+        font = FONT_BOLD if is_highlighted else FONT_REGULAR
         tw = fitz.get_text_length(name, fontname=font, fontsize=font_size)
         name_x = cx - tw / 2
-        # Draw red star to the left of the name if in star_names
+        # Draw yellow highlight rectangle behind highlighted names
+        if is_highlighted:
+            pad_x = 2
+            rect = fitz.Rect(name_x - pad_x,
+                             current_y - font_size * 0.82,
+                             name_x + tw + pad_x,
+                             current_y + font_size * 0.25)
+            page.draw_rect(rect, fill=YELLOW_HL, color=YELLOW_HL, width=0)
+        # Draw large red star polygon to the left of the name
         if star_names and name in star_names:
-            star_char = '\u2605'
-            star_w = fitz.get_text_length(star_char, fontname=FONT_REGULAR,
-                                          fontsize=font_size)
-            page.insert_text(fitz.Point(name_x - star_w - 2, current_y),
-                             star_char, fontname=FONT_REGULAR,
-                             fontsize=font_size, color=RED)
+            star_r = font_size * 0.65
+            star_cx = name_x - star_r - 3
+            star_cy = current_y - font_size * 0.3
+            _draw_star_polygon(page, star_cx, star_cy, star_r, star_r * 0.4)
         page.insert_text(fitz.Point(name_x, current_y), name,
                          fontname=font, fontsize=font_size, color=BLACK)
         current_y += line_height
+
+
+def _draw_star_polygon(page, cx, cy, outer_r, inner_r, color=RED):
+    """Draw a filled 5-pointed star as a polygon."""
+    points = []
+    for i in range(10):
+        angle = math.radians(90 + i * 36)
+        r = outer_r if i % 2 == 0 else inner_r
+        x = cx + r * math.cos(angle)
+        y = cy - r * math.sin(angle)
+        points.append(fitz.Point(x, y))
+    shape = page.new_shape()
+    shape.draw_polyline(points + [points[0]])
+    shape.finish(fill=color, color=color)
+    shape.commit()
 
 
 def _draw_copyright(page):
@@ -738,7 +759,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
         for group in groups:
             nums = sorted([int(lv) for lv in group if lv.isdigit()])
             if len(nums) >= 2:
-                label = f'LEVELS {nums[-1]}-{nums[0]}'
+                label = f'LEVELS {nums[0]}-{nums[-1]}'
             elif len(nums) == 1:
                 label = f'LEVEL {nums[0]}'
             else:
@@ -756,17 +777,25 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     doc = fitz.open()
 
+    # Gym highlights layout: shifted down to accommodate gym name below title
+    gh_gym_name_y = 68
+    gh_oval_y = 92
+    gh_headers_y = 116
+    gh_names_start = 132
+
     for gym in all_gyms:
         # Build highlight set: all athletes from this gym
         highlight_names = {name for name, g in name_to_gym.items() if g == gym}
 
-        # Dynamic font size for arched gym name
+        # Dynamic font size for gym name line (shrink if name is very long)
         gym_display = gym.upper()
-        arch_font_size = 10
-        if len(gym_display) > 20:
-            arch_font_size = 8
-        elif len(gym_display) > 14:
-            arch_font_size = 9
+        gym_name_large = 14
+        gym_name_small = 10
+        gym_w = _measure_small_caps_width(gym_display, gym_name_large, gym_name_small)
+        while gym_w > PAGE_W - 80 and gym_name_large > 9:
+            gym_name_large -= 1
+            gym_name_small = round(gym_name_large * 0.72)
+            gym_w = _measure_small_caps_width(gym_display, gym_name_large, gym_name_small)
 
         for label, group_levels in page_groups:
             # Only include pages that have at least one highlighted athlete
@@ -776,14 +805,6 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
             page = doc.new_page(width=PAGE_W, height=PAGE_H)
 
-            # Arched gym name in top-left corner
-            _draw_arched_text(page, 65, 55, gym_display, arch_font_size,
-                              radius=45, start_angle_deg=-60, sweep_deg=120)
-
-            # Arched gym name in top-right corner
-            _draw_arched_text(page, PAGE_W - 65, 55, gym_display, arch_font_size,
-                              radius=45, start_angle_deg=-60, sweep_deg=120)
-
             # Title lines (small caps)
             _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
                              f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
@@ -791,25 +812,31 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                              f'STATE CHAMPIONS OF {state.upper()}',
                              TITLE2_LARGE, TITLE2_SMALL)
 
-            # Red oval with group label
-            _draw_oval(page, label, OVAL_CENTER_Y)
+            # Gym name centered below title in red
+            _draw_small_caps(page, PAGE_W / 2, gh_gym_name_y,
+                             gym_display, gym_name_large, gym_name_small,
+                             color=RED)
 
-            # Column headers with red underlines
+            # Red oval with group label (shifted down)
+            _draw_oval(page, label, gh_oval_y)
+
+            # Column headers with red underlines (shifted down)
             for i, header in enumerate(COL_HEADERS):
-                _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
+                _draw_small_caps(page, COL_CENTERS[i], gh_headers_y,
                                  header, HEADER_LARGE, HEADER_SMALL)
                 hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
-                line_y = HEADERS_Y + 3
+                line_y = gh_headers_y + 3
                 page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
                                fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
                                color=RED, width=0.5)
 
-            # Determine best font size
-            font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+            # Determine best font size (using shifted start position)
+            font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
+                                        names_start_y=gh_names_start)
             line_height = font_size * lhr
 
-            # Draw each level's names with highlighting
-            y = NAMES_START_Y
+            # Draw each level's names with yellow highlighting
+            y = gh_names_start
             for level in group_levels:
                 y += lgap
                 if level in XCEL_MAP:

@@ -171,6 +171,7 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
     # ========================================
     # Phase 4: Manual gym-map (case-insensitive)
     # ========================================
+    gym_map_lower: dict[str, str] = {}
     if gym_map_path:
         try:
             with open(gym_map_path, 'r') as f:
@@ -195,6 +196,17 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
             print(f"Warning: Gym map file not found: {gym_map_path}")
         except json.JSONDecodeError as e:
             print(f"Warning: Invalid JSON in gym map file: {e}")
+
+    # Suppress potential duplicates that are already handled by gym map
+    if gym_map_lower:
+        mapped_keys = set(gym_map_lower.keys())
+        mapped_values = set(v.lower().strip() for v in gym_map_lower.values())
+        potential_duplicates = [
+            (g1, g2, ratio) for g1, g2, ratio in potential_duplicates
+            if g1.lower().strip() not in mapped_keys
+            and g2.lower().strip() not in mapped_keys
+            and not (g1.lower().strip() in mapped_values and g2.lower().strip() in mapped_values)
+        ]
 
     return {
         'normalized_athletes': athletes,

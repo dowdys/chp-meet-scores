@@ -79,6 +79,10 @@ def main():
                         help='Online ordering deadline date for order forms (e.g. "March 20, 2026")')
     parser.add_argument('--ship-date', default='TBD',
                         help='Shipping date for order forms (e.g. "April 5, 2026")')
+    parser.add_argument('--regenerate', nargs='*', default=None,
+                        help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
+                             'Values: shirt, icml, order_forms, order_txt, csv, gym_highlights, summary, all. '
+                             'E.g. --regenerate shirt icml  or  --regenerate all')
 
     args = parser.parse_args()
 
@@ -94,46 +98,64 @@ def main():
         year=args.year,
     )
 
-    # Select adapter
-    if args.source == 'scorecat':
-        adapter = ScoreCatAdapter()
-    elif args.source == 'mso_pdf':
-        adapter = PdfAdapter()
-    elif args.source == 'mso_html':
-        adapter = HtmlAdapter(strip_parenthetical=args.strip_parenthetical)
-    elif args.source == 'generic':
-        adapter = GenericAdapter()
-    else:
-        print(f"Unknown source type: {args.source}")
-        sys.exit(1)
-
-    # Parse data (supports multiple files via nargs='+')
-    if len(args.data) == 1:
-        print(f"Parsing {args.data[0]}...")
-        athletes = adapter.parse(args.data[0])
-        print(f"Parsed {len(athletes)} athletes")
-    else:
-        all_athletes = []
-        for data_path in args.data:
-            print(f"Parsing {data_path}...")
-            batch = adapter.parse(data_path)
-            print(f"  -> {len(batch)} athletes")
-            all_athletes.extend(batch)
-        athletes = all_athletes
-        print(f"Total: {len(athletes)} athletes from {len(args.data)} files")
-
-    # Normalize gym names
-    result = normalize_gyms(athletes, gym_map_path=args.gym_map)
-    athletes = result['normalized_athletes']
-    print_gym_report(result['gym_report'])
-
-    # Build database
     os.makedirs(args.output, exist_ok=True)
     db_path = args.db if args.db else os.path.join(args.output, 'meet_results.db')
-    # Ensure the db directory exists
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    print(f"Building database at {db_path}...")
-    build_database(db_path, config, athletes)
+
+    # --regenerate mode: skip parsing/DB build, just regenerate specified outputs
+    regen = args.regenerate
+    if regen is not None:
+        # --regenerate with no values means 'all'
+        if len(regen) == 0:
+            regen = ['all']
+        regen_set = set(regen)
+        do_all = 'all' in regen_set
+
+        if not os.path.exists(db_path):
+            print(f"Error: Database not found at {db_path}. Run full pipeline first.")
+            sys.exit(1)
+
+        print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
+    else:
+        regen_set = set()
+        do_all = True  # Full pipeline generates everything
+
+        # Select adapter
+        if args.source == 'scorecat':
+            adapter = ScoreCatAdapter()
+        elif args.source == 'mso_pdf':
+            adapter = PdfAdapter()
+        elif args.source == 'mso_html':
+            adapter = HtmlAdapter(strip_parenthetical=args.strip_parenthetical)
+        elif args.source == 'generic':
+            adapter = GenericAdapter()
+        else:
+            print(f"Unknown source type: {args.source}")
+            sys.exit(1)
+
+        # Parse data (supports multiple files via nargs='+')
+        if len(args.data) == 1:
+            print(f"Parsing {args.data[0]}...")
+            athletes = adapter.parse(args.data[0])
+            print(f"Parsed {len(athletes)} athletes")
+        else:
+            all_athletes = []
+            for data_path in args.data:
+                print(f"Parsing {data_path}...")
+                batch = adapter.parse(data_path)
+                print(f"  -> {len(batch)} athletes")
+                all_athletes.extend(batch)
+            athletes = all_athletes
+            print(f"Total: {len(athletes)} athletes from {len(args.data)} files")
+
+        # Normalize gym names
+        result = normalize_gyms(athletes, gym_map_path=args.gym_map)
+        athletes = result['normalized_athletes']
+        print_gym_report(result['gym_report'])
+
+        # Build database
+        print(f"Building database at {db_path}...")
+        build_database(db_path, config, athletes)
 
     # Auto-detect division ordering (uses DB data, caches to JSON)
     config_dir = os.path.dirname(os.path.abspath(db_path))
@@ -141,74 +163,76 @@ def main():
                                         config.state, config_dir)
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
 
-    # Generate outputs
-    orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
-    generate_order_forms(db_path, config.meet_name, orders_path)
-    print(f"Generated {orders_path}")
+    # Generate outputs (all or selected)
+    if do_all or 'order_txt' in regen_set:
+        orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
+        generate_order_forms(db_path, config.meet_name, orders_path)
+        print(f"Generated {orders_path}")
 
-    csv_path = os.path.join(args.output, 'winners_sheet.csv')
-    generate_winners_csv(db_path, config.meet_name, csv_path, division_order)
-    print(f"Generated {csv_path}")
+    if do_all or 'csv' in regen_set:
+        csv_path = os.path.join(args.output, 'winners_sheet.csv')
+        generate_winners_csv(db_path, config.meet_name, csv_path, division_order)
+        print(f"Generated {csv_path}")
 
-    # Always generate back-of-shirt PDF
-    pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
-    generate_shirt_pdf(db_path, config.meet_name, pdf_path,
-                       year=args.year, state=args.state,
-                       line_spacing=args.line_spacing,
-                       level_gap=args.level_gap,
-                       max_fill=args.max_fill,
-                       min_font_size=args.min_font_size,
-                       max_font_size=args.max_font_size,
-                       name_sort=args.name_sort)
-    print(f"Generated {pdf_path}")
+    if do_all or 'shirt' in regen_set:
+        pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
+        generate_shirt_pdf(db_path, config.meet_name, pdf_path,
+                           year=args.year, state=args.state,
+                           line_spacing=args.line_spacing,
+                           level_gap=args.level_gap,
+                           max_fill=args.max_fill,
+                           min_font_size=args.min_font_size,
+                           max_font_size=args.max_font_size,
+                           name_sort=args.name_sort)
+        print(f"Generated {pdf_path}")
 
-    # Generate ICML companion file for InDesign editing
-    icml_path = os.path.join(args.output, 'back_of_shirt.icml')
-    generate_shirt_icml(db_path, config.meet_name, icml_path,
-                        year=args.year, state=args.state,
-                        line_spacing=args.line_spacing,
-                        level_gap=args.level_gap,
-                        max_fill=args.max_fill,
-                        min_font_size=args.min_font_size,
-                        max_font_size=args.max_font_size,
-                        name_sort=args.name_sort)
-    print(f"Generated {icml_path}")
+    if do_all or 'icml' in regen_set:
+        icml_path = os.path.join(args.output, 'back_of_shirt.icml')
+        generate_shirt_icml(db_path, config.meet_name, icml_path,
+                            year=args.year, state=args.state,
+                            line_spacing=args.line_spacing,
+                            level_gap=args.level_gap,
+                            max_fill=args.max_fill,
+                            min_font_size=args.min_font_size,
+                            max_font_size=args.max_font_size,
+                            name_sort=args.name_sort)
+        print(f"Generated {icml_path}")
 
-    # Generate order forms PDF
-    order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
-    generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
-                             year=args.year, state=args.state,
-                             postmark_date=args.postmark_date,
-                             online_date=args.online_date,
-                             ship_date=args.ship_date,
-                             line_spacing=args.line_spacing,
-                             level_gap=args.level_gap,
-                             max_fill=args.max_fill,
-                             min_font_size=args.min_font_size,
-                             max_font_size=args.max_font_size,
-                             name_sort=args.name_sort)
-    print(f"Generated {order_pdf_path}")
+    if do_all or 'order_forms' in regen_set:
+        order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
+        generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
+                                 year=args.year, state=args.state,
+                                 postmark_date=args.postmark_date,
+                                 online_date=args.online_date,
+                                 ship_date=args.ship_date,
+                                 line_spacing=args.line_spacing,
+                                 level_gap=args.level_gap,
+                                 max_fill=args.max_fill,
+                                 min_font_size=args.min_font_size,
+                                 max_font_size=args.max_font_size,
+                                 name_sort=args.name_sort)
+        print(f"Generated {order_pdf_path}")
 
-    # Generate gym highlights PDF
-    gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-    generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
-                                year=args.year, state=args.state,
-                                line_spacing=args.line_spacing,
-                                level_gap=args.level_gap,
-                                max_fill=args.max_fill,
-                                min_font_size=args.min_font_size,
-                                max_font_size=args.max_font_size,
-                                name_sort=args.name_sort)
-    print(f"Generated {gym_highlights_path}")
+    if do_all or 'gym_highlights' in regen_set:
+        gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+        generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
+                                    year=args.year, state=args.state,
+                                    line_spacing=args.line_spacing,
+                                    level_gap=args.level_gap,
+                                    max_fill=args.max_fill,
+                                    min_font_size=args.min_font_size,
+                                    max_font_size=args.max_font_size,
+                                    name_sort=args.name_sort)
+        print(f"Generated {gym_highlights_path}")
 
-    # Generate meet summary report
-    summary_path = os.path.join(args.output, 'meet_summary.txt')
-    generate_meet_summary(db_path, config.meet_name, summary_path,
-                          line_spacing=args.line_spacing,
-                          level_gap=args.level_gap,
-                          max_fill=args.max_fill,
-                          max_font_size=args.max_font_size)
-    print(f"Generated {summary_path}")
+    if do_all or 'summary' in regen_set:
+        summary_path = os.path.join(args.output, 'meet_summary.txt')
+        generate_meet_summary(db_path, config.meet_name, summary_path,
+                              line_spacing=args.line_spacing,
+                              level_gap=args.level_gap,
+                              max_fill=args.max_fill,
+                              max_font_size=args.max_font_size)
+        print(f"Generated {summary_path}")
 
     print("\nDone!")
 
