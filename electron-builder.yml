@@ -33,6 +33,7 @@ mac:
   hardenedRuntime: false
   gatekeeperAssess: false
   identity: null
+  x64ArchFiles: "Contents/Resources/python/process_meet"
 
 dmg:
   title: "Gymnastics Meet Scores"
