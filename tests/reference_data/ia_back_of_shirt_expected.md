@@ -4,9 +4,9 @@
 ## Level 2
 
 ### Vault
-Hayden Feldman
-Kensley Kooima
 Olivia Ferencak
+Kensley Kooima
+Hayden Feldman
 Sloan Tiefenthaler
 
 ### Bars
@@ -16,279 +16,287 @@ Lillian Malovrh
 McKinley Collen
 
 ### Beam
-Alina Ewing
-Amelia Bernabe
 Mila Wagner
+Amelia Bernabe
+Alina Ewing
+Evelyn Chapman
 Sloan Tiefenthaler
 
 ### Floor
-Alina Ewing
 Mila Wagner
-Sloan Tiefenthaler
 Spencer Minick
+Alina Ewing
+Sloan Tiefenthaler
 
 ### All Around
-Alina Ewing
 Mila Wagner
-Sloan Tiefenthaler
 Spencer Minick
+Alina Ewing
+Sloan Tiefenthaler
 
 
 ## Level 3
 
 ### Vault
-Andjela Mercurio
-Cora Torrence
-Leah Nahm
 Lennox Kuhlman
-Lily Sheets
+Mila Hilliard
+Leah Nahm
+Cora Torrence
 Maeli Peverill
 Mila Alexander
-Mila Hilliard
+Lily Sheets
+Andjela Mercurio
 
 ### Bars
-Cora Torrence
-Corrigan Cook
-Delaney Werner
 Harper Poetting
-Lexi Pudenz
-Mallory Deutsch
 Mila Hilliard
 Ruby Steenblock
+Cora Torrence
+Delaney Werner
+Mallory Deutsch
+Corrigan Cook
+Lexi Pudenz
 
 ### Beam
-Cora Torrence
-Corrigan Cook
 Kinsley Williams
-Maeli Peverill
-Mallory Deutsch
 Mila Hilliard
 Ruby Steenblock
+Cora Torrence
+Maeli Peverill
+Mallory Deutsch
+Corrigan Cook
 Ruth Henely
 
 ### Floor
-Cora Torrence
-Maeli Peverill
-Mallory Deutsch
 Miah Jung
 Mila Hilliard
 Ruby Steenblock
-Ruth Henely
-Rynn Hahn
-
-### All Around
 Cora Torrence
-Corrigan Cook
-Kinsley Williams
 Maeli Peverill
 Mallory Deutsch
+Rynn Hahn
+Ruth Henely
+
+### All Around
+Kinsley Williams
 Mila Hilliard
 Ruby Steenblock
-Ruth Henely
+Cora Torrence
+Maeli Peverill
+Mallory Deutsch
+Corrigan Cook
 Rynn Hahn
+Ruth Henely
 
 
 ## Level 4
 
 ### Vault
-Autumn Peterson
+Stella Ruge
 Ireland Young
+Autumn Peterson
+Zoey Ruge
 Korbyn Shelton
 Lexie Gowdy
-Stella Ruge
-Zoey Ruge
 
 ### Bars
-Cece Baumhover
-Huntleigh Phillips
-Jayden Elling
-Katherine Fang
 Stella Ruge
+Jayden Elling
+Cece Baumhover
 Zoey Ruge
+Katherine Fang
+Huntleigh Phillips
+Louisa Marzen
 
 ### Beam
-Cece Baumhover
-Charlotte Florke
-Jayden Elling
-Korbyn Shelton
 Stella Ruge
+Jayden Elling
+Cece Baumhover
 Zoey Ruge
+Korbyn Shelton
+Charlotte Florke
 
 ### Floor
+Lorraine Seaba
 Adalyn Myhr
 Cece Baumhover
-Korbyn Shelton
-Lexie Gowdy
-Lorraine Seaba
 Odessa Colston
+Korbyn Shelton
+Charlotte Florke
+Lexie Gowdy
 
 ### All Around
-Cece Baumhover
+Stella Ruge
 Jayden Elling
+Cece Baumhover
+Zoey Ruge
 Korbyn Shelton
 Lexie Gowdy
-Stella Ruge
-Zoey Ruge
 
 
 ## Level 5
 
 ### Vault
+Makaia Johnson
 Avie Zelinskas
 Bronwyn Boettger
-Makaia Johnson
 
 ### Bars
+Kenzie Drewis
 Avie Zelinskas
 Ellie Retherford
-Kenzie Drewis
 
 ### Beam
+Makaia Johnson
 Avie Zelinskas
 Ellie Retherford
-Makaia Johnson
 
 ### Floor
+Romy Schechinger
 Avie Zelinskas
 Ivy Burress
-Romy Schechinger
 
 ### All Around
+Makaia Johnson
 Avie Zelinskas
 Ellie Retherford
-Makaia Johnson
 
 
 ## Level 6
 
 ### Vault
+Paxten Zmolek
 Alexis Bey
+Sadie Grimm
 Drew Kraus
 Ellie Wallukait
-Paxten Zmolek
-Sadie Grimm
 
 ### Bars
 Addelynn Jones
-Calla Mogard
-Charley Zelinskas
+Landry VanWeelden
 Layla Keo
 Reagan Neurohr
+Charley Zelinskas
+Calla Mogard
 
 ### Beam
-Charley Zelinskas
-Ellie Wallukait
 Julia Shehan
 Layla Keo
 Sadie Grimm
+Charley Zelinskas
+Ellie Wallukait
 
 ### Floor
 Addelynn Jones
 Alexis Bey
-Cassie Rouse
 Evie Nicol
 Kyla Schilling
+Cassie Rouse
 
 ### All Around
-Charley Zelinskas
-Jemma Crawford
 Julia Shehan
 Layla Keo
 Sadie Grimm
+Charley Zelinskas
+Jemma Crawford
 
 
 ## Level 7
 
 ### Vault
-Alivia Wong
 Charlee Rasmussen
 Sophia Lazutkina
+Alivia Wong
 
 ### Bars
 Jovi Reyes
-Reagan Shaw
 Sophia Lazutkina
+Reagan Shaw
 
 ### Beam
-Alivia Wong
 Charlee Rasmussen
 Lilly Lanpher
+Alivia Wong
 
 ### Floor
 Jovi Reyes
-Reagan Shaw
 Tinlee Tyler
+Reagan Shaw
 
 ### All Around
 Charlee Rasmussen
-Reagan Shaw
 Sophia Lazutkina
+Reagan Shaw
 
 
 ## Level 8
 
 ### Vault
+Madelyn Gray
 Kaylee Jackson
 Lauren Frederick
-Madelyn Gray
 
 ### Bars
+Penelope Pederson
 Kaylee Jackson
 Lauren Frederick
-Penelope Pederson
 
 ### Beam
 Jaya Robb
+Tyri Seifert
 Kaylee Jackson
 Lauren Frederick
 
 ### Floor
+Kaia Lokasari
+Madelyn Gray
 Kaylee Jackson
 Lauren Frederick
-Madelyn Gray
 
 ### All Around
+Madelyn Gray
 Kaylee Jackson
 Lauren Frederick
-Madelyn Gray
 
 
 ## Level 9
 
 ### Vault
-Bailey Madura
 Zoe Plummer
+Bailey Madura
 
 ### Bars
 Ellie Laubenthal
+Eva Greubel
 Emily Beyer
+Kalei Van Horn
 
 ### Beam
-Jordyn Gassmann
 Zoe Plummer
+Jordyn Gassmann
 
 ### Floor
-Lucy Purcell
 Zoe Plummer
+Lucy Purcell
 
 ### All Around
-Bailey Madura
 Zoe Plummer
+Bailey Madura
 
 
 ## Level 10
 
 ### Vault
-Ava Baumhover
 Brynley Applegate
+Ava Baumhover
 
 ### Bars
 Brooklyn Banning
 Christiane Popovich
 
 ### Beam
-Aubrey Gilliland
 Brynley Applegate
+Aubrey Gilliland
 
 ### Floor
 Mary Vetter

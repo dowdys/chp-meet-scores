@@ -1,21 +1,11 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
-import { configStore } from '../config-store';
+import { getDataDir, getOutputDir } from '../paths';
 import { getStagingDbPath } from './python-tools';
 
-function getProjectRoot(): string {
-  return app.isPackaged ? process.resourcesPath! : path.join(app.getAppPath(), '..', '..');
-}
-
 function getCentralDbPath(): string {
-  return path.join(getProjectRoot(), 'data', 'chp_results.db');
-}
-
-function getOutputDir(meetName: string): string {
-  const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
-  return path.join(outputBase, meetName);
+  return path.join(getDataDir(), 'chp_results.db');
 }
 
 /**

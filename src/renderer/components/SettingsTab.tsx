@@ -204,7 +204,12 @@ const SettingsTab: React.FC = () => {
             value={settings.outputDir}
             onChange={e => updateSetting('outputDir', e.target.value)}
           />
-          <button className="browse-button" onClick={() => {/* TODO: native folder dialog */}}>
+          <button className="browse-button" onClick={async () => {
+            const result = await window.electronAPI.browseFolder();
+            if (!result.cancelled && result.path) {
+              updateSetting('outputDir', result.path);
+            }
+          }}>
             Browse
           </button>
         </div>
@@ -225,6 +230,12 @@ const SettingsTab: React.FC = () => {
 
       <div className="settings-footer">
         <p className="version-info">Gymnastics Meet Scores v{appVersion}</p>
+        <button
+          className="logs-button"
+          onClick={() => window.electronAPI.openLogsFolder()}
+        >
+          View Process Logs
+        </button>
         <button
           className="update-button"
           onClick={async () => {

@@ -108,7 +108,7 @@ Continue until all athletes are retrieved. Concatenate all chunks and save to a 
 
 ## Step 5: Process with Python
 
-Run the Python adapter: `run_python --adapter scorecat --input athletes.json --meet-name "MEET NAME" --state "STATE"`
+Run the Python adapter: `run_python --source scorecat --data athletes.json --meet "MEET NAME" --state "STATE"`
 
 ## WAG Event Mapping (Women's Artistic Gymnastics)
 

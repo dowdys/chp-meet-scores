@@ -95,7 +95,7 @@ class TestIowaDatabase:
                     (IA_CONFIG.meet_name,))
         count = cur.fetchone()[0]
         conn.close()
-        assert count == 181, f"Expected 181 winners, got {count}"
+        assert count == 189, f"Expected 189 winners, got {count}"
 
     def test_has_state_columns(self, ia_db):
         db_path, _ = ia_db
@@ -267,11 +267,7 @@ class TestUtahDatabase:
 
 
 class TestUtahOutputs:
-    """Test Utah outputs against the co_*_expected files.
-
-    The expected output files with 'co_' prefix were actually generated
-    from Utah data using the event-first format prototype.
-    """
+    """Test Utah outputs (event-first format)."""
     def test_back_of_shirt(self, ut_db, tmp_path):
         db_path, _ = ut_db
         output = str(tmp_path / 'ut_back_of_shirt.md')
@@ -279,7 +275,7 @@ class TestUtahOutputs:
             db_path, UT_CONFIG.meet_name, output,
             format='event_first'
         )
-        expected_path = os.path.join(REFERENCE_DIR, 'co_back_of_shirt_expected.md')
+        expected_path = os.path.join(REFERENCE_DIR, 'ut_back_of_shirt_expected.md')
         with open(output) as f:
             actual = f.read()
         with open(expected_path) as f:
@@ -290,7 +286,7 @@ class TestUtahOutputs:
         db_path, _ = ut_db
         output = str(tmp_path / 'ut_order_forms.txt')
         generate_order_forms(db_path, UT_CONFIG.meet_name, output)
-        expected_path = os.path.join(REFERENCE_DIR, 'co_order_forms_expected.txt')
+        expected_path = os.path.join(REFERENCE_DIR, 'ut_order_forms_expected.txt')
         with open(output) as f:
             actual = f.read()
         with open(expected_path) as f:
@@ -302,7 +298,7 @@ class TestUtahOutputs:
         output = str(tmp_path / 'ut_winners.csv')
         generate_winners_csv(db_path, UT_CONFIG.meet_name, output,
                              UT_CONFIG.division_order)
-        expected_path = os.path.join(REFERENCE_DIR, 'co_winners_expected.csv')
+        expected_path = os.path.join(REFERENCE_DIR, 'ut_winners_expected.csv')
         with open(output) as f:
             actual = f.read()
         with open(expected_path) as f:

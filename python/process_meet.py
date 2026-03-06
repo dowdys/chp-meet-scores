@@ -21,7 +21,9 @@ from python.core.db_builder import build_database
 from python.core.output_generator import (
     generate_order_forms, generate_winners_csv
 )
-from python.core.pdf_generator import generate_shirt_pdf
+from python.core.pdf_generator import generate_shirt_pdf, generate_gym_highlights_pdf
+from python.core.icml_generator import generate_shirt_icml
+from python.core.meet_summary import generate_meet_summary
 from python.core.order_form_generator import generate_order_forms_pdf
 from python.core.gym_normalizer import normalize as normalize_gyms, print_gym_report
 from python.adapters.scorecat_adapter import ScoreCatAdapter
@@ -68,6 +70,15 @@ def main():
                         help='Minimum name font size in points for shirt PDF (default 6.5).')
     parser.add_argument('--max-font-size', type=float, default=None,
                         help='Maximum/starting name font size in points for shirt PDF (default 9). Raise for meets with few winners.')
+    parser.add_argument('--name-sort', default='age',
+                        choices=['age', 'alpha'],
+                        help='Name sort order on shirt PDF: "age" (default) sorts by division age group youngest-first, "alpha" sorts alphabetically.')
+    parser.add_argument('--postmark-date', default='TBD',
+                        help='Postmark deadline date for order forms (e.g. "March 15, 2026")')
+    parser.add_argument('--online-date', default='TBD',
+                        help='Online ordering deadline date for order forms (e.g. "March 20, 2026")')
+    parser.add_argument('--ship-date', default='TBD',
+                        help='Shipping date for order forms (e.g. "April 5, 2026")')
 
     args = parser.parse_args()
 
@@ -147,14 +158,57 @@ def main():
                        level_gap=args.level_gap,
                        max_fill=args.max_fill,
                        min_font_size=args.min_font_size,
-                       max_font_size=args.max_font_size)
+                       max_font_size=args.max_font_size,
+                       name_sort=args.name_sort)
     print(f"Generated {pdf_path}")
+
+    # Generate ICML companion file for InDesign editing
+    icml_path = os.path.join(args.output, 'back_of_shirt.icml')
+    generate_shirt_icml(db_path, config.meet_name, icml_path,
+                        year=args.year, state=args.state,
+                        line_spacing=args.line_spacing,
+                        level_gap=args.level_gap,
+                        max_fill=args.max_fill,
+                        min_font_size=args.min_font_size,
+                        max_font_size=args.max_font_size,
+                        name_sort=args.name_sort)
+    print(f"Generated {icml_path}")
 
     # Generate order forms PDF
     order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
     generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
-                             year=args.year)
+                             year=args.year, state=args.state,
+                             postmark_date=args.postmark_date,
+                             online_date=args.online_date,
+                             ship_date=args.ship_date,
+                             line_spacing=args.line_spacing,
+                             level_gap=args.level_gap,
+                             max_fill=args.max_fill,
+                             min_font_size=args.min_font_size,
+                             max_font_size=args.max_font_size,
+                             name_sort=args.name_sort)
     print(f"Generated {order_pdf_path}")
+
+    # Generate gym highlights PDF
+    gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+    generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
+                                year=args.year, state=args.state,
+                                line_spacing=args.line_spacing,
+                                level_gap=args.level_gap,
+                                max_fill=args.max_fill,
+                                min_font_size=args.min_font_size,
+                                max_font_size=args.max_font_size,
+                                name_sort=args.name_sort)
+    print(f"Generated {gym_highlights_path}")
+
+    # Generate meet summary report
+    summary_path = os.path.join(args.output, 'meet_summary.txt')
+    generate_meet_summary(db_path, config.meet_name, summary_path,
+                          line_spacing=args.line_spacing,
+                          level_gap=args.level_gap,
+                          max_fill=args.max_fill,
+                          max_font_size=args.max_font_size)
+    print(f"Generated {summary_path}")
 
     print("\nDone!")
 

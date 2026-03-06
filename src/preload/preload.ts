@@ -27,7 +27,7 @@ export interface AskUserRequest {
 }
 
 export interface ElectronAPI {
-  processMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  processMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
   queryResults: (question: string) => Promise<{ success: boolean; answer?: string; error?: string }>;
   resetSession: () => Promise<{ success: boolean; deleted?: number; error?: string }>;
   stopRun: () => Promise<{ success: boolean; error?: string }>;
@@ -36,8 +36,10 @@ export interface ElectronAPI {
   respondToAskUser: (choice: string) => void;
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<{ success: boolean; error?: string }>;
+  browseFolder: () => Promise<{ cancelled: boolean; path?: string }>;
   getOutputFiles: (meetName: string) => Promise<{ success: boolean; files: OutputFile[]; error?: string }>;
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
+  openLogsFolder: () => Promise<{ success: boolean }>;
   checkModelAvailability: (provider: string, model: string) => Promise<{ available: boolean }>;
   getVersion: () => Promise<string>;
   checkForUpdates: () => Promise<{ status: string; message: string }>;
@@ -95,12 +97,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('save-settings', settings);
   },
 
+  browseFolder: () => {
+    return ipcRenderer.invoke('browse-folder');
+  },
+
   getOutputFiles: (meetName: string) => {
     return ipcRenderer.invoke('get-output-files', meetName);
   },
 
   openOutputFolder: (meetName: string) => {
     return ipcRenderer.invoke('open-output-folder', meetName);
+  },
+
+  openLogsFolder: () => {
+    return ipcRenderer.invoke('open-logs-folder');
   },
 
   checkModelAvailability: (provider: string, model: string) => {

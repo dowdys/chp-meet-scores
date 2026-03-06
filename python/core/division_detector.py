@@ -14,19 +14,35 @@ import sqlite3
 def _score_division(name: str) -> int:
     """Assign a numeric sort score to a division name.
 
-    Pattern scoring:
-        Child/CH*  -> 100 range
-        Youth      -> 200 range
-        Junior/JR* -> 300 range
-        Senior/SR* -> 400 range
-        Unknown    -> 500
+    Age-group pattern scoring (youngest → oldest):
+        Child/CH*       -> 100 range
+        Youth/YTH*      -> 200 range
+        Junior/JR*      -> 300 range
+        Senior/SR*      -> 400 range
 
-    Sub-letter A-D adds 1-4. Bare full names without a letter
-    (e.g. "Senior", "Child") get offset 5 (after lettered variants).
-    Bare abbreviations without a letter (e.g. "SR") get offset 0
-    (before lettered).
+    Sub-letter A-D adds 1-4 within each group (e.g. "Child A" = 101).
+    Bare full names without a letter get offset 5 (after lettered).
+    Bare abbreviations without a letter get offset 0 (before lettered).
+
+    Numeric divisions (1, 2, 3, etc.) get 50 + number, so they sort
+    naturally before named groups.
+
+    Single-letter divisions (A, B, C, D) get 10 + letter offset,
+    treated as youngest-to-oldest alphabetically.
+
+    Unknown patterns get 500.
     """
     upper = name.strip().upper()
+    if not upper:
+        return 999
+
+    # Pure numeric division (e.g. "1", "2", "3")
+    if re.match(r'^\d+$', upper):
+        return 50 + int(upper)
+
+    # Single letter A-Z (e.g. "A", "B", "C", "D")
+    if re.match(r'^[A-Z]$', upper):
+        return 10 + (ord(upper) - ord('A') + 1)
 
     # Try to extract a trailing letter (A-D)
     letter_match = re.search(r'[.\s]([A-D])$', upper)
@@ -36,10 +52,10 @@ def _score_division(name: str) -> int:
 
     # Determine the age group and base score
     # Child / CH patterns (100 range)
-    if upper.startswith('CHILD') or re.match(r'^CH\b', upper):
+    if upper.startswith('CHILD') or re.match(r'^CH\b', upper) or re.match(r'^CHA?$', upper):
         base = 100
-    # Youth (200 range)
-    elif upper.startswith('YOUTH'):
+    # Youth / YTH patterns (200 range)
+    elif upper.startswith('YOUTH') or re.match(r'^YTH\.?\b', upper):
         base = 200
     # Junior / JR patterns (300 range)
     elif upper.startswith('JUNIOR') or re.match(r'^JR\.?\b', upper):
@@ -48,7 +64,7 @@ def _score_division(name: str) -> int:
     elif upper.startswith('SENIOR') or re.match(r'^SR\.?\b', upper):
         base = 400
     else:
-        return 500  # Unknown
+        return 500  # Unknown — sorts after all known patterns
 
     # Bare full name (no letter) → offset 5 (after all lettered variants)
     # Bare abbreviation (no letter, e.g. "SR") → offset 0 (before lettered)

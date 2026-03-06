@@ -12,6 +12,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
+import { configStore } from './config-store';
 
 export function getProjectRoot(): string {
   if (app.isPackaged) {
@@ -19,6 +20,15 @@ export function getProjectRoot(): string {
   }
   // dev: app.getAppPath() is dist/main, go up 2 levels to repo root
   return path.join(app.getAppPath(), '..', '..');
+}
+
+export function getOutputDir(meetName: string, createIfMissing = true): string {
+  const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
+  const meetDir = path.join(outputBase, meetName);
+  if (createIfMissing && !fs.existsSync(meetDir)) {
+    fs.mkdirSync(meetDir, { recursive: true });
+  }
+  return meetDir;
 }
 
 export function getDataDir(): string {

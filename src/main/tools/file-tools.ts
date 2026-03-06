@@ -1,13 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { getDataDir as sharedGetDataDir, getProjectRoot as sharedGetProjectRoot } from '../paths';
 
 function getProjectRoot(): string {
-  return app.isPackaged ? process.resourcesPath! : path.join(app.getAppPath(), '..', '..');
+  return sharedGetProjectRoot();
 }
 
 function getDataDir(): string {
-  return path.join(getProjectRoot(), 'data');
+  return sharedGetDataDir();
 }
 
 export const fileToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
@@ -18,12 +19,23 @@ export const fileToolExecutors: Record<string, (args: Record<string, unknown>) =
         return 'Error: path parameter is required';
       }
 
-      // Resolve path: if relative, prepend data directory
+      // Resolve path: if relative, check writable data dir first, then resources data dir
       let resolvedPath: string;
       if (path.isAbsolute(filePath)) {
         resolvedPath = filePath;
       } else {
-        resolvedPath = path.join(getDataDir(), filePath);
+        const writableData = getDataDir();
+        const resourcesData = path.join(getProjectRoot(), 'data');
+        const writablePath = path.join(writableData, filePath);
+        const resourcesPath = path.join(resourcesData, filePath);
+        // Prefer writable data dir (where chrome_save_to_file writes)
+        if (fs.existsSync(writablePath)) {
+          resolvedPath = writablePath;
+        } else if (fs.existsSync(resourcesPath)) {
+          resolvedPath = resourcesPath;
+        } else {
+          resolvedPath = writablePath; // default to writable for error message
+        }
       }
 
       // Security check: path must be under project root OR under home dir

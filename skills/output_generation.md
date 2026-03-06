@@ -84,7 +84,12 @@ Championship-style back-of-shirt PDF. Always generated (no longer optional).
 - Each group = one page in the PDF
 - Oval label auto-derived from level range
 
-**Signature**: `generate_shirt_pdf(db_path, meet_name, output_path, year='2026', state='Maryland')`
+**Name sort order** (`--name-sort` flag):
+- `age` (DEFAULT — always use this): Names sorted by division age group (youngest first: Junior A → Junior B → ... → Senior A → Senior B → ...), then alphabetically within each age group
+- `alpha`: Names sorted purely alphabetically, ignoring divisions
+- The `--name-sort age` flag is the default and should always be used unless the user explicitly asks for alphabetical
+
+**Signature**: `generate_shirt_pdf(db_path, meet_name, output_path, year='2026', state='Maryland', name_sort='age')`
 
 **Column centers**: [72, 192, 306, 420, 546] on 612x792pt (Letter) page
 
@@ -106,14 +111,18 @@ Personalized per-athlete order forms, grouped by gym with blank separator pages.
 - Between gyms: one blank separator page
 - Structure: `[Gym A forms] [blank] [Gym B forms] [blank] ... [last gym forms]`
 
-**Signature**: `generate_order_forms_pdf(db_path, meet_name, output_path, year='2026')`
+**Signature**: `generate_order_forms_pdf(db_path, meet_name, output_path, year='2026', state='', postmark_date='TBD', online_date='TBD', ship_date='TBD')`
 
 ## CLI Arguments
 
 The `process_meet.py` script accepts:
 - `--year YYYY` — Championship year for PDF titles (defaults to current year)
-- `--state` — State name (required, also used for PDF title)
+- `--state` — State name (required, also used for PDF title and t-shirt graphic)
+- `--postmark-date` — Postmark deadline date for order forms (e.g. "March 15, 2026"). Defaults to "TBD".
+- `--online-date` — Online ordering deadline date for order forms (e.g. "March 20, 2026"). Defaults to "TBD".
+- `--ship-date` — Shipping date for order forms (e.g. "April 5, 2026"). Defaults to "TBD".
 - PDFs are always generated; no `--title-line` flags needed
+- **Important**: Use `ask_user` to get deadline dates from the user before generating order forms
 
 ## Copy to Windows Downloads
 After generating all outputs:

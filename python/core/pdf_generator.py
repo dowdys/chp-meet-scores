@@ -7,21 +7,23 @@ Generates championship-style PDFs with:
 - Red line level dividers with letter-spaced text
 - Dynamic font sizing: keeps names as BIG as possible
 - Tight line spacing (1.15 ratio) to maximize name size
-- Auto-grouping: Xcel levels together, numbered levels bin-packed
+- Auto-grouping: Xcel bin-packed, numbered levels bin-packed
+- Balanced bin-packing avoids nearly-empty last pages
 - No page should be more than ~90% full
 - Copyright footer
 """
 
 import sqlite3
+import math
 import fitz  # PyMuPDF
 
 # --- Page layout constants (letter: 612 x 792 pt) ---
 PAGE_W = 612
 PAGE_H = 792
 
+from python.core.constants import EVENTS as EVENT_KEYS, EVENT_HEADERS as COL_HEADERS
+
 COL_CENTERS = [72, 192, 306, 420, 546]
-COL_HEADERS = ['VAULT', 'BARS', 'BEAM', 'FLOOR', 'ALL AROUND']
-EVENT_KEYS = ['vault', 'bars', 'beam', 'floor', 'aa']
 
 # Colors
 RED = (1, 0, 0)
@@ -40,14 +42,14 @@ XCEL_MAP = {
 # Prestige order (highest first)
 XCEL_ORDER = ['SAPPHIRE', 'DIAMOND', 'PLATINUM', 'GOLD', 'SILVER', 'BRONZE']
 
-# Layout Y positions
-TITLE_LINE1_Y = 35
-TITLE_LINE2_Y = 60
-OVAL_CENTER_Y = 88
-HEADERS_Y = 115
-NAMES_START_Y = 132
-COPYRIGHT_Y = PAGE_H - 12
-NAMES_BOTTOM_Y = PAGE_H - 30
+# Layout Y positions (tight margins to maximize name space)
+TITLE_LINE1_Y = 30
+TITLE_LINE2_Y = 52
+OVAL_CENTER_Y = 76
+HEADERS_Y = 100
+NAMES_START_Y = 116
+COPYRIGHT_Y = PAGE_H - 8
+NAMES_BOTTOM_Y = PAGE_H - 18
 
 # Font sizes
 TITLE1_LARGE = 16
@@ -73,11 +75,150 @@ FONT_BOLD = 'Times-Bold'
 MAX_PAGE_FILL = 0.90
 
 
+def precompute_shirt_data(db_path, meet_name, name_sort='age',
+                          line_spacing=None, level_gap=None,
+                          max_fill=None, min_font_size=None,
+                          max_font_size=None):
+    """Pre-compute shirt layout data for reuse across multiple renders.
+
+    Returns a dict with levels, data, page_groups, and resolved layout params.
+    """
+    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
+    lgap = level_gap if level_gap is not None else LEVEL_GAP
+    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
+    mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
+    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+
+    levels, data = _get_winners_by_event_and_level(db_path, meet_name,
+                                                    name_sort=name_sort)
+    if not levels:
+        return {'levels': [], 'data': {}, 'page_groups': [],
+                'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
+                'mfs': mfs, 'mxfs': mxfs}
+
+    # Classify levels into Xcel and numbered
+    xcel_levels = []
+    numbered_levels = []
+    for level in levels:
+        if level in XCEL_MAP:
+            xcel_levels.append(level)
+        else:
+            numbered_levels.append(level)
+
+    xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
+                     if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
+    numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
+
+    # Build page groups: (oval_label, [levels])
+    page_groups = []
+    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
+
+    if xcel_levels:
+        xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
+        for group in xcel_groups:
+            page_groups.append(('XCEL', group))
+
+    if numbered_levels:
+        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
+        for group in groups:
+            nums = sorted([int(lv) for lv in group if lv.isdigit()])
+            if len(nums) >= 2:
+                label = f'LEVELS {nums[-1]}-{nums[0]}'
+            elif len(nums) == 1:
+                label = f'LEVEL {nums[0]}'
+            else:
+                label = 'LEVELS'
+            page_groups.append((label, group))
+
+    return {'levels': levels, 'data': data, 'page_groups': page_groups,
+            'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
+            'mfs': mfs, 'mxfs': mxfs}
+
+
+def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
+    """Append back-of-shirt page(s) to doc with a red star next to athlete_name.
+
+    Only includes page groups where the athlete appears. Each matching page
+    group gets one page appended to doc.
+    """
+    page_groups = precomputed['page_groups']
+    data = precomputed['data']
+    lhr = precomputed['lhr']
+    lgap = precomputed['lgap']
+    mfill = precomputed['mfill']
+    mfs = precomputed['mfs']
+    mxfs = precomputed['mxfs']
+
+    star_set = {athlete_name}
+
+    for label, group_levels in page_groups:
+        # Check if athlete appears on this page group
+        found = False
+        for level in group_levels:
+            for event in EVENT_KEYS:
+                if athlete_name in data[event].get(level, []):
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            continue
+
+        page = doc.new_page(width=PAGE_W, height=PAGE_H)
+
+        # Title lines
+        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
+                         f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
+        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE2_Y,
+                         f'STATE CHAMPIONS OF {state.upper()}',
+                         TITLE2_LARGE, TITLE2_SMALL)
+
+        # Red oval
+        _draw_oval(page, label, OVAL_CENTER_Y)
+
+        # Column headers with red underlines
+        for i, header in enumerate(COL_HEADERS):
+            _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
+                             header, HEADER_LARGE, HEADER_SMALL)
+            hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
+            line_y = HEADERS_Y + 3
+            page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
+                           fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
+                           color=RED, width=0.5)
+
+        # Determine best font size
+        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+        line_height = font_size * lhr
+
+        # Draw each level's names with star
+        y = NAMES_START_Y
+        for level in group_levels:
+            y += lgap
+            if level in XCEL_MAP:
+                divider_text = XCEL_MAP[level]
+            else:
+                divider_text = f'LEVEL {level}'
+            _draw_level_divider(page, y, divider_text)
+            y += LEVEL_DIVIDER_SIZE * 1.3
+
+            max_names = 0
+            for col_idx, event in enumerate(EVENT_KEYS):
+                names = data[event].get(level, [])
+                if names:
+                    _draw_names(page, y, col_idx, names, font_size,
+                                line_height, star_names=star_set)
+                    max_names = max(max_names, len(names))
+            y += max_names * line_height + 1
+
+        _draw_copyright(page)
+
+
 def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        year: str = '2026', state: str = 'Maryland',
                        line_spacing: float = None, level_gap: float = None,
                        max_fill: float = None, min_font_size: float = None,
-                       max_font_size: float = None):
+                       max_font_size: float = None,
+                       name_sort: str = 'age'):
     """Generate enhanced back-of-shirt PDF.
 
     Args:
@@ -91,56 +232,29 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         max_fill: Max page fill fraction (default 0.90). E.g. 0.85 = 85%.
         min_font_size: Minimum name font size in points (default 6.5).
         max_font_size: Maximum/starting name font size in points (default 9).
+        name_sort: 'age' (default) sorts by division age group youngest-first,
+                   'alpha' sorts alphabetically.
     """
-    # Apply overrides or use module defaults
-    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
-    lgap = level_gap if level_gap is not None else LEVEL_GAP
-    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
-    mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
-    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+    # Use precompute to get shared data
+    pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
+                                line_spacing=line_spacing, level_gap=level_gap,
+                                max_fill=max_fill, min_font_size=min_font_size,
+                                max_font_size=max_font_size)
+    levels = pre['levels']
+    data = pre['data']
+    page_groups = pre['page_groups']
+    lhr = pre['lhr']
+    lgap = pre['lgap']
+    mfill = pre['mfill']
+    mfs = pre['mfs']
+    mxfs = pre['mxfs']
 
-    levels, data = _get_winners_by_event_and_level(db_path, meet_name)
     if not levels:
         doc = fitz.open()
         doc.new_page(width=PAGE_W, height=PAGE_H)
         doc.save(output_path)
         doc.close()
         return
-
-    # Classify levels into Xcel and numbered
-    xcel_levels = []
-    numbered_levels = []
-    for level in levels:
-        if level in XCEL_MAP:
-            xcel_levels.append(level)
-        else:
-            numbered_levels.append(level)
-
-    # Sort Xcel by prestige (Sapphire first)
-    xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
-                     if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
-
-    # Sort numbered descending (10, 9, 8, ...)
-    numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
-
-    # Build page groups: (oval_label, [levels])
-    page_groups = []
-
-    if xcel_levels:
-        page_groups.append(('XCEL', xcel_levels))
-
-    if numbered_levels:
-        available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
-        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
-        for group in groups:
-            nums = sorted([int(lv) for lv in group if lv.isdigit()])
-            if len(nums) >= 2:
-                label = f'LEVELS {nums[-1]}-{nums[0]}'
-            elif len(nums) == 1:
-                label = f'LEVEL {nums[0]}'
-            else:
-                label = 'LEVELS'
-            page_groups.append((label, group))
 
     # Generate PDF
     doc = fitz.open()
@@ -204,8 +318,17 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
 
 # --- Data query ---
 
-def _get_winners_by_event_and_level(db_path: str, meet_name: str):
-    """Get winner names organized by event and level."""
+def _get_winners_by_event_and_level(db_path: str, meet_name: str,
+                                    name_sort: str = 'age'):
+    """Get winner names organized by event and level.
+
+    Args:
+        name_sort: 'age' sorts by division age group (youngest first), then
+                   alphabetically within each group. 'alpha' sorts purely
+                   alphabetically ignoring divisions.
+    """
+    from python.core.division_detector import detect_division_order
+
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
@@ -213,16 +336,25 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str):
                    WHERE meet_name = ?''', (meet_name,))
     levels = [row[0] for row in cur.fetchall()]
 
+    # Get division ordering for age-based sort
+    div_order = detect_division_order(db_path, meet_name)
+
     data = {}
     for event in EVENT_KEYS:
         data[event] = {}
         for level in levels:
-            cur.execute('''SELECT DISTINCT name FROM winners
-                          WHERE meet_name = ? AND event = ? AND level = ?
-                          ORDER BY name''', (meet_name, event, level))
-            names = [row[0] for row in cur.fetchall()]
-            if names:
-                data[event][level] = names
+            # Get names with their division for sorting
+            cur.execute('''SELECT DISTINCT name, division FROM winners
+                          WHERE meet_name = ? AND event = ? AND level = ?''',
+                        (meet_name, event, level))
+            rows = cur.fetchall()
+            if rows:
+                if name_sort == 'alpha':
+                    rows.sort(key=lambda r: r[0])
+                else:
+                    # Sort by division age (youngest first), then name
+                    rows.sort(key=lambda r: (div_order.get(r[1], 99), r[0]))
+                data[event][level] = [r[0] for r in rows]
 
     conn.close()
     return levels, data
@@ -230,34 +362,84 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str):
 
 # --- Layout helpers ---
 
+def _level_height(level, data, line_height, level_gap):
+    """Calculate the vertical space one level needs."""
+    max_names = max(len(data[event].get(level, [])) for event in EVENT_KEYS)
+    return level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * line_height + 1
+
+
 def _bin_pack_levels(levels, data, available_height,
                      line_height_ratio=LINE_HEIGHT_RATIO,
                      level_gap=LEVEL_GAP,
                      max_font_size=DEFAULT_NAME_SIZE):
-    """Bin-pack levels into page-sized groups."""
+    """Bin-pack levels into page-sized groups with balanced distribution.
+
+    Two-pass approach:
+    1. Greedy pack to find the actual minimum page count (accounts for
+       large levels that can't combine with others).
+    2. Balanced redistribution targeting equal height per page, so the
+       last page isn't nearly empty.
+    """
     line_height = max_font_size * line_height_ratio
-    pages = []
-    current_page = []
-    current_height = 0
 
+    # Calculate height for each level
+    heights = []
     for level in levels:
-        max_names = max(
-            len(data[event].get(level, []))
-            for event in EVENT_KEYS
-        )
-        needed = level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * line_height + 1
+        h = _level_height(level, data, line_height, level_gap)
+        heights.append(h)
 
-        if current_page and current_height + needed > available_height:
-            pages.append(current_page)
-            current_page = [level]
-            current_height = needed
+    total = sum(heights)
+    if total <= available_height:
+        return [levels]
+
+    # Pass 1: greedy pack to find actual page count
+    greedy_pages = []
+    current = []
+    current_h = 0
+    for i, level in enumerate(levels):
+        h = heights[i]
+        if current and current_h + h > available_height:
+            greedy_pages.append(current)
+            current = [level]
+            current_h = h
         else:
-            current_page.append(level)
-            current_height += needed
+            current.append(level)
+            current_h += h
+    if current:
+        greedy_pages.append(current)
 
-    if current_page:
-        pages.append(current_page)
-    return pages
+    num_pages = len(greedy_pages)
+    if num_pages <= 1:
+        return greedy_pages
+
+    # Pass 2: balanced redistribution
+    target = total / num_pages
+
+    balanced_pages = []
+    current = []
+    current_h = 0
+    remaining_pages = num_pages
+
+    for i, level in enumerate(levels):
+        h = heights[i]
+        remaining_levels = len(levels) - i
+
+        if current and remaining_pages > 1:
+            over_target = current_h >= target * 0.85
+            would_overflow = current_h + h > available_height
+            enough_left = remaining_levels >= remaining_pages
+            if (over_target and enough_left) or would_overflow:
+                balanced_pages.append(current)
+                current = []
+                current_h = 0
+                remaining_pages -= 1
+
+        current.append(level)
+        current_h += h
+
+    if current:
+        balanced_pages.append(current)
+    return balanced_pages
 
 
 def _fit_font_size(levels, data,
@@ -293,12 +475,15 @@ def _fit_font_size(levels, data,
 
 # --- Drawing functions ---
 
-def _draw_small_caps(page, center_x, y, text, large_size, small_size):
+def _draw_small_caps(page, center_x, y, text, large_size, small_size,
+                     color=None):
     """Draw text in small caps, centered horizontally.
 
     First letter of each word at large_size, rest at small_size.
     All characters rendered uppercase.
     """
+    if color is None:
+        color = BLACK
     total_width = _measure_small_caps_width(text, large_size, small_size)
     x = center_x - total_width / 2
 
@@ -312,7 +497,7 @@ def _draw_small_caps(page, center_x, y, text, large_size, small_size):
             ch_upper = ch.upper()
             fs = large_size if ci == 0 else small_size
             page.insert_text(fitz.Point(x, y), ch_upper,
-                             fontname=FONT_BOLD, fontsize=fs, color=BLACK)
+                             fontname=FONT_BOLD, fontsize=fs, color=color)
             x += fitz.get_text_length(ch_upper, fontname=FONT_BOLD, fontsize=fs)
 
 
@@ -381,14 +566,35 @@ def _space_text(text):
     return '  '.join(spaced_words)
 
 
-def _draw_names(page, y, col_idx, names, font_size, line_height):
-    """Draw a centered list of names in the given column."""
+def _draw_names(page, y, col_idx, names, font_size, line_height,
+                highlight_names=None, star_names=None):
+    """Draw a centered list of names in the given column.
+
+    Args:
+        highlight_names: Optional set of name strings. Names in this set
+            render in bold instead of regular font.
+        star_names: Optional set of name strings. Names in this set get
+            a red ★ drawn just to the left of the name text.
+    """
     cx = COL_CENTERS[col_idx]
     current_y = y
     for name in names:
-        tw = fitz.get_text_length(name, fontname=FONT_REGULAR, fontsize=font_size)
-        page.insert_text(fitz.Point(cx - tw / 2, current_y), name,
-                         fontname=FONT_REGULAR, fontsize=font_size, color=BLACK)
+        if highlight_names and name in highlight_names:
+            font = FONT_BOLD
+        else:
+            font = FONT_REGULAR
+        tw = fitz.get_text_length(name, fontname=font, fontsize=font_size)
+        name_x = cx - tw / 2
+        # Draw red star to the left of the name if in star_names
+        if star_names and name in star_names:
+            star_char = '\u2605'
+            star_w = fitz.get_text_length(star_char, fontname=FONT_REGULAR,
+                                          fontsize=font_size)
+            page.insert_text(fitz.Point(name_x - star_w - 2, current_y),
+                             star_char, fontname=FONT_REGULAR,
+                             fontsize=font_size, color=RED)
+        page.insert_text(fitz.Point(name_x, current_y), name,
+                         fontname=font, fontsize=font_size, color=BLACK)
         current_y += line_height
 
 
@@ -398,3 +604,231 @@ def _draw_copyright(page):
     tw = fitz.get_text_length(text, fontname=FONT_REGULAR, fontsize=COPYRIGHT_SIZE)
     page.insert_text(fitz.Point(PAGE_W / 2 - tw / 2, COPYRIGHT_Y), text,
                      fontname=FONT_REGULAR, fontsize=COPYRIGHT_SIZE, color=BLACK)
+
+
+# --- Gym Highlights PDF ---
+
+def _get_winners_with_gym(db_path, meet_name):
+    """Get a mapping of winner name -> gym."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT name, gym FROM winners WHERE meet_name = ?',
+                (meet_name,))
+    result = {row[0]: row[1] for row in cur.fetchall()}
+    conn.close()
+    return result
+
+
+def _get_all_winner_gyms(db_path, meet_name):
+    """Get sorted list of all gyms that have winners."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT gym FROM winners WHERE meet_name = ? ORDER BY gym',
+                (meet_name,))
+    result = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return result
+
+
+def _draw_arched_text(page, center_x, center_y, text, font_size, radius,
+                      start_angle_deg, sweep_deg):
+    """Draw text along a circular arc.
+
+    Characters are placed along the arc and rotated to follow the curve tangent.
+    start_angle_deg is the angle of the first character (0=top, positive=clockwise).
+    sweep_deg is the total angular span the text covers.
+    """
+    if not text:
+        return
+
+    # Measure each character width to distribute along the arc
+    char_widths = []
+    for ch in text:
+        w = fitz.get_text_length(ch, fontname=FONT_BOLD, fontsize=font_size)
+        char_widths.append(w)
+    total_width = sum(char_widths)
+
+    # Convert to radians; use negative sweep for left-to-right on top arc
+    n = len(text)
+    if n == 1:
+        angles = [math.radians(start_angle_deg)]
+    else:
+        # Distribute characters evenly across the sweep
+        step = sweep_deg / (n - 1)
+        angles = [math.radians(start_angle_deg + i * step) for i in range(n)]
+
+    for i, ch in enumerate(text):
+        angle = angles[i]
+        # Position on circle (math convention: 0=right, pi/2=up)
+        # We use: 0 deg = top of circle, clockwise positive
+        # Convert: circle_angle = pi/2 - angle
+        cx = center_x + radius * math.sin(angle)
+        cy = center_y - radius * math.cos(angle)
+
+        # Rotation: character should be tangent to the arc
+        # Tangent angle in degrees (for morph rotation)
+        rot_deg = math.degrees(angle)
+
+        pivot = fitz.Point(cx, cy)
+        mat = fitz.Matrix(1, 0, 0, 1, 0, 0).prerotate(rot_deg)
+        morph = (pivot, mat)
+
+        # Center each character on its arc position
+        cw = char_widths[i]
+        page.insert_text(fitz.Point(cx - cw / 2, cy + font_size * 0.35),
+                         ch, fontname=FONT_BOLD, fontsize=font_size,
+                         color=RED, morph=morph)
+
+
+def generate_gym_highlights_pdf(db_path, meet_name, output_path,
+                                year='2026', state='Maryland',
+                                line_spacing=None, level_gap=None,
+                                max_fill=None, min_font_size=None,
+                                max_font_size=None, name_sort='age'):
+    """Generate a gym highlights version of the back-of-shirt PDF.
+
+    For each gym (alphabetically), generates the same back-of-shirt pages
+    but with that gym's athletes highlighted in bold. The gym name is arched
+    in the top-left and top-right corners.
+
+    Only includes pages that contain at least one of that gym's athletes.
+    """
+    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
+    lgap = level_gap if level_gap is not None else LEVEL_GAP
+    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
+    mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
+    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+
+    levels, data = _get_winners_by_event_and_level(db_path, meet_name,
+                                                    name_sort=name_sort)
+    if not levels:
+        doc = fitz.open()
+        doc.new_page(width=PAGE_W, height=PAGE_H)
+        doc.save(output_path)
+        doc.close()
+        return
+
+    name_to_gym = _get_winners_with_gym(db_path, meet_name)
+    all_gyms = _get_all_winner_gyms(db_path, meet_name)
+
+    # Classify levels into Xcel and numbered (same as generate_shirt_pdf)
+    xcel_levels = []
+    numbered_levels = []
+    for level in levels:
+        if level in XCEL_MAP:
+            xcel_levels.append(level)
+        else:
+            numbered_levels.append(level)
+
+    xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
+                     if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
+    numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
+
+    # Build page groups (same as generate_shirt_pdf)
+    page_groups = []
+    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
+
+    if xcel_levels:
+        xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
+        for group in xcel_groups:
+            page_groups.append(('XCEL', group))
+
+    if numbered_levels:
+        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
+        for group in groups:
+            nums = sorted([int(lv) for lv in group if lv.isdigit()])
+            if len(nums) >= 2:
+                label = f'LEVELS {nums[-1]}-{nums[0]}'
+            elif len(nums) == 1:
+                label = f'LEVEL {nums[0]}'
+            else:
+                label = 'LEVELS'
+            page_groups.append((label, group))
+
+    # Pre-compute which names appear on each page group
+    def _names_on_page(group_levels):
+        names = set()
+        for level in group_levels:
+            for event in EVENT_KEYS:
+                for name in data[event].get(level, []):
+                    names.add(name)
+        return names
+
+    doc = fitz.open()
+
+    for gym in all_gyms:
+        # Build highlight set: all athletes from this gym
+        highlight_names = {name for name, g in name_to_gym.items() if g == gym}
+
+        # Dynamic font size for arched gym name
+        gym_display = gym.upper()
+        arch_font_size = 10
+        if len(gym_display) > 20:
+            arch_font_size = 8
+        elif len(gym_display) > 14:
+            arch_font_size = 9
+
+        for label, group_levels in page_groups:
+            # Only include pages that have at least one highlighted athlete
+            page_names = _names_on_page(group_levels)
+            if not page_names.intersection(highlight_names):
+                continue
+
+            page = doc.new_page(width=PAGE_W, height=PAGE_H)
+
+            # Arched gym name in top-left corner
+            _draw_arched_text(page, 65, 55, gym_display, arch_font_size,
+                              radius=45, start_angle_deg=-60, sweep_deg=120)
+
+            # Arched gym name in top-right corner
+            _draw_arched_text(page, PAGE_W - 65, 55, gym_display, arch_font_size,
+                              radius=45, start_angle_deg=-60, sweep_deg=120)
+
+            # Title lines (small caps)
+            _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
+                             f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
+            _draw_small_caps(page, PAGE_W / 2, TITLE_LINE2_Y,
+                             f'STATE CHAMPIONS OF {state.upper()}',
+                             TITLE2_LARGE, TITLE2_SMALL)
+
+            # Red oval with group label
+            _draw_oval(page, label, OVAL_CENTER_Y)
+
+            # Column headers with red underlines
+            for i, header in enumerate(COL_HEADERS):
+                _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
+                                 header, HEADER_LARGE, HEADER_SMALL)
+                hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
+                line_y = HEADERS_Y + 3
+                page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
+                               fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
+                               color=RED, width=0.5)
+
+            # Determine best font size
+            font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+            line_height = font_size * lhr
+
+            # Draw each level's names with highlighting
+            y = NAMES_START_Y
+            for level in group_levels:
+                y += lgap
+                if level in XCEL_MAP:
+                    divider_text = XCEL_MAP[level]
+                else:
+                    divider_text = f'LEVEL {level}'
+                _draw_level_divider(page, y, divider_text)
+                y += LEVEL_DIVIDER_SIZE * 1.3
+
+                max_names = 0
+                for col_idx, event in enumerate(EVENT_KEYS):
+                    names = data[event].get(level, [])
+                    if names:
+                        _draw_names(page, y, col_idx, names, font_size,
+                                    line_height, highlight_names=highlight_names)
+                        max_names = max(max_names, len(names))
+                y += max_names * line_height + 1
+
+            _draw_copyright(page)
+
+    doc.save(output_path)
+    doc.close()

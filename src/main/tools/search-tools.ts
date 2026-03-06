@@ -1,12 +1,7 @@
 import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
-
-function getDataDir(): string {
-  const root = app.isPackaged ? process.resourcesPath! : path.join(app.getAppPath(), '..', '..');
-  return path.join(root, 'data');
-}
+import { getDataDir } from '../paths';
 
 async function ensureConnected(): Promise<void> {
   if (!chromeController.isConnected()) {

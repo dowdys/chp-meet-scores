@@ -7,8 +7,8 @@
    - REST API: `/api/scores`, `/api/results`, `/v1/athletes`
    - GraphQL: POST to `/graphql` with query body
    - Pagination: URLs with `?page=`, `?offset=`, `?limit=` parameters
-4. **Inspect response bodies**: Use `get_network_request` to examine promising responses. Look for arrays of objects with fields like `name`, `score`, `vault`, `level`, etc.
-5. **Replay the request**: Once you identify the API endpoint, replay it directly via `evaluate_script` using `fetch()`:
+4. **Inspect response bodies**: Use `chrome_network` to examine promising responses. Look for arrays of objects with fields like `name`, `score`, `vault`, `level`, etc.
+5. **Replay the request**: Once you identify the API endpoint, replay it directly via `chrome_execute_js` using `fetch()`:
    ```javascript
    () => fetch('/api/scores?meetId=123').then(r => r.json())
    ```

@@ -49,6 +49,9 @@
   Korbyn Shelton - Vault, Beam, Floor, AA
   Level 4 Division Jr C
 
+  Louisa Marzen - Bars
+  Level 4 Division Sr A
+
   Avie Zelinskas - Vault, Bars, Beam, Floor, AA
   Level 5 Division Jr B
 
@@ -139,6 +142,9 @@
   Lorraine Seaba - Floor
   Level 4 Division Ch A
 
+  Kaia Lokasari - Floor
+  Level 8 Division Jr A
+
   Bailey Madura - Vault, AA
   Level 9 Division Senior
 
@@ -228,7 +234,7 @@
   Odessa Colston - Floor
   Level 4 Division Jr B
 
-  Charlotte Florke - Beam
+  Charlotte Florke - Beam, Floor
   Level 4 Division Sr A
 
   Lexie Gowdy - Vault, Floor, AA
@@ -285,6 +291,9 @@
   Addelynn Jones - Bars, Floor
   Level 6 Division Child A
 
+  Landry VanWeelden - Bars
+  Level 6 Division Child B
+
   Reagan Neurohr - Bars
   Level 6 Division Jr A
 
@@ -302,6 +311,15 @@
 
   Madelyn Gray - Vault, Floor, AA
   Level 8 Division Jr A
+
+  Tyri Seifert - Beam
+  Level 8 Division Jr A
+
+  Eva Greubel - Bars
+  Level 9 Division Junior
+
+  Kalei Van Horn - Bars
+  Level 9 Division Senior
 
   Lucy Purcell - Floor
   Level 9 Division Senior
@@ -321,6 +339,9 @@
 
   Spencer Minick - Floor, AA
   Level 2 Division Child B
+
+  Evelyn Chapman - Beam
+  Level 2 Division Jr B
 
   Corrigan Cook - Bars, Beam, AA
   Level 3 Division Sr A

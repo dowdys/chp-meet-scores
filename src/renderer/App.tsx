@@ -36,9 +36,15 @@ const App: React.FC = () => {
       </nav>
 
       <main className="tab-content">
-        {activeTab === 'process' && <ProcessTab />}
-        {activeTab === 'query' && <QueryTab />}
-        {activeTab === 'settings' && <SettingsTab />}
+        <div style={{ display: activeTab === 'process' ? 'block' : 'none' }}>
+          <ProcessTab />
+        </div>
+        <div style={{ display: activeTab === 'query' ? 'block' : 'none' }}>
+          <QueryTab />
+        </div>
+        <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+          <SettingsTab />
+        </div>
       </main>
     </div>
   );

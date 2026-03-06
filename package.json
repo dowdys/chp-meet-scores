@@ -1,6 +1,6 @@
 {
   "name": "chp-meet-scores",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Gymnastics Meet Scoring System - Desktop App",
   "main": "dist/main/main.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "build:renderer": "webpack --config webpack.config.js --env target=renderer --mode production",
     "build": "webpack --config webpack.config.js --env target=main --mode production && webpack --config webpack.config.js --env target=renderer --mode production",
     "dist": "npm run build && electron-builder",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "python3 -m pytest tests/ -v"
   },
   "author": "Dowdy Sarvis",
   "license": "MIT",

@@ -108,6 +108,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
               DB_PATH: dbPath,
               DATA_DIR: dataDir,
               STAGING_DB_PATH: currentStagingDbPath || '',
+              PYTHONUTF8: '1',
             },
             timeout,
           });
@@ -215,6 +216,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
             event TEXT, score REAL, is_tie INTEGER DEFAULT 0
           );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
+            ON winners(meet_name, name, gym, session, level, division, event);
         `);
 
         // Attach staging DB

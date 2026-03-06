@@ -50,7 +50,7 @@ if (-not $pythonCmd) {
 # --- Step 2: Install Python dependencies ---
 Write-Host ""
 Write-Host "[2/8] Installing Python dependencies - PyInstaller, PyMuPDF..." -ForegroundColor Yellow
-& $pythonCmd -m pip install --quiet pyinstaller pymupdf
+& $pythonCmd -m pip install --quiet pyinstaller pymupdf "qrcode[pil]"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  ERROR: pip install failed" -ForegroundColor Red
     exit 1

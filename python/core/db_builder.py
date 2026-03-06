@@ -1,16 +1,15 @@
 """Unified database builder for gymnastics meet results.
 
-Supports two winner determination strategies:
-  - Score-based (max score per session+level+division+event): for MSO PDF and MSO HTML
-  - Rank-based (rank=1 with fallback to max score): for ScoreCat
+Winner determination is always score-based (max score per session+level+division+event).
+This ensures ties are properly detected regardless of data source — some sources
+(e.g. ScoreCat) may assign sequential ranks to tied athletes instead of giving
+both rank 1.
 """
 
 import sqlite3
 import os
 from .models import MeetConfig
-
-
-EVENTS = ['vault', 'bars', 'beam', 'floor', 'aa']
+from .constants import EVENTS
 
 
 def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> str:
@@ -71,16 +70,10 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
 
     conn.commit()
 
-    # Build winners table using appropriate strategy
-    # Auto-detect: if any athletes have per-event ranks, use rank-based
-    has_ranks = any(
-        a.get('vault_rank') is not None or a.get('bars_rank') is not None
-        for a in athletes
-    )
-    if config.source_type == 'scorecat' or has_ranks:
-        _build_winners_rank_based(conn, config, athletes)
-    else:
-        _build_winners_score_based(conn, config)
+    # Always use score-based winner determination — ranks from data sources
+    # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
+    # to tied athletes instead of giving both rank 1)
+    _build_winners_score_based(conn, config)
 
     conn.close()
     return db_path
@@ -103,9 +96,52 @@ def _create_winners_table(cur, meet_name: str):
         is_tie INTEGER
     )''')
     cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
-        ON winners(meet_name, name, session, level, division, event)''')
+        ON winners(meet_name, name, gym, session, level, division, event)''')
     # Winners are always fully rebuilt per meet
     cur.execute('DELETE FROM winners WHERE meet_name = ?', (meet_name,))
+
+
+def _find_solo_sessions(cur, meet_name: str) -> set:
+    """Find "out of session" competitors — solo athletes who are accommodation cases.
+
+    An athlete competing alone in a session is only excluded if the same level+division
+    has multiple athletes in a DIFFERENT session. This distinguishes:
+    - Out-of-session accommodation (e.g., Sunday religious observance): the same
+      level+division exists in another session with real competition → exclude
+    - Legitimately the only athlete in that division at the meet: no other session
+      has that level+division with multiple athletes → keep as champion
+
+    Returns a set of (session, level, division) tuples to exclude.
+    """
+    # Step 1: Find all solo groups (session+level+division with exactly 1 athlete)
+    cur.execute('''SELECT session, level, division
+                   FROM results WHERE meet_name = ?
+                   GROUP BY session, level, division
+                   HAVING COUNT(DISTINCT name) = 1''', (meet_name,))
+    solo_groups = [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
+    if not solo_groups:
+        return set()
+
+    # Step 2: Find level+division combos that have real competition (2+ athletes)
+    # in at least one session
+    cur.execute('''SELECT level, division
+                   FROM results WHERE meet_name = ?
+                   GROUP BY session, level, division
+                   HAVING COUNT(DISTINCT name) >= 2''', (meet_name,))
+    has_competition = {(row[0], row[1]) for row in cur.fetchall()}
+
+    # Step 3: Only exclude solo groups whose level+division has competition elsewhere
+    excluded = set()
+    for session, level, division in solo_groups:
+        if (level, division) in has_competition:
+            excluded.add((session, level, division))
+
+    if excluded:
+        kept = len(solo_groups) - len(excluded)
+        print(f"  Solo sessions: {len(excluded)} out-of-session group(s) excluded, "
+              f"{kept} legitimate solo division(s) kept")
+    return excluded
 
 
 def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
@@ -116,17 +152,24 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
     cur = conn.cursor()
     _create_winners_table(cur, config.meet_name)
 
+    # Find solo sessions (only 1 athlete in that session+level+division).
+    # These are "out of session" competitors (e.g., Sunday religious accommodation)
+    # who are NOT eligible for state champion status.
+    solo_sessions = _find_solo_sessions(cur, config.meet_name)
+
     cur.execute('''SELECT DISTINCT session, level, division FROM results
                    WHERE meet_name = ?
                    ORDER BY level, division, session''', (config.meet_name,))
     combos = cur.fetchall()
 
     for session, level, division in combos:
+        if (session, level, division) in solo_sessions:
+            continue
         for event in EVENTS:
-            # Find max score (exclude NULLs)
+            # Find max score (exclude NULLs and zeroes)
             cur.execute(f'''SELECT MAX({event}) FROM results
                            WHERE meet_name = ? AND session = ? AND level = ? AND division = ?
-                             AND {event} IS NOT NULL''',
+                             AND {event} IS NOT NULL AND {event} > 0''',
                         (config.meet_name, session, level, division))
             max_score = cur.fetchone()[0]
             if max_score is None:
@@ -151,92 +194,3 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
     conn.commit()
 
 
-def _build_winners_rank_based(conn: sqlite3.Connection, config: MeetConfig,
-                               athletes: list[dict]):
-    """Determine winners by rank=1 with fallback to max score.
-
-    Used for ScoreCat sources where ranks are provided.
-    The adapter provides per-event ranks in the athlete dicts.
-    We need to use a temporary table for rank lookups.
-    """
-    cur = conn.cursor()
-    _create_winners_table(cur, config.meet_name)
-
-    # Create temporary rank lookup table from athlete data
-    cur.execute('''CREATE TEMPORARY TABLE rank_lookup (
-        name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
-        vault_rank INTEGER, bars_rank INTEGER, beam_rank INTEGER,
-        floor_rank INTEGER, aa_rank INTEGER
-    )''')
-
-    for a in athletes:
-        cur.execute('''INSERT INTO rank_lookup
-            (name, gym, session, level, division,
-             vault_rank, bars_rank, beam_rank, floor_rank, aa_rank)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (a['name'], a['gym'], a['session'], a['level'], a['division'],
-             a.get('vault_rank'), a.get('bars_rank'), a.get('beam_rank'),
-             a.get('floor_rank'), a.get('aa_rank')))
-
-    cur.execute('''SELECT DISTINCT session, level, division FROM results
-                   WHERE meet_name = ?
-                   ORDER BY CAST(level AS INTEGER), division, session''',
-                (config.meet_name,))
-    combos = cur.fetchall()
-
-    rank_cols = {
-        'vault': 'vault_rank',
-        'bars': 'bars_rank',
-        'beam': 'beam_rank',
-        'floor': 'floor_rank',
-        'aa': 'aa_rank',
-    }
-
-    for session, level, division in combos:
-        for event in EVENTS:
-            rank_col = rank_cols[event]
-
-            # Find all athletes with rank 1 who actually have a score > 0
-            cur.execute(f'''SELECT r.name, r.gym, r.{event}
-                           FROM results r
-                           JOIN rank_lookup rl
-                             ON r.name = rl.name AND r.gym = rl.gym
-                             AND r.session = rl.session AND r.level = rl.level
-                             AND r.division = rl.division
-                           WHERE r.meet_name = ?
-                             AND r.session = ? AND r.level = ? AND r.division = ?
-                             AND rl.{rank_col} = 1
-                             AND r.{event} IS NOT NULL AND r.{event} > 0''',
-                        (config.meet_name, session, level, division))
-            rank1_athletes = cur.fetchall()
-
-            if not rank1_athletes:
-                # Fallback: determine winner by max score
-                cur.execute(f'''SELECT MAX({event}) FROM results
-                               WHERE meet_name = ?
-                                 AND session = ? AND level = ? AND division = ?
-                                 AND {event} IS NOT NULL AND {event} > 0''',
-                            (config.meet_name, session, level, division))
-                max_score = cur.fetchone()[0]
-                if max_score is None:
-                    continue
-
-                cur.execute(f'''SELECT name, gym, {event} FROM results
-                               WHERE meet_name = ?
-                                 AND session = ? AND level = ? AND division = ?
-                                 AND {event} = ?''',
-                            (config.meet_name, session, level, division, max_score))
-                rank1_athletes = cur.fetchall()
-
-            is_tie = 1 if len(rank1_athletes) > 1 else 0
-            for row in rank1_athletes:
-                name, gym, score = row[0], row[1], row[2]
-                cur.execute('''INSERT OR REPLACE INTO winners
-                    (state, meet_name, association, name, gym, session, level, division,
-                     event, score, is_tie)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (config.state, config.meet_name, config.association,
-                     name, gym, session, level, division, event, score, is_tie))
-
-    cur.execute('DROP TABLE IF EXISTS rank_lookup')
-    conn.commit()

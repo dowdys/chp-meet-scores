@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { chromeController } from './chrome-controller';
@@ -171,7 +171,7 @@ function setupIPC(): void {
         sendActivityLog(`Meet "${meetName}" processing failed: ${result.message}`, 'error');
       }
 
-      return { success: result.success, message: result.message };
+      return { success: result.success, message: result.message, outputName: result.outputName };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendActivityLog(`Error: ${message}`, 'error');
@@ -278,6 +278,39 @@ function setupIPC(): void {
       shell.openPath(meetDir);
     }
     return { success: true };
+  });
+
+  // Open logs directory
+  ipcMain.handle('open-logs-folder', async () => {
+    const logsDir = path.join(getDataDir(), 'logs');
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+
+    if (process.platform === 'linux' && logsDir.startsWith('/')) {
+      const { execSync } = await import('child_process');
+      try {
+        const winPath = execSync(`wslpath -w "${logsDir}"`).toString().trim();
+        execSync(`explorer.exe "${winPath}"`);
+      } catch {
+        shell.openPath(logsDir);
+      }
+    } else {
+      shell.openPath(logsDir);
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('browse-folder', async () => {
+    if (!mainWindow) return { cancelled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select Output Directory',
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { cancelled: true };
+    }
+    return { cancelled: false, path: result.filePaths[0] };
   });
 
   // Reset session — clear temp files, progress, Chrome state

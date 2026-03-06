@@ -47,7 +47,8 @@ const ProcessTab: React.FC = () => {
           message: 'Processing complete!',
           level: 'success',
         });
-        setProcessedMeet(meetName.trim());
+        // Use the agent's clean output name if available, otherwise raw input
+        setProcessedMeet(result.outputName || meetName.trim());
         setShowOutput(true);
       } else {
         addLogEntry({
@@ -90,15 +91,20 @@ const ProcessTab: React.FC = () => {
     && !pendingQuestion.options.some(o => o.toLowerCase().includes('start fresh') || o.toLowerCase().includes('resume'));
 
   const handleChoiceClick = (choice: string) => {
-    if (!choice.trim()) return;
+    // Append custom text if the user typed additional comments alongside an option
+    let response = choice;
+    if (customResponse.trim()) {
+      response = choice ? `${choice}\n${customResponse.trim()}` : customResponse.trim();
+    }
+    if (!response.trim()) return;
 
     addLogEntry({
       timestamp: new Date().toISOString(),
-      message: `You responded: ${choice}`,
+      message: `You responded: ${response}`,
       level: 'success',
     });
 
-    window.electronAPI.respondToAskUser(choice);
+    window.electronAPI.respondToAskUser(response);
 
     setPendingQuestion(null);
     setCustomResponse('');
@@ -118,12 +124,14 @@ const ProcessTab: React.FC = () => {
   };
 
   const handleSubmitSelected = () => {
-    if (!pendingQuestion || selectedOptions.size === 0) return;
+    if (!pendingQuestion) return;
+    // Allow submitting with just text, just options, or both
+    if (selectedOptions.size === 0 && !customResponse.trim()) return;
     const chosen = pendingQuestion.options
       .filter((_, i) => selectedOptions.has(i))
       .join('\n');
-    const response = chosen + (customResponse.trim() ? '\n' + customResponse.trim() : '');
-    handleChoiceClick(response);
+    // handleChoiceClick will append customResponse if present
+    handleChoiceClick(chosen);
   };
 
   const handleCustomSubmit = () => {
@@ -243,7 +251,6 @@ const ProcessTab: React.FC = () => {
                     <label
                       key={i}
                       className={`ask-user-checkbox-label${selectedOptions.has(i) ? ' selected' : ''}`}
-                      onClick={() => handleToggleOption(i)}
                     >
                       <input
                         type="checkbox"
@@ -256,14 +263,14 @@ const ProcessTab: React.FC = () => {
                 </div>
                 <div className="ask-user-custom">
                   <div className="ask-user-divider">
-                    <span>additional comments (optional)</span>
+                    <span>additional comments or your own response</span>
                   </div>
                   <div className="ask-user-custom-row">
                     <input
                       ref={customInputRef}
                       type="text"
                       className="ask-user-custom-input"
-                      placeholder="e.g. also include level 1-5 if you can find it..."
+                      placeholder="Type your own response or add comments to selection..."
                       value={customResponse}
                       onChange={e => setCustomResponse(e.target.value)}
                       onKeyDown={handleCustomKeyDown}
@@ -273,9 +280,11 @@ const ProcessTab: React.FC = () => {
                 <button
                   className="ask-user-submit-multi"
                   onClick={handleSubmitSelected}
-                  disabled={selectedOptions.size === 0}
+                  disabled={selectedOptions.size === 0 && !customResponse.trim()}
                 >
-                  Submit Selected ({selectedOptions.size})
+                  {selectedOptions.size > 0
+                    ? `Submit Selected (${selectedOptions.size})`
+                    : 'Submit Response'}
                 </button>
               </>
             ) : (
@@ -293,7 +302,7 @@ const ProcessTab: React.FC = () => {
                 </div>
                 <div className="ask-user-custom">
                   <div className="ask-user-divider">
-                    <span>or type your own response</span>
+                    <span>type your own response or add comments</span>
                   </div>
                   <div className="ask-user-custom-row">
                     <input

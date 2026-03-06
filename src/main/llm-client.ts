@@ -104,8 +104,36 @@ interface ClaudeCredentials {
 }
 
 function getClaudeCredentialsPath(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || app.getPath('home');
-  return path.join(home, '.claude', '.credentials.json');
+  // On Windows with WSL, Claude Code runs in WSL and writes credentials there.
+  // The WSL home (~) is accessible from Windows via \\wsl$\ or /home/<user>.
+  // Check WSL path first (via /mnt/wsl or \\wsl$), then fall back to native home.
+  const nativeHome = process.env.USERPROFILE || process.env.HOME || app.getPath('home');
+  const nativePath = path.join(nativeHome, '.claude', '.credentials.json');
+
+  // If running on Windows, also check WSL home for fresher credentials
+  if (process.platform === 'win32') {
+    const wslUser = process.env.WSL_USER || 'goduk';
+    const wslPaths = [
+      `\\\\wsl$\\Ubuntu\\home\\${wslUser}\\.claude\\.credentials.json`,
+      `\\\\wsl.localhost\\Ubuntu\\home\\${wslUser}\\.claude\\.credentials.json`,
+    ];
+    for (const wslPath of wslPaths) {
+      try {
+        if (fs.existsSync(wslPath)) {
+          // Use WSL credentials if they exist and are newer
+          const wslStats = fs.statSync(wslPath);
+          const nativeExists = fs.existsSync(nativePath);
+          if (!nativeExists || wslStats.mtimeMs > fs.statSync(nativePath).mtimeMs) {
+            return wslPath;
+          }
+        }
+      } catch {
+        // WSL path not accessible, skip
+      }
+    }
+  }
+
+  return nativePath;
 }
 
 function readClaudeCredentials(): ClaudeCredentials {
@@ -168,7 +196,7 @@ async function getClaudeOAuthToken(forceRefresh = false): Promise<string> {
       const errorText = await response.text();
       console.error(`[OAuth] Refresh failed (${response.status}): ${errorText}`);
       throw new Error(
-        `Token refresh failed (${response.status}). ` +
+        `Token refresh failed (${response.status}): ${errorText}. ` +
         'Please run "claude" in a terminal to re-authenticate.'
       );
     }

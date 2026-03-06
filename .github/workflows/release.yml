@@ -29,7 +29,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install pyinstaller pymupdf
+        run: pip install pyinstaller pymupdf "qrcode[pil]"
 
       - name: Build process_meet.exe
         run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
@@ -64,7 +64,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install pyinstaller pymupdf
+        run: pip install pyinstaller pymupdf "qrcode[pil]"
 
       - name: Build process_meet (x64)
         run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
@@ -89,7 +89,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: pip install pyinstaller pymupdf
+        run: pip install pyinstaller pymupdf "qrcode[pil]"
 
       - name: Build process_meet (arm64)
         run: python -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y

@@ -4,14 +4,13 @@
 All extraction methods produce raw data (JSON, TSV, or direct from PDF parsing) that gets normalized into a unified SQLite schema. This skill covers the schema, winner determination strategies, and key rules.
 
 ## Unified Schema
-Both tables (`results` and `winners`) use the same column names regardless of source. See system-prompt for full schema. Additional columns may exist per source:
-- ScoreCat sources add per-event rank columns: `vault_rank`, `bars_rank`, `beam_rank`, `floor_rank`, `aa_rank` (INTEGER)
-- PDF/HTML sources store the overall rank as `rank` (TEXT, may contain "T" suffix)
+Both tables (`results` and `winners`) use the same column names regardless of source. See system-prompt for full schema. The `rank` column (TEXT) stores whatever rank the source provided, but it is NOT used for winner determination — winners are always determined by max score. Some adapters also parse per-event ranks into athlete dicts (`vault_rank`, etc.) but these are likewise ignored for winner selection.
 
-## Winner Determination — Two Strategies
+## Winner Determination — Score-Based (All Sources)
 
-### Strategy 1: Score-based (MSO PDF and HTML sources)
-Used when rank data is unreliable or absent. For each session+level+division+event:
+All data sources use the same score-based strategy. Ranks from data sources are ignored because they may not handle ties correctly — e.g. ScoreCat often assigns sequential ranks (1, 2) to athletes who tied instead of giving both rank 1.
+
+For each session+level+division+event:
 1. Find MAX(score) where score IS NOT NULL and score > 0
 2. Select ALL athletes with that max score
 3. If count > 1, set is_tie = 1
@@ -25,19 +24,7 @@ WHERE session = ? AND level = ? AND division = ?
                  AND vault IS NOT NULL AND vault > 0)
 ```
 
-### Strategy 2: Rank-based (ScoreCat sources)
-Used when ScoreCat provides per-event ranks. For each session+level+division+event:
-1. Select athletes where event_rank = 1 AND score > 0
-2. If no rank data exists, fall back to Strategy 1 (max score)
-3. Count athletes with rank 1 — if > 1, set is_tie = 1
-
-```sql
--- Example: Find vault winners using rank
-SELECT name, gym, vault FROM results
-WHERE session = ? AND level = ? AND division = ?
-  AND vault_rank = 1
-  AND vault IS NOT NULL AND vault > 0
-```
+This guarantees that any athletes who tied on score both become winners, regardless of how the original data source ranked them.
 
 ## Critical Rules
 

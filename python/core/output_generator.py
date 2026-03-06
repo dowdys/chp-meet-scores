@@ -9,16 +9,7 @@ Generates three output types from the winners database:
 import sqlite3
 import csv
 
-
-EVENTS = ['vault', 'bars', 'beam', 'floor', 'aa']
-EVENT_TITLES = {
-    'vault': 'Vault', 'bars': 'Bars', 'beam': 'Beam',
-    'floor': 'Floor', 'aa': 'All Around'
-}
-EVENT_TITLES_SHORT = {
-    'vault': 'Vault', 'bars': 'Bars', 'beam': 'Beam',
-    'floor': 'Floor', 'aa': 'AA'
-}
+from python.core.constants import EVENTS, EVENT_DISPLAY, EVENT_DISPLAY_SHORT
 
 
 def generate_back_of_shirt(db_path: str, meet_name: str, output_path: str,
@@ -34,8 +25,13 @@ def generate_back_of_shirt(db_path: str, meet_name: str, output_path: str,
         format: 'level_first' groups by level then event (Iowa style),
                 'event_first' groups by event then level (CO/UT style).
     """
+    from python.core.division_detector import detect_division_order
+
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
+
+    # Get division ordering for age-based sort (youngest first)
+    div_order = detect_division_order(db_path, meet_name)
 
     # Get all levels present in winners, sorted numerically ascending
     cur.execute('''SELECT DISTINCT level FROM winners
@@ -44,9 +40,9 @@ def generate_back_of_shirt(db_path: str, meet_name: str, output_path: str,
     levels = [row[0] for row in cur.fetchall()]
 
     if format == 'level_first':
-        lines = _shirt_level_first(cur, meet_name, levels, shirt_title)
+        lines = _shirt_level_first(cur, meet_name, levels, shirt_title, div_order)
     else:
-        lines = _shirt_event_first(cur, meet_name, levels)
+        lines = _shirt_event_first(cur, meet_name, levels, div_order)
 
     conn.close()
 
@@ -54,8 +50,17 @@ def generate_back_of_shirt(db_path: str, meet_name: str, output_path: str,
         f.write('\n'.join(lines))
 
 
-def _shirt_level_first(cur, meet_name: str, levels: list, title: str | None) -> list[str]:
+def _sort_names_by_division(rows, div_order):
+    """Sort (name, division) rows by age group (youngest first), then name."""
+    rows.sort(key=lambda r: (div_order.get(r[1], 99), r[0]))
+    return [r[0] for r in rows]
+
+
+def _shirt_level_first(cur, meet_name: str, levels: list, title: str | None,
+                       div_order: dict = None) -> list[str]:
     """Iowa-style: title, then ## Level X, then ### Event."""
+    if div_order is None:
+        div_order = {}
     lines = []
     if title:
         lines.append(f'# {title}\n')
@@ -64,13 +69,14 @@ def _shirt_level_first(cur, meet_name: str, levels: list, title: str | None) -> 
         lines.append(f'\n## Level {level}\n')
 
         for event in EVENTS:
-            cur.execute('''SELECT DISTINCT name FROM winners
-                          WHERE meet_name = ? AND event = ? AND level = ?
-                          ORDER BY name''', (meet_name, event, level))
-            names = [row[0] for row in cur.fetchall()]
+            cur.execute('''SELECT DISTINCT name, division FROM winners
+                          WHERE meet_name = ? AND event = ? AND level = ?''',
+                        (meet_name, event, level))
+            rows = cur.fetchall()
 
-            if names:
-                lines.append(f'### {EVENT_TITLES[event]}')
+            if rows:
+                names = _sort_names_by_division(rows, div_order)
+                lines.append(f'### {EVENT_DISPLAY[event]}')
                 for name in names:
                     lines.append(name)
                 lines.append('')
@@ -78,19 +84,23 @@ def _shirt_level_first(cur, meet_name: str, levels: list, title: str | None) -> 
     return lines
 
 
-def _shirt_event_first(cur, meet_name: str, levels: list) -> list[str]:
+def _shirt_event_first(cur, meet_name: str, levels: list,
+                       div_order: dict = None) -> list[str]:
     """CO/UT-style: ## Event, then names grouped by level (blank line separator)."""
+    if div_order is None:
+        div_order = {}
     lines = []
     for event in EVENTS:
-        lines.append(f'\n## {EVENT_TITLES_SHORT[event]}\n')
+        lines.append(f'\n## {EVENT_DISPLAY_SHORT[event]}\n')
 
         for level in levels:
-            cur.execute('''SELECT DISTINCT name FROM winners
-                          WHERE meet_name = ? AND event = ? AND level = ?
-                          ORDER BY name''', (meet_name, event, level))
-            names = [row[0] for row in cur.fetchall()]
+            cur.execute('''SELECT DISTINCT name, division FROM winners
+                          WHERE meet_name = ? AND event = ? AND level = ?''',
+                        (meet_name, event, level))
+            rows = cur.fetchall()
 
-            if names:
+            if rows:
+                names = _sort_names_by_division(rows, div_order)
                 for name in names:
                     lines.append(name)
                 lines.append('')
@@ -111,11 +121,6 @@ def generate_order_forms(db_path: str, meet_name: str, output_path: str):
                    WHERE meet_name = ?
                    ORDER BY gym''', (meet_name,))
     gyms = [row[0] for row in cur.fetchall()]
-
-    event_display = {
-        'vault': 'Vault', 'bars': 'Bars', 'beam': 'Beam',
-        'floor': 'Floor', 'aa': 'AA'
-    }
 
     lines = []
     for gym in gyms:
@@ -149,7 +154,7 @@ def generate_order_forms(db_path: str, meet_name: str, output_path: str):
                             WHEN 'floor' THEN 4
                             WHEN 'aa' THEN 5
                           END''', (meet_name, name, gym, level, division))
-            events = [event_display[row[0]] for row in cur.fetchall()]
+            events = [EVENT_DISPLAY_SHORT[row[0]] for row in cur.fetchall()]
 
             lines.append(f'  {name} - {", ".join(events)}')
             lines.append(f'  Level {level} Division {division}')

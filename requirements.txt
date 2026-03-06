@@ -1,0 +1,8 @@
+# Python dependencies for CHP Meet Scores
+# For developer setup only — end users get everything bundled via PyInstaller.
+#
+# Install: pip install -r requirements.txt
+
+PyMuPDF>=1.23.0    # PDF generation and reading (imported as 'fitz')
+qrcode[pil]>=7.0   # QR code generation for order forms
+pytest>=7.0        # Test runner (dev only)

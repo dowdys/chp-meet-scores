@@ -1,7 +1,7 @@
 # Detail: DOM Scraping Approach
 
 ## Steps
-1. **Inspect page structure**: Run via `evaluate_script`:
+1. **Inspect page structure**: Run via `chrome_execute_js`:
    ```javascript
    () => {
      const tables = document.querySelectorAll('table');

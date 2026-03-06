@@ -5,12 +5,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
+import { app, shell } from 'electron';
 import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse, ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import { configStore } from './config-store';
 import { getStagingDbPath, resetStagingDb } from './tools/python-tools';
-import { getProjectRoot as sharedGetProjectRoot, getDataDir as sharedGetDataDir } from './paths';
+import { getProjectRoot as sharedGetProjectRoot, getDataDir as sharedGetDataDir, getOutputDir as sharedGetOutputDir } from './paths';
 
 /** Extract the text portion of a tool result content (ignoring images). */
 function toolResultText(content: ToolResultContent | undefined): string {
@@ -32,6 +32,8 @@ interface AgentContext {
   totalOutputTokens: number;
   onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
   abortRequested: boolean;
+  logPath?: string; // Stable path for incremental log saves
+  iterationCount: number; // Current iteration number
 }
 
 interface ToolExecutor {
@@ -175,11 +177,11 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'run_python',
-      description: 'Run process_meet.py to build the database and generate outputs. The --db (central database path) and --output (output directory) are ALWAYS auto-injected (do NOT pass them). You only need: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. Back-of-shirt PDF and order forms PDF are always generated (title auto-derived from --state and --year). The --year defaults to the current year. For --data: can be a single file, a directory of JSON files, or a glob pattern (e.g. /path/to/data/js_result_*.json). Use --source generic for JSON/TSV data from any source. PDF layout tuning: --line-spacing <float> (line height ratio, default 1.15, lower=tighter), --level-gap <float> (gap before each level section, default 6), --max-fill <float> (max page fill 0-1, default 0.90), --min-font-size <float> (minimum name font size in pt, default 6.5), --max-font-size <float> (maximum/starting name font size in pt, default 9; raise to 11-12 for meets with few winners). Use render_pdf_page after generating to visually inspect and tune these values.',
+      description: 'Run process_meet.py to build the database and generate outputs. The --db (central database path) and --output (output directory) are ALWAYS auto-injected (do NOT pass them). You only need: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. Back-of-shirt PDF and order forms PDF are always generated (title auto-derived from --state and --year). The --year defaults to the current year. For --data: can be a single file, a directory of JSON files, or a glob pattern (e.g. /path/to/data/js_result_*.json). Use --source generic for JSON/TSV data from any source. PDF layout tuning: --line-spacing <float> (line height ratio, default 1.15, lower=tighter), --level-gap <float> (gap before each level section, default 6), --max-fill <float> (max page fill 0-1, default 0.90), --min-font-size <float> (minimum name font size in pt, default 6.5), --max-font-size <float> (maximum/starting name font size in pt, default 9; raise to 11-12 for meets with few winners). Order form deadline dates: --postmark-date <string> (postmark deadline, e.g. "March 15, 2026"), --online-date <string> (online ordering deadline), --ship-date <string> (shipping date). Use ask_user to get these dates before generating. Use render_pdf_page after generating to visually inspect and tune these values.',
       input_schema: {
         type: 'object',
         properties: {
-          args: { type: 'string', description: 'Command-line arguments: --source {scorecat,mso_pdf,mso_html,generic} --data <path_to_data_file> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY] [--line-spacing 1.15] [--level-gap 6] [--max-fill 0.90] [--min-font-size 6.5] [--max-font-size 9]. The --year sets championship year for PDF titles (defaults to current year). Use "generic" for JSON or TSV data from any source (auto-detects format, maps column names flexibly). Layout params let you tune the back-of-shirt PDF spacing and sizing. Raise --max-font-size (e.g. 12) for meets with few winners so names appear larger.' },
+          args: { type: 'string', description: 'Command-line arguments: --source {scorecat,mso_pdf,mso_html,generic} --data <path_to_data_file> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY] [--line-spacing 1.15] [--level-gap 6] [--max-fill 0.90] [--min-font-size 6.5] [--max-font-size 9] [--postmark-date "March 15, 2026"] [--online-date "March 20, 2026"] [--ship-date "April 5, 2026"]. IMPORTANT: Wrap any path containing spaces in double quotes (e.g. --data "C:\\path with spaces\\file.json"). The --year sets championship year for PDF titles (defaults to current year). Use "generic" for JSON or TSV data from any source (auto-detects format, maps column names flexibly). Layout params let you tune the back-of-shirt PDF spacing and sizing. Raise --max-font-size (e.g. 12) for meets with few winners so names appear larger. Deadline dates for order forms: use ask_user to get postmark-date, online-date, and ship-date from the user before generating.' },
         },
         required: ['args'],
       },
@@ -381,6 +383,17 @@ function getToolDefinitions(): ToolDefinition[] {
         },
       },
     },
+    {
+      name: 'open_file',
+      description: 'Open a file on the user\'s computer using their default application (e.g., PDF viewer for .pdf, Excel for .csv). Use this to let the user review output files before asking for feedback. The file opens in a separate window the user can see.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          file_path: { type: 'string', description: 'Absolute path to the file to open. If a relative name like "back_of_shirt.pdf" is given, it will be resolved to the output directory.' },
+        },
+        required: ['file_path'],
+      },
+    },
   ];
 }
 
@@ -390,13 +403,8 @@ function getProjectRoot(): string {
   return sharedGetProjectRoot();
 }
 
-function getOutputDir(meetName: string): string {
-  const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
-  const meetDir = path.join(outputBase, meetName);
-  if (!fs.existsSync(meetDir)) {
-    fs.mkdirSync(meetDir, { recursive: true });
-  }
-  return meetDir;
+function getOutputDir(meetName: string, createIfMissing = true): string {
+  return sharedGetOutputDir(meetName, createIfMissing);
 }
 
 function getDataDir(): string {
@@ -448,8 +456,11 @@ export class AgentLoop {
   /**
    * Process a meet (main entry point for Process tab).
    */
-  async processMeet(meetName: string): Promise<{ success: boolean; message: string }> {
+  async processMeet(meetName: string): Promise<{ success: boolean; message: string; outputName?: string }> {
     this.onActivity(`Starting agent for meet: ${meetName}`, 'info');
+
+    // Declare context outside try so it's accessible in catch for log saving
+    let context: AgentContext | null = null;
 
     try {
       // Load system prompt
@@ -457,7 +468,16 @@ export class AgentLoop {
       // Reset staging DB for a fresh meet
       resetStagingDb();
 
-      const context: AgentContext = {
+      // Create a stable log file path so we can save incrementally
+      const logsDir = path.join(getDataDir(), 'logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeName = meetName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+      const logPath = path.join(logsDir, `${safeName}_${timestamp}.md`);
+
+      context = {
         meetName,
         systemPrompt,
         loadedSkills: [],
@@ -466,6 +486,8 @@ export class AgentLoop {
         totalOutputTokens: 0,
         onActivity: this.onActivity,
         abortRequested: false,
+        logPath,
+        iterationCount: 0,
       };
 
       // Store context ref for external abort
@@ -528,11 +550,15 @@ export class AgentLoop {
       this.saveProcessLog(context, result);
       this.activeContext = null;
 
-      return result;
+      return { ...result, outputName: context.outputName };
     } catch (err) {
-      this.activeContext = null;
       const message = err instanceof Error ? err.message : String(err);
       this.onActivity(`Agent error: ${message}`, 'error');
+      // Save log even for crashed/failed runs so they can be reviewed
+      if (context) {
+        this.saveProcessLog(context, { success: false, message: `CRASHED: ${message}` });
+      }
+      this.activeContext = null;
       return { success: false, message };
     }
   }
@@ -568,6 +594,7 @@ export class AgentLoop {
         totalOutputTokens: 0,
         onActivity: this.onActivity,
         abortRequested: false,
+        iterationCount: 0,
       };
       this.buildToolExecutors(dummyContext);
 
@@ -634,7 +661,8 @@ export class AgentLoop {
   private async runLoop(context: AgentContext): Promise<{ success: boolean; message: string }> {
     const tools = getToolDefinitions();
     const contextLimit = this.llmClient.getContextLimit();
-    const maxIterations = 100;
+    const iterationBatch = 100;
+    let maxIterations = iterationBatch;
     let iterations = 0;
 
     // Build the system prompt including any loaded skills
@@ -647,8 +675,13 @@ export class AgentLoop {
       return system;
     };
 
+    // Outer loop allows the user to extend the iteration limit at checkpoints
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+
     while (iterations < maxIterations) {
       iterations++;
+      context.iterationCount = iterations;
 
       // Check if abort was requested
       if (context.abortRequested) {
@@ -757,33 +790,69 @@ export class AgentLoop {
         const toolResults = await this.executeToolCalls(response.content, context);
         context.messages.push({ role: 'user', content: toolResults });
       }
+
+      // Save log incrementally every 5 iterations so incomplete runs can be reviewed
+      if (iterations % 5 === 0) {
+        this.saveProcessLog(context, {
+          success: false,
+          message: `IN PROGRESS — iteration ${iterations}/${maxIterations}`,
+        });
+      }
     }
 
-    // Instead of hard-failing, ask the agent to summarize what's wrong
-    // and whether it needs system changes or is close to finishing
-    this.onActivity('Reached iteration limit — asking agent for status summary...', 'warning');
+    // Iteration limit reached — ask the agent to explain the situation to the
+    // user via ask_user, and let the user decide whether to continue or stop
+    this.onActivity(`Reached iteration limit (${maxIterations}) — checking with you...`, 'warning');
     const totalTokens = context.totalInputTokens + context.totalOutputTokens;
     context.messages.push({
       role: 'user',
-      content: `You have reached the iteration limit (${maxIterations} iterations). Token usage: ${context.totalInputTokens.toLocaleString()} input + ${context.totalOutputTokens.toLocaleString()} output = ${totalTokens.toLocaleString()} total (context limit: ${this.llmClient.getContextLimit().toLocaleString()}).\n\nInstead of stopping, please provide a brief summary for the user:\n1. What have you accomplished so far?\n2. What is blocking you or taking so many iterations?\n3. Do you think this is a system/tool limitation that needs a code fix, or are you close to finishing and just need more iterations?\n4. What would you recommend as next steps?\n\nKeep it concise — the user will see this directly.`,
+      content: `You have reached the iteration limit (${maxIterations} iterations). Token usage: ${context.totalInputTokens.toLocaleString()} input + ${context.totalOutputTokens.toLocaleString()} output = ${totalTokens.toLocaleString()} total (context limit: ${this.llmClient.getContextLimit().toLocaleString()}).\n\nYou MUST use the ask_user tool to:\n1. Explain to the user what you have accomplished so far\n2. Explain what you are currently working on and what is taking so many iterations\n3. Ask whether they want you to continue (with ${iterationBatch} more iterations) or stop\n\nProvide your summary as the question text in ask_user, and use these options: ["Continue", "Stop and save progress"]\n\nDo NOT just provide a text summary — you MUST call ask_user so the user can choose.`,
     });
 
     try {
-      const summaryResponse = await this.llmClient.sendMessage({
+      const checkpointResponse = await this.llmClient.sendMessage({
         system: buildSystem(),
         messages: context.messages,
-        tools: [], // No tools — just want a text summary
+        tools,
       });
 
-      const summaryText = summaryResponse.content
+      context.messages.push({ role: 'assistant', content: checkpointResponse.content });
+
+      // Log any text the agent produced
+      for (const block of checkpointResponse.content) {
+        if (block.type === 'text' && block.text) {
+          this.onActivity(block.text, 'info');
+        }
+      }
+
+      // Check if the agent used ask_user as instructed
+      const hasToolUse = checkpointResponse.content.some(b => b.type === 'tool_use');
+
+      if (hasToolUse) {
+        // Execute the tool calls (which includes ask_user)
+        const toolResults = await this.executeToolCalls(checkpointResponse.content, context);
+        context.messages.push({ role: 'user', content: toolResults });
+
+        // Check the user's response from ask_user
+        const userChoice = toolResults
+          .filter(b => b.type === 'tool_result')
+          .map(b => typeof b.content === 'string' ? b.content : '')
+          .join('');
+
+        if (userChoice.toLowerCase().includes('continue')) {
+          this.onActivity(`Continuing with ${iterationBatch} more iterations...`, 'info');
+          maxIterations += iterationBatch;
+          continue; // Re-enter the outer while(true) → inner while loop
+        }
+      }
+
+      // User chose to stop, or agent didn't use ask_user — save and exit
+      await this.autoSaveProgress(context);
+      const summaryText = checkpointResponse.content
         .filter(b => b.type === 'text')
         .map(b => b.text ?? '')
         .join('\n');
-
-      context.messages.push({ role: 'assistant', content: summaryResponse.content });
-      await this.autoSaveProgress(context);
-
-      this.onActivity(summaryText || 'Agent could not provide a summary.', 'warning');
+      this.onActivity('Progress saved. Run again to continue where you left off.', 'success');
       return {
         success: false,
         message: summaryText || 'Agent reached iteration limit. Progress has been saved.',
@@ -792,6 +861,8 @@ export class AgentLoop {
       await this.autoSaveProgress(context);
       return { success: false, message: 'Agent reached iteration limit. Progress has been saved.' };
     }
+
+    } // end outer while(true)
   }
 
   /**
@@ -858,6 +929,14 @@ export class AgentLoop {
       const toolArgs = (call.input ?? {}) as Record<string, unknown>;
       const toolId = call.id!;
 
+      // Save log before ask_user since the run will block waiting for user input
+      if (toolName === 'ask_user' && context.logPath) {
+        this.saveProcessLog(context, {
+          success: false,
+          message: `IN PROGRESS — waiting for user response (iteration ${context.iterationCount})`,
+        });
+      }
+
       this.onActivity(`Running tool: ${toolName}...`, 'info');
       console.log(`[AGENT] Running tool: ${toolName} args=${JSON.stringify(toolArgs).substring(0, 200)}`);
 
@@ -914,6 +993,12 @@ export class AgentLoop {
         return this.toolRenderPdfPage(
           args.pdf_path as string | undefined,
           args.page_number as number | undefined,
+          context.outputName || context.meetName
+        );
+
+      case 'open_file':
+        return this.toolOpenFile(
+          args.file_path as string,
           context.outputName || context.meetName
         );
 
@@ -1054,6 +1139,40 @@ doc.close()
         resolve(`Error spawning Python: ${err.message}`);
       });
     });
+  }
+
+  private async toolOpenFile(filePath: string, meetName: string): Promise<string> {
+    // If it looks like a filename (not an absolute path), resolve to the output directory
+    let resolvedPath = filePath;
+    if (!path.isAbsolute(filePath)) {
+      resolvedPath = path.join(getOutputDir(meetName, false), filePath);
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return `Error: File not found at ${resolvedPath}`;
+    }
+
+    // On WSL, convert to Windows path for shell.openPath
+    let openPath = resolvedPath;
+    if (process.platform === 'linux' && resolvedPath.startsWith('/')) {
+      try {
+        const { execSync } = require('child_process') as typeof import('child_process');
+        const winPath = execSync(`wslpath -w "${resolvedPath}"`, { encoding: 'utf-8' }).trim();
+        if (winPath) openPath = winPath;
+      } catch {
+        // Fall through with Linux path
+      }
+    }
+
+    try {
+      const errorMessage = await shell.openPath(openPath);
+      if (errorMessage) {
+        return `Error opening file: ${errorMessage}`;
+      }
+      return `Opened ${path.basename(resolvedPath)} in the user's default application. Wait a few seconds for them to review it before asking for feedback.`;
+    } catch (err) {
+      return `Error opening file: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
 
   private async toolListOutputFiles(meetName: string): Promise<string> {
@@ -1275,27 +1394,36 @@ doc.close()
   }
 
   /**
-   * Save the full process log as a readable markdown file.
-   * Saved to data/logs/[meetName]_[timestamp].md
+   * Save the process log as a readable markdown file.
+   * Uses the stable logPath from context so incremental saves overwrite the same file.
+   * The log is written every 5 iterations and on completion/crash, so even runs that
+   * die unexpectedly will have a recent snapshot.
    */
   private saveProcessLog(
     context: AgentContext,
     result: { success: boolean; message: string }
   ): void {
     try {
-      const logsDir = path.join(getDataDir(), 'logs');
-      if (!fs.existsSync(logsDir)) {
-        fs.mkdirSync(logsDir, { recursive: true });
+      // Use the stable path from context, or generate one if missing (shouldn't happen)
+      let logPath = context.logPath;
+      if (!logPath) {
+        const logsDir = path.join(getDataDir(), 'logs');
+        if (!fs.existsSync(logsDir)) {
+          fs.mkdirSync(logsDir, { recursive: true });
+        }
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        const safeName = context.meetName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        logPath = path.join(logsDir, `${safeName}_${timestamp}.md`);
+        context.logPath = logPath;
       }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-      const safeName = context.meetName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-      const logPath = path.join(logsDir, `${safeName}_${timestamp}.md`);
+      const isFinal = !result.message.startsWith('IN PROGRESS');
 
       const lines: string[] = [];
       lines.push(`# Process Log: ${context.meetName}`);
       lines.push(`**Date**: ${new Date().toISOString()}`);
-      lines.push(`**Result**: ${result.success ? 'SUCCESS' : 'FAILED'} — ${result.message}`);
+      lines.push(`**Status**: ${isFinal ? (result.success ? 'SUCCESS' : 'FAILED') : 'IN PROGRESS'} — ${result.message}`);
+      lines.push(`**Iterations**: ${context.iterationCount}`);
       lines.push(`**Tokens**: ${context.totalInputTokens.toLocaleString()} input, ${context.totalOutputTokens.toLocaleString()} output`);
       lines.push(`**Skills loaded**: ${context.loadedSkills.join(', ') || 'none'}`);
       lines.push('');
@@ -1345,7 +1473,21 @@ doc.close()
       }
 
       fs.writeFileSync(logPath, lines.join('\n'), 'utf-8');
-      this.onActivity(`Process log saved: ${logPath}`, 'info');
+
+      // Only copy to the output folder on final saves (not intermediate snapshots)
+      if (isFinal) {
+        const outputName = context.outputName || context.meetName;
+        const outputDir = getOutputDir(outputName, false);
+        if (fs.existsSync(outputDir)) {
+          try {
+            const outputLogPath = path.join(outputDir, 'process_log.md');
+            fs.writeFileSync(outputLogPath, lines.join('\n'), 'utf-8');
+          } catch {
+            // Non-critical — just skip
+          }
+        }
+        this.onActivity(`Process log saved: ${logPath}`, 'info');
+      }
     } catch (err) {
       // Don't let log saving failure crash the process
       const errMsg = err instanceof Error ? err.message : String(err);

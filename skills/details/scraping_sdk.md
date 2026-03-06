@@ -4,7 +4,7 @@
 Some web apps load a backend SDK (Firebase, Supabase, AWS Amplify) that initializes a client connection. You can access that initialized client directly from the browser console to query the backend, bypassing the UI entirely.
 
 ## Detection
-Check for common SDKs via `evaluate_script`:
+Check for common SDKs via `chrome_execute_js`:
 ```javascript
 () => ({
   firebase_core: !!window.firebase_core,

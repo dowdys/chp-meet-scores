@@ -43,7 +43,7 @@ fi
 # --- Step 2: Install Python dependencies ---
 echo ""
 echo "[2/8] Installing Python dependencies - PyInstaller, PyMuPDF..."
-$PYTHON_CMD -m pip install --quiet pyinstaller pymupdf
+$PYTHON_CMD -m pip install --quiet pyinstaller pymupdf "qrcode[pil]"
 echo "  Done"
 
 # --- Step 3: Build process_meet with PyInstaller ---

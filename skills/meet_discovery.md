@@ -6,7 +6,7 @@ Find gymnastics meet results online given a meet name.
 ## CRITICAL: Budget & Efficiency
 - You have limited iterations. Spend AT MOST 10 iterations total on discovery.
 - **Search data sources DIRECTLY first** — do NOT start with web search.
-- Priority order: ScoreCat (Algolia) → MSO (Results.All) → Web search (last resort).
+- Priority order: ScoreCat (Algolia) → MSO (Results.All) → MyMeetScores → Web search (last resort).
 - If multiple meets match (e.g., "Dev State" + "Xcel State"), use the `ask_user` tool with the matches as options so the user can pick. Never silently combine separate meets.
 
 ## Step 1: ScoreCat — Algolia Search (headless, fastest)
@@ -35,7 +35,7 @@ Each hit returns: `meet_id`, `name`, `state`, `startDate`, `endDate`, `hostGym`,
 - If found, extract `meet_id` and load `scorecat_extraction` skill
 - See `skills/details/scorecat_schema.md` for full Algolia schema
 
-**Important**: A user's "State Championships" may be split into multiple ScoreCat meets (e.g., "Dev State", "Xcel State", "Men's State"). These are SEPARATE meets — use the `ask_user` tool to present the options and let the user choose.
+**Important**: A state championship is almost always split across multiple meets on every data source (e.g., "Dev State" for levels 1-5, "Levels 6-10 State", "Xcel State"). A complete championship should cover Levels 1-10 and Xcel Bronze/Silver/Gold/Platinum/Diamond/Sapphire (some states skip lower levels). Present ALL matching meets to the user via `ask_user` so they can select which ones to combine. Each selected meet gets extracted separately but feeds into the same database.
 
 ## Step 2: MSO — Results.All Page (headless or browser)
 
@@ -82,9 +82,25 @@ Body: p_meetid=XXXXX&query_name=lookup_scores
 - If 0 rows → the meet may use Report Builder (PDF) format. Load `mso_pdf_extraction` skill.
 - See `skills/details/mso_schema.md` for full API documentation
 
-## Step 3: Web Search (last resort)
+## Step 3: MyMeetScores (headless)
 
-Only if both ScoreCat and MSO come up empty:
+If ScoreCat and MSO came up empty, try MyMeetScores.com. Use `http_fetch` — no browser needed.
+
+**Completed meets by state and year:**
+```
+https://www.mymeetscores.com/gym.pl?list=2&year=2025&state=MI
+```
+- `list=2` = completed meets
+- `year=YYYY` = competition year
+- `state=XX` = two-letter state abbreviation (UPPERCASE)
+
+The page returns an HTML table with all completed meets for that state/year. Parse it to find matching meet names and extract the `meetid` from links like `/meet.pl?meetid=92680`.
+
+If found, load `mymeetscores_extraction` skill. The meetid is what you need.
+
+## Step 4: Web Search (last resort)
+
+Only if ScoreCat, MSO, and MyMeetScores all come up empty:
 
 ```
 web_search: "2025 Alabama State Championships" gymnastics results scores
@@ -127,5 +143,6 @@ Look for links to known platforms or new sources. If found on an unknown site, l
 | Algolia returns hits with `meet_id` | ScoreCat | `scorecat_extraction` |
 | MSO Results.All has `data-meetid` match | MSO (JSON API) | `mso_html_extraction` |
 | MSO page with Report Builder checkboxes only | MSO (PDF) | `mso_pdf_extraction` |
+| MyMeetScores gym.pl has matching meetid | MyMeetScores | `mymeetscores_extraction` |
 | ScoreKing website | ScoreKing | `scoreking_extraction` |
-| Other website (MyMeetScores, etc.) | Unknown | `general_scraping` |
+| Other unknown website | Unknown | `general_scraping` |
