@@ -149,6 +149,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --mac --arm64 --publish always
 
+      # Unmount any leftover DMG volumes from the arm64 build to avoid conflicts
+      - name: Clean up DMG volumes
+        run: |
+          hdiutil detach "/Volumes/Gymnastics Meet Scores" 2>/dev/null || true
+          sleep 2
+
       # Build x64 DMG with x64 process_meet binary
       - name: Place x64 binary
         run: |
