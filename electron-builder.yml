@@ -65,3 +65,4 @@ publish:
   provider: github
   owner: dowdys
   repo: chp-meet-scores
+  releaseType: release
