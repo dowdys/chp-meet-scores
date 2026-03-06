@@ -51,7 +51,7 @@ jobs:
         run: npx electron-builder --win --x64 --publish always
 
   build-python-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-15-large
     permissions:
       contents: read
 
