@@ -1,4 +1,5 @@
 """Adapter for parsing MeetScoresOnline PDF files (e.g. Alabama)."""
+from __future__ import annotations
 
 import fitz
 from .base import BaseAdapter

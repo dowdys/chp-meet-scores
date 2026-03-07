@@ -5,6 +5,7 @@ Generates three output types from the winners database:
   - Order forms by gym (grouped by gym with events)
   - Winners CSV with TRUE/FALSE event columns
 """
+from __future__ import annotations
 
 import sqlite3
 import csv

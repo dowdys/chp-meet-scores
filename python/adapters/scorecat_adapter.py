@@ -1,4 +1,5 @@
 """Adapter for parsing ScoreCat Firestore JSON exports (e.g. Iowa)."""
+from __future__ import annotations
 
 import json
 import re

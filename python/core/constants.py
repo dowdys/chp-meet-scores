@@ -1,4 +1,5 @@
 """Shared constants for the gymnastics meet scoring system."""
+from __future__ import annotations
 
 # Event keys used across all modules (vault, bars, beam, floor, all-around)
 EVENTS = ['vault', 'bars', 'beam', 'floor', 'aa']

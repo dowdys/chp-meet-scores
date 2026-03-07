@@ -6,6 +6,7 @@ Three-phase normalization:
   Phase 3 — Fuzzy duplicate detection (informational, not auto-merged)
   Phase 4 — Manual gym-map: apply user-provided alias mapping (case-insensitive keys)
 """
+from __future__ import annotations
 
 import json
 import re

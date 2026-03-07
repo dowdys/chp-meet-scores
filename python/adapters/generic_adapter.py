@@ -7,6 +7,7 @@ Handles two formats:
 
 Columns are matched by name (case-insensitive). Missing columns default to None/empty.
 """
+from __future__ import annotations
 
 import glob
 import json

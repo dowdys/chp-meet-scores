@@ -1,4 +1,5 @@
 """Adapter for parsing MeetScoresOnline HTML/TSV exports (e.g. Colorado, Utah)."""
+from __future__ import annotations
 
 import re
 from .base import BaseAdapter

@@ -5,6 +5,7 @@ This ensures ties are properly detected regardless of data source — some sourc
 (e.g. ScoreCat) may assign sequential ranks to tied athletes instead of giving
 both rank 1.
 """
+from __future__ import annotations
 
 import sqlite3
 import os
