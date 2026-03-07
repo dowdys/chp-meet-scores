@@ -171,77 +171,114 @@ def main():
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
 
     # Generate outputs (all or selected)
+    # Each output is wrapped in try/except so one failure doesn't block the rest
+    errors = []
+
     if do_all or 'order_txt' in regen_set:
-        orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
-        generate_order_forms(db_path, config.meet_name, orders_path)
-        print(f"Generated {orders_path}")
+        try:
+            orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
+            generate_order_forms(db_path, config.meet_name, orders_path)
+            print(f"Generated {orders_path}")
+        except Exception as e:
+            print(f"ERROR generating order_forms_by_gym.txt: {e}")
+            errors.append(('order_txt', str(e)))
 
     if do_all or 'csv' in regen_set:
-        csv_path = os.path.join(args.output, 'winners_sheet.csv')
-        generate_winners_csv(db_path, config.meet_name, csv_path, division_order)
-        print(f"Generated {csv_path}")
+        try:
+            csv_path = os.path.join(args.output, 'winners_sheet.csv')
+            generate_winners_csv(db_path, config.meet_name, csv_path, division_order)
+            print(f"Generated {csv_path}")
+        except Exception as e:
+            print(f"ERROR generating winners_sheet.csv: {e}")
+            errors.append(('csv', str(e)))
 
     if do_all or 'shirt' in regen_set:
-        pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
-        generate_shirt_pdf(db_path, config.meet_name, pdf_path,
-                           year=args.year, state=args.state,
-                           line_spacing=args.line_spacing,
-                           level_gap=args.level_gap,
-                           max_fill=args.max_fill,
-                           min_font_size=args.min_font_size,
-                           max_font_size=args.max_font_size,
-                           name_sort=args.name_sort)
-        print(f"Generated {pdf_path}")
+        try:
+            pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
+            generate_shirt_pdf(db_path, config.meet_name, pdf_path,
+                               year=args.year, state=args.state,
+                               line_spacing=args.line_spacing,
+                               level_gap=args.level_gap,
+                               max_fill=args.max_fill,
+                               min_font_size=args.min_font_size,
+                               max_font_size=args.max_font_size,
+                               name_sort=args.name_sort)
+            print(f"Generated {pdf_path}")
+        except Exception as e:
+            print(f"ERROR generating back_of_shirt.pdf: {e}")
+            errors.append(('shirt', str(e)))
 
     if do_all or 'icml' in regen_set:
-        icml_path = os.path.join(args.output, 'back_of_shirt.icml')
-        generate_shirt_icml(db_path, config.meet_name, icml_path,
-                            year=args.year, state=args.state,
-                            line_spacing=args.line_spacing,
-                            level_gap=args.level_gap,
-                            max_fill=args.max_fill,
-                            min_font_size=args.min_font_size,
-                            max_font_size=args.max_font_size,
-                            name_sort=args.name_sort)
-        print(f"Generated {icml_path}")
+        try:
+            icml_path = os.path.join(args.output, 'back_of_shirt.icml')
+            generate_shirt_icml(db_path, config.meet_name, icml_path,
+                                year=args.year, state=args.state,
+                                line_spacing=args.line_spacing,
+                                level_gap=args.level_gap,
+                                max_fill=args.max_fill,
+                                min_font_size=args.min_font_size,
+                                max_font_size=args.max_font_size,
+                                name_sort=args.name_sort)
+            print(f"Generated {icml_path}")
+        except Exception as e:
+            print(f"ERROR generating back_of_shirt.icml: {e}")
+            errors.append(('icml', str(e)))
 
     if do_all or 'order_forms' in regen_set:
-        order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
-        generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
-                                 year=args.year, state=args.state,
-                                 postmark_date=args.postmark_date,
-                                 online_date=args.online_date,
-                                 ship_date=args.ship_date,
-                                 line_spacing=args.line_spacing,
-                                 level_gap=args.level_gap,
-                                 max_fill=args.max_fill,
-                                 min_font_size=args.min_font_size,
-                                 max_font_size=args.max_font_size,
-                                 name_sort=args.name_sort)
-        print(f"Generated {order_pdf_path}")
+        try:
+            order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
+            generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
+                                     year=args.year, state=args.state,
+                                     postmark_date=args.postmark_date,
+                                     online_date=args.online_date,
+                                     ship_date=args.ship_date,
+                                     line_spacing=args.line_spacing,
+                                     level_gap=args.level_gap,
+                                     max_fill=args.max_fill,
+                                     min_font_size=args.min_font_size,
+                                     max_font_size=args.max_font_size,
+                                     name_sort=args.name_sort)
+            print(f"Generated {order_pdf_path}")
+        except Exception as e:
+            print(f"ERROR generating order_forms.pdf: {e}")
+            errors.append(('order_forms', str(e)))
 
     if do_all or 'gym_highlights' in regen_set:
-        gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-        generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
-                                    year=args.year, state=args.state,
-                                    line_spacing=args.line_spacing,
-                                    level_gap=args.level_gap,
-                                    max_fill=args.max_fill,
-                                    min_font_size=args.min_font_size,
-                                    max_font_size=args.max_font_size,
-                                    name_sort=args.name_sort)
-        print(f"Generated {gym_highlights_path}")
+        try:
+            gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+            generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
+                                        year=args.year, state=args.state,
+                                        line_spacing=args.line_spacing,
+                                        level_gap=args.level_gap,
+                                        max_fill=args.max_fill,
+                                        min_font_size=args.min_font_size,
+                                        max_font_size=args.max_font_size,
+                                        name_sort=args.name_sort)
+            print(f"Generated {gym_highlights_path}")
+        except Exception as e:
+            print(f"ERROR generating gym_highlights.pdf: {e}")
+            errors.append(('gym_highlights', str(e)))
 
     if do_all or 'summary' in regen_set:
-        summary_path = os.path.join(args.output, 'meet_summary.txt')
-        generate_meet_summary(db_path, config.meet_name, summary_path,
-                              line_spacing=args.line_spacing,
-                              level_gap=args.level_gap,
-                              max_fill=args.max_fill,
-                              max_font_size=args.max_font_size)
-        print(f"Generated {summary_path}")
+        try:
+            summary_path = os.path.join(args.output, 'meet_summary.txt')
+            generate_meet_summary(db_path, config.meet_name, summary_path,
+                                  line_spacing=args.line_spacing,
+                                  level_gap=args.level_gap,
+                                  max_fill=args.max_fill,
+                                  max_font_size=args.max_font_size)
+            print(f"Generated {summary_path}")
+        except Exception as e:
+            print(f"ERROR generating meet_summary.txt: {e}")
+            errors.append(('summary', str(e)))
 
-    print("\nDone!")
+    if errors:
+        print(f"\nDone with {len(errors)} error(s):")
+        for name, msg in errors:
+            print(f"  - {name}: {msg}")
+        sys.exit(1)
+    else:
+        print("\nDone!")
 
 
 if __name__ == '__main__':

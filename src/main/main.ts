@@ -374,7 +374,7 @@ function setupIPC(): void {
       });
     }
   });
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-downloaded', async () => {
     updateDownloaded = true;
     if (mainWindow) {
       mainWindow.webContents.send('update-ready');
@@ -384,6 +384,18 @@ function setupIPC(): void {
       setTimeout(() => {
         autoUpdater.quitAndInstall();
       }, 1500);
+    } else if (mainWindow) {
+      // Background download finished — ask if they want to restart now
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: 'A new version has been downloaded. Restart now to apply the update?',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      });
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall();
+      }
     }
   });
 
@@ -396,6 +408,8 @@ function setupIPC(): void {
       return { status: 'dev', message: 'Updates are not available in dev mode.' };
     }
     if (updateDownloaded) {
+      // Update already downloaded — restart immediately
+      setTimeout(() => autoUpdater.quitAndInstall(), 1500);
       return { status: 'ready', message: 'Update is ready to install.' };
     }
     try {
@@ -472,9 +486,6 @@ app.whenReady().then(() => {
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on('update-available', (info) => {
       sendActivityLog(`Update v${info.version} available. Downloading in the background...`, 'info');
-    });
-    autoUpdater.on('update-downloaded', () => {
-      sendActivityLog('Update downloaded. It will install when you close the app.', 'success');
     });
     autoUpdater.on('error', (err) => {
       console.error('Auto-update error:', err.message);

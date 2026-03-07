@@ -6,6 +6,7 @@ dynamic values (year, state, dates, athlete sticker label).
 """
 
 import os
+import sys
 import sqlite3
 from collections import defaultdict
 import fitz  # PyMuPDF
@@ -24,7 +25,10 @@ RED = (0.8, 0, 0)
 FONT_BOLD = 'Times-Bold'
 FONT_REGULAR = 'Times-Roman'
 
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+# PyInstaller extracts --add-data files relative to sys._MEIPASS;
+# in dev/system-Python mode, resolve relative to this source file.
+_BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_DIR = os.path.join(_BASE_DIR, 'templates')
 TEMPLATE_PDF = os.path.join(TEMPLATE_DIR, 'order_form_template.pdf')
 
 # Event display order for sticker label
