@@ -1,6 +1,7 @@
 import { app } from 'electron';
-import { spawn, spawnSync } from 'child_process';
+import { spawn, spawnSync, execFileSync } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 import { getProjectRoot } from './paths';
 
 export interface PythonResult {
@@ -31,21 +32,66 @@ class PythonManager {
   /**
    * Resolve the path to a Python script.
    * In dev mode: run from the python/ directory in the project root.
-   * In production: run bundled executables from resources/python/.
+   * In production: prefer bundled binary, fall back to system Python + .py files.
    */
   private resolvePath(scriptName: string): { command: string; args: string[] } {
     if (app.isPackaged) {
-      // Production: run bundled binary (.exe on Windows, bare name on macOS/Linux)
       const baseName = scriptName.replace(/\.py$/, '');
       const binaryName = process.platform === 'win32' ? `${baseName}.exe` : baseName;
       const binaryPath = path.join(process.resourcesPath, 'python', binaryName);
-      return { command: binaryPath, args: [] };
+
+      // Check if bundled binary exists and is executable
+      if (fs.existsSync(binaryPath)) {
+        try {
+          fs.accessSync(binaryPath, fs.constants.X_OK);
+          // Verify it's actually executable (not blocked by quarantine etc.)
+          if (process.platform === 'darwin') {
+            try {
+              execFileSync(binaryPath, ['--help'], { timeout: 5000, stdio: 'pipe' });
+            } catch (testErr: unknown) {
+              // --help may exit non-zero, that's fine — we just need it to launch
+              const err = testErr as { status?: number; killed?: boolean; signal?: string };
+              if (err.killed || err.signal === 'SIGKILL') {
+                // Binary was killed (likely quarantine/Gatekeeper block)
+                console.warn(`[python-manager] Binary blocked by macOS: ${binaryPath}, falling back to system Python`);
+                return this.fallbackToSystemPython(scriptName);
+              }
+              // Non-zero exit from --help is fine (means it launched successfully)
+            }
+          }
+          console.log(`[python-manager] Using bundled binary: ${binaryPath}`);
+          return { command: binaryPath, args: [] };
+        } catch {
+          console.warn(`[python-manager] Binary not executable: ${binaryPath}, falling back to system Python`);
+          return this.fallbackToSystemPython(scriptName);
+        }
+      } else {
+        console.warn(`[python-manager] Binary not found: ${binaryPath}, falling back to system Python`);
+        return this.fallbackToSystemPython(scriptName);
+      }
     } else {
       // Development: use shared project root
       const projectRoot = getProjectRoot();
       const scriptPath = path.join(projectRoot, 'python', scriptName);
       return { command: findPythonCommand(), args: [scriptPath] };
     }
+  }
+
+  /**
+   * Fallback for packaged mode when the bundled binary is missing or blocked.
+   * Uses system Python to run the bundled .py source files.
+   */
+  private fallbackToSystemPython(scriptName: string): { command: string; args: string[] } {
+    const scriptPath = path.join(process.resourcesPath, 'python', scriptName);
+    if (!fs.existsSync(scriptPath)) {
+      // Neither binary nor .py file — will fail, but let spawn report the error
+      const baseName = scriptName.replace(/\.py$/, '');
+      const binaryName = process.platform === 'win32' ? `${baseName}.exe` : baseName;
+      return { command: path.join(process.resourcesPath, 'python', binaryName), args: [] };
+    }
+    const pythonCmd = findPythonCommand();
+    console.log(`[python-manager] Fallback: ${pythonCmd} ${scriptPath}`);
+    return { command: pythonCmd, args: [scriptPath] };
   }
 
   /**
