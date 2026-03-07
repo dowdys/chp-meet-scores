@@ -133,11 +133,28 @@ class ScoreCatAdapter(BaseAdapter):
     @classmethod
     def _clean_name(cls, first, last) -> str:
         """Build clean 'FirstName LastName' from components."""
-        first = str(first).strip() if first else ''
+        first = cls._strip_pronunciation(str(first).strip()) if first else ''
         last = cls._clean_last_name(last)
         if first and last:
             return f"{first} {last}"
         return first or last or ''
+
+    @staticmethod
+    def _strip_pronunciation(name: str) -> str:
+        """Remove pronunciation guides embedded in names.
+
+        Handles patterns like:
+          'Ania\u2019 (Ah-nee-uh)' -> 'Ania'
+          'Evie \u201cEh- vee\u201d' -> 'Evie'
+        """
+        # Remove curly-double-quote pronunciation: \u201c...\u201d
+        name = re.sub(r'\s*[\u201c][^\u201d]*[\u201d]', '', name)
+        # Remove parenthetical pronunciation (must contain hyphen to avoid
+        # stripping legitimate parenthetical name parts like "Jr")
+        name = re.sub(r'\s*\([^)]*-[^)]*\)', '', name)
+        # Clean trailing curly apostrophe that preceded a pronunciation guide
+        name = re.sub(r'[\u2018\u2019]\s*$', '', name)
+        return name.strip()
 
     @staticmethod
     def _parse_score(val):

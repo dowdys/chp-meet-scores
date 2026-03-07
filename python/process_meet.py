@@ -35,10 +35,10 @@ from python.core.division_detector import get_division_order
 
 def main():
     parser = argparse.ArgumentParser(description='Process a gymnastics meet')
-    parser.add_argument('--source', required=True,
+    parser.add_argument('--source',
                         choices=['scorecat', 'mso_pdf', 'mso_html', 'generic'],
-                        help='Data source type')
-    parser.add_argument('--data', nargs='+', required=True, help='Input data file(s)')
+                        help='Data source type (required unless --regenerate)')
+    parser.add_argument('--data', nargs='+', help='Input data file(s) (required unless --regenerate)')
     parser.add_argument('--state', required=True, help='State name')
     parser.add_argument('--meet', required=True, help='Meet name')
     parser.add_argument('--association', default='USAG',
@@ -85,6 +85,13 @@ def main():
                              'E.g. --regenerate shirt icml  or  --regenerate all')
 
     args = parser.parse_args()
+
+    # --source and --data are required unless --regenerate is used
+    if args.regenerate is None:
+        if not args.source:
+            parser.error('--source is required unless --regenerate is used')
+        if not args.data:
+            parser.error('--data is required unless --regenerate is used')
 
     # Build title lines
     title_lines = tuple(l for l in [args.title_line1, args.title_line2, args.title_line3] if l)

@@ -520,7 +520,10 @@ def _measure_small_caps_width(text, large_size, small_size):
 def _draw_oval(page, label, y_center):
     """Draw a red filled oval with white text label."""
     tw = fitz.get_text_length(label, fontname=FONT_BOLD, fontsize=OVAL_LABEL_SIZE)
-    oval_w = tw + 40
+    # Oval spans from Bars column to Floor column (wider than just text)
+    text_w = tw + 40
+    col_span_w = (COL_CENTERS[3] + 60) - (COL_CENTERS[1] - 60)
+    oval_w = max(text_w, col_span_w)
     oval_h = 22
 
     x0 = PAGE_W / 2 - oval_w / 2

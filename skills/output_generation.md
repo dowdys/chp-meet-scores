@@ -128,16 +128,18 @@ The `process_meet.py` script accepts:
 
 Use `--regenerate` to skip parsing/normalization/DB build and regenerate specific outputs from the existing database. **This is MUCH faster** and should be used for layout adjustments.
 
+When using `--regenerate`, only `--state` and `--meet` are required. `--source` and `--data` are NOT needed.
+
 ```
---regenerate shirt              # just back_of_shirt.pdf
---regenerate shirt icml         # back_of_shirt.pdf + .icml
---regenerate order_forms        # just order_forms.pdf
---regenerate all                # all outputs (but skip DB build)
+--state Iowa --meet "2025 Iowa State Championships" --regenerate shirt
+--state Iowa --meet "2025 Iowa State Championships" --regenerate shirt icml
+--state Iowa --meet "2025 Iowa State Championships" --regenerate order_forms
+--state Iowa --meet "2025 Iowa State Championships" --regenerate all
 ```
 
 Available values: `shirt`, `icml`, `order_forms`, `order_txt`, `csv`, `gym_highlights`, `summary`, `all`.
 
-**When to use**: Adjusting layout params (font size, spacing, fill), changing dates on order forms, or any change that doesn't affect the underlying data.
+**When to use**: Adjusting layout params (font size, spacing, fill), changing dates on order forms, or any change that doesn't affect the underlying data. Always prefer `--regenerate` over full pipeline when data hasn't changed.
 
 **When NOT to use**: When the source data or gym map has changed — run the full pipeline instead.
 
