@@ -101,14 +101,17 @@ class PythonManager {
   async runScript(
     scriptName: string,
     args: string[] = [],
-    onLine?: LineCallback
+    onLine?: LineCallback,
+    extraEnv?: Record<string, string>,
+    timeout?: number
   ): Promise<PythonResult> {
     const resolved = this.resolvePath(scriptName);
 
     return new Promise((resolve, reject) => {
       const proc = spawn(resolved.command, [...resolved.args, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUTF8: '1' },
+        env: { ...process.env, PYTHONUTF8: '1', ...extraEnv },
+        timeout,
       });
 
       let stdout = '';

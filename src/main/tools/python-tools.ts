@@ -1,29 +1,11 @@
 import { pythonManager } from '../python-manager';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
-import { spawn, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
-import { getDataDir, getProjectRoot } from '../paths';
+import { getDataDir } from '../paths';
 
 function getDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
-}
-
-/**
- * Find a working Python command. On Windows, `python3` often doesn't exist —
- * `python` is the standard name. Try `python` first, then `python3`.
- */
-function findPythonCommand(): string {
-  for (const cmd of ['python', 'python3']) {
-    try {
-      const result = spawnSync(cmd, ['--version'], { timeout: 5000, stdio: 'pipe' });
-      if (result.status === 0) return cmd;
-    } catch {
-      // Command not found, try next
-    }
-  }
-  return 'python'; // fallback — will produce a clear error if not found
 }
 
 // --- Staging DB management ---
@@ -97,46 +79,18 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       fs.writeFileSync(tempFile, code, 'utf8');
 
       try {
-        // Resolve python path (works on both Linux and Windows)
-        const pythonCmd = findPythonCommand();
-
-        const result = await new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve, reject) => {
-          const proc = spawn(pythonCmd, [tempFile], {
-            stdio: ['pipe', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              DB_PATH: dbPath,
-              DATA_DIR: dataDir,
-              STAGING_DB_PATH: currentStagingDbPath || '',
-              PYTHONUTF8: '1',
-            },
-            timeout,
-          });
-
-          let stdout = '';
-          let stderr = '';
-
-          proc.stdout.on('data', (data: Buffer) => {
-            stdout += data.toString();
-          });
-
-          proc.stderr.on('data', (data: Buffer) => {
-            stderr += data.toString();
-          });
-
-          proc.on('close', (exitCode) => {
-            resolve({ stdout, stderr, exitCode });
-          });
-
-          proc.on('error', (err) => {
-            reject(err);
-          });
-
-          // Kill on timeout
-          setTimeout(() => {
-            try { proc.kill('SIGKILL'); } catch { /* ignore */ }
-          }, timeout);
-        });
+        // Use pythonManager to run via bundled binary (--exec-script mode)
+        const result = await pythonManager.runScript(
+          'process_meet.py',
+          ['--exec-script', tempFile],
+          undefined,
+          {
+            DB_PATH: dbPath,
+            DATA_DIR: dataDir,
+            STAGING_DB_PATH: currentStagingDbPath || '',
+          },
+          timeout
+        );
 
         let output = '';
         if (result.stdout) {

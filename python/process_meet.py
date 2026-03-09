@@ -12,6 +12,35 @@ import datetime
 import os
 import sys
 
+# --- Early-exit helper modes (before heavy imports) ---
+# These let the bundled binary serve as a general Python runner for the agent.
+
+if len(sys.argv) >= 3 and sys.argv[1] == '--exec-script':
+    # Execute an arbitrary Python script file.
+    # Environment variables DB_PATH, DATA_DIR, STAGING_DB_PATH are expected.
+    script_path = sys.argv[2]
+    with open(script_path, 'r', encoding='utf-8') as _f:
+        _code = _f.read()
+    exec(compile(_code, script_path, 'exec'), {'__name__': '__main__', '__file__': script_path})
+    sys.exit(0)
+
+if len(sys.argv) >= 3 and sys.argv[1] == '--render-pdf':
+    # Render a PDF page as base64-encoded PNG to stdout.
+    import fitz  # PyMuPDF (bundled in PyInstaller binary)
+    import base64
+    _pdf_path = sys.argv[2]
+    _page_num = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    _doc = fitz.open(_pdf_path)
+    if _page_num < 1 or _page_num > len(_doc):
+        print(f"Error: Page {_page_num} out of range (PDF has {len(_doc)} pages)")
+        sys.exit(1)
+    _page = _doc[_page_num - 1]
+    _pix = _page.get_pixmap(dpi=200)
+    _png_bytes = _pix.tobytes("png")
+    print(base64.b64encode(_png_bytes).decode('ascii'))
+    _doc.close()
+    sys.exit(0)
+
 # Add parent directory to path for imports (skip when frozen by PyInstaller)
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

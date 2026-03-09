@@ -1072,73 +1072,38 @@ export class AgentLoop {
       return `Error: PDF file not found at ${resolvedPath}. Generate the PDF first with run_python.`;
     }
 
-    // Use PyMuPDF to render the page to a PNG, base64-encoded
-    const pythonCode = `
-import sys, fitz, base64
-doc = fitz.open(${JSON.stringify(resolvedPath)})
-page_idx = ${page - 1}
-if page_idx < 0 or page_idx >= len(doc):
-    print(f"Error: Page {${page}} out of range (PDF has {len(doc)} pages)")
-    sys.exit(1)
-page = doc[page_idx]
-# Render at 2x resolution for clarity
-pix = page.get_pixmap(dpi=200)
-png_bytes = pix.tobytes("png")
-print(base64.b64encode(png_bytes).decode('ascii'))
-doc.close()
-`;
+    // Use bundled binary's --render-pdf mode (PyMuPDF is bundled inside)
+    try {
+      const result = await pythonManager.runScript(
+        'process_meet.py',
+        ['--render-pdf', resolvedPath, String(page)],
+        undefined,
+        undefined,
+        30000
+      );
 
-    // Spawn python directly with inline code
-    const { spawn: spawnProc, spawnSync } = require('child_process') as typeof import('child_process');
+      if (result.exitCode !== 0 || !result.stdout.trim()) {
+        return `Error rendering PDF page: ${result.stderr || result.stdout || 'No output from Python'}`;
+      }
 
-    // Find python command
-    let pythonCmd = 'python3';
-    for (const cmd of ['python', 'python3']) {
-      try {
-        const check = spawnSync(cmd, ['--version'], { timeout: 5000, stdio: 'pipe' });
-        if (check.status === 0) { pythonCmd = cmd; break; }
-      } catch { /* try next */ }
+      const base64Data = result.stdout.trim();
+      const textPart: TextContentPart = {
+        type: 'text',
+        text: `Rendered page ${page} of ${resolvedPath} (200 DPI). Inspect the layout — if names are too small, spacing too tight/loose, or the page is too full/empty, re-run run_python with adjusted --line-spacing, --level-gap, --max-fill, or --min-font-size values.`,
+      };
+      const imagePart: ImageContentPart = {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: base64Data,
+        },
+      };
+
+      return [textPart, imagePart];
+    } catch (err) {
+      return `Error rendering PDF page: ${err instanceof Error ? err.message : String(err)}`;
     }
-
-    return new Promise<ToolResultContent>((resolve) => {
-      const proc = spawnProc(pythonCmd, ['-c', pythonCode], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 30000,
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on('close', (exitCode: number | null) => {
-        if (exitCode !== 0 || !stdout.trim()) {
-          resolve(`Error rendering PDF page: ${stderr || 'No output from Python'}`);
-          return;
-        }
-
-        const base64Data = stdout.trim();
-        const textPart: TextContentPart = {
-          type: 'text',
-          text: `Rendered page ${page} of ${resolvedPath} (200 DPI). Inspect the layout — if names are too small, spacing too tight/loose, or the page is too full/empty, re-run run_python with adjusted --line-spacing, --level-gap, --max-fill, or --min-font-size values.`,
-        };
-        const imagePart: ImageContentPart = {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: 'image/png',
-            data: base64Data,
-          },
-        };
-
-        resolve([textPart, imagePart]);
-      });
-
-      proc.on('error', (err: Error) => {
-        resolve(`Error spawning Python: ${err.message}`);
-      });
-    });
   }
 
   private async toolOpenFile(filePath: string, meetName: string): Promise<string> {
