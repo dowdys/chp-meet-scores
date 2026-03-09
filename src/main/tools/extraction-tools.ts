@@ -205,11 +205,17 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
         continue;
       }
 
+      // Strip partial-competitor annotations like "*(V,BB,FX)" or "*(UB)"
+      function cleanAnnotation(s) {
+        if (!s) return '';
+        return s.replace(/\\s*\\*\\s*\\([^)]*\\)\\s*$/, '').trim();
+      }
+
       const mapped = snap.docs.map(d => {
         const data = d.data();
         return {
-          firstName: data.firstName || '',
-          lastName: data.lastName || '',
+          firstName: cleanAnnotation(data.firstName || ''),
+          lastName: cleanAnnotation(data.lastName || ''),
           clubName: data.clubName || '',
           level: data.level || '',
           division: data.division || '',

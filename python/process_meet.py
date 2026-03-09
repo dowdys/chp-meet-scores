@@ -79,6 +79,9 @@ def main():
                         help='Online ordering deadline date for order forms (e.g. "March 20, 2026")')
     parser.add_argument('--ship-date', default='TBD',
                         help='Shipping date for order forms (e.g. "April 5, 2026")')
+    parser.add_argument('--max-shirt-pages', type=int, default=None,
+                        help='Target maximum total pages for back-of-shirt PDF. '
+                             'Bin-packer will shrink font estimate to fit within this limit.')
     parser.add_argument('--regenerate', nargs='*', default=None,
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
                              'Values: shirt, icml, order_forms, order_txt, csv, gym_highlights, summary, all. '
@@ -121,6 +124,10 @@ def main():
         if not os.path.exists(db_path):
             print(f"Error: Database not found at {db_path}. Run full pipeline first.")
             sys.exit(1)
+
+        # Always regenerate summary when shirt regenerates (keeps page counts accurate)
+        if 'shirt' in regen_set and 'summary' not in regen_set:
+            regen_set.add('summary')
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
     else:
@@ -202,7 +209,8 @@ def main():
                                max_fill=args.max_fill,
                                min_font_size=args.min_font_size,
                                max_font_size=args.max_font_size,
-                               name_sort=args.name_sort)
+                               name_sort=args.name_sort,
+                               max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {pdf_path}")
         except Exception as e:
             print(f"ERROR generating back_of_shirt.pdf: {e}")
@@ -218,7 +226,8 @@ def main():
                                 max_fill=args.max_fill,
                                 min_font_size=args.min_font_size,
                                 max_font_size=args.max_font_size,
-                                name_sort=args.name_sort)
+                                name_sort=args.name_sort,
+                                max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {icml_path}")
         except Exception as e:
             print(f"ERROR generating back_of_shirt.icml: {e}")
@@ -237,7 +246,8 @@ def main():
                                      max_fill=args.max_fill,
                                      min_font_size=args.min_font_size,
                                      max_font_size=args.max_font_size,
-                                     name_sort=args.name_sort)
+                                     name_sort=args.name_sort,
+                                     max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {order_pdf_path}")
         except Exception as e:
             print(f"ERROR generating order_forms.pdf: {e}")
@@ -253,7 +263,8 @@ def main():
                                         max_fill=args.max_fill,
                                         min_font_size=args.min_font_size,
                                         max_font_size=args.max_font_size,
-                                        name_sort=args.name_sort)
+                                        name_sort=args.name_sort,
+                                        max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {gym_highlights_path}")
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
@@ -266,7 +277,8 @@ def main():
                                   line_spacing=args.line_spacing,
                                   level_gap=args.level_gap,
                                   max_fill=args.max_fill,
-                                  max_font_size=args.max_font_size)
+                                  max_font_size=args.max_font_size,
+                                  max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {summary_path}")
         except Exception as e:
             print(f"ERROR generating meet_summary.txt: {e}")

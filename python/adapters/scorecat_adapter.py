@@ -123,10 +123,17 @@ class ScoreCatAdapter(BaseAdapter):
 
     @staticmethod
     def _clean_last_name(raw) -> str:
-        """Strip dash-notes like 'Holder- BB, FX' -> 'Holder'."""
+        """Strip event annotations from last names.
+
+        Handles:
+          'Holder- BB, FX' -> 'Holder'          (dash-style)
+          'Kelly*(V,BB,FX)' -> 'Kelly'           (asterisk-paren style)
+          'Nguyen*(UB)' -> 'Nguyen'
+        """
         if raw is None:
             return ''
         raw = str(raw).strip()
+        raw = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', raw)
         raw = re.sub(r'\s*-\s*[A-Z, ]+$', '', raw)
         return raw.strip()
 

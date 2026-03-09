@@ -108,7 +108,7 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 - **Data efficiency**: Bulk data (hundreds of athletes) goes to files (JSON, TSV). Only put summaries and counts in your context window.
 - **Chunk retrieval**: When pulling data from browser JS, store in a window variable and retrieve in chunks of 100 via JSON.stringify slicing.
 - **Save progress**: Before approaching context limits, use `save_progress` with a detailed summary of what you've accomplished and what's left. Include `data_files` to track produced files.
-- **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/).
+- **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/). When referencing files (for `read_file`, `render_pdf_page`, `open_file`, etc.), ALWAYS use the full absolute path returned by tool results. Never guess or construct paths from memory — copy the exact path from the previous tool output.
 - **User interaction**: Use the `ask_user` tool whenever you need the user to make a choice or provide input. Pass a clear question and an array of option strings. The user can click a suggested option OR type a custom response. Use this when:
   - Multiple meets match a search query (let them pick which one)
   - You need to confirm something before proceeding
@@ -176,8 +176,9 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - Do NOT build a database before verifying the extracted levels match the user's request.
 - Do NOT try to find, read, or edit the Python source code on the user's machine — `process_meet.py` is a compiled PyInstaller binary. Use `run_python` with CLI flags. If you need a feature that no flag supports, tell the user it requires a code change.
 - Do NOT edit generated PDFs directly (redact/replace text). Always fix the source: adjust `run_python` parameters and regenerate with `--regenerate`.
-- Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, order_forms, etc.) to skip parsing and DB build.
+- Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, order_forms, etc.) to skip parsing and DB build. Note: `--regenerate shirt` auto-regenerates `meet_summary.txt` too, so you always have an up-to-date summary after shirt regeneration.
 - Do NOT ask for dates one at a time. Ask for all dates (postmark, online, ship) in a single `ask_user` call.
+- When the user asks to constrain shirt pages, use `--max-shirt-pages N`. This forces tighter level grouping by trying smaller font estimates until the total page count fits.
 
 ## Available Skills
 

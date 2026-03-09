@@ -79,7 +79,7 @@ MAX_PAGE_FILL = 0.90
 def precompute_shirt_data(db_path, meet_name, name_sort='age',
                           line_spacing=None, level_gap=None,
                           max_fill=None, min_font_size=None,
-                          max_font_size=None):
+                          max_font_size=None, max_shirt_pages=None):
     """Pre-compute shirt layout data for reuse across multiple renders.
 
     Returns a dict with levels, data, page_groups, and resolved layout params.
@@ -130,6 +130,36 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
             else:
                 label = 'LEVELS'
             page_groups.append((label, group))
+
+    # If max_shirt_pages is set and we have too many pages, try shrinking
+    # the bin-pack font estimate to merge groups
+    if max_shirt_pages and len(page_groups) > max_shirt_pages:
+        target_xcel = len([g for g in page_groups if g[0] == 'XCEL'])
+        target_numbered = max_shirt_pages - target_xcel
+        if target_numbered >= 1 and numbered_levels:
+            # Try progressively smaller font estimates until numbered levels
+            # fit within target_numbered pages
+            for try_size_10x in range(int(mxfs * 10) - 1, int(mfs * 10) - 1, -1):
+                try_size = try_size_10x / 10
+                groups = _bin_pack_levels(numbered_levels, data, available,
+                                         lhr, lgap, try_size)
+                if len(groups) <= target_numbered:
+                    # Rebuild page_groups with the tighter grouping
+                    page_groups = []
+                    if xcel_levels:
+                        for group in _bin_pack_levels(xcel_levels, data,
+                                                      available, lhr, lgap, mxfs):
+                            page_groups.append(('XCEL', group))
+                    for group in groups:
+                        nums = sorted([int(lv) for lv in group if lv.isdigit()])
+                        if len(nums) >= 2:
+                            label = f'LEVELS {nums[0]}-{nums[-1]}'
+                        elif len(nums) == 1:
+                            label = f'LEVEL {nums[0]}'
+                        else:
+                            label = 'LEVELS'
+                        page_groups.append((label, group))
+                    break
 
     return {'levels': levels, 'data': data, 'page_groups': page_groups,
             'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
@@ -219,7 +249,8 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        line_spacing: float = None, level_gap: float = None,
                        max_fill: float = None, min_font_size: float = None,
                        max_font_size: float = None,
-                       name_sort: str = 'age'):
+                       name_sort: str = 'age',
+                       max_shirt_pages: int = None):
     """Generate enhanced back-of-shirt PDF.
 
     Args:
@@ -240,7 +271,8 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                 line_spacing=line_spacing, level_gap=level_gap,
                                 max_fill=max_fill, min_font_size=min_font_size,
-                                max_font_size=max_font_size)
+                                max_font_size=max_font_size,
+                                max_shirt_pages=max_shirt_pages)
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
@@ -708,7 +740,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 year='2026', state='Maryland',
                                 line_spacing=None, level_gap=None,
                                 max_fill=None, min_font_size=None,
-                                max_font_size=None, name_sort='age'):
+                                max_font_size=None, name_sort='age',
+                                max_shirt_pages=None):
     """Generate a gym highlights version of the back-of-shirt PDF.
 
     For each gym (alphabetically), generates the same back-of-shirt pages
@@ -717,14 +750,21 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     Only includes pages that contain at least one of that gym's athletes.
     """
-    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
-    lgap = level_gap if level_gap is not None else LEVEL_GAP
-    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
-    mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
-    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+    # Reuse precompute for consistent grouping with generate_shirt_pdf
+    pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
+                                line_spacing=line_spacing, level_gap=level_gap,
+                                max_fill=max_fill, min_font_size=min_font_size,
+                                max_font_size=max_font_size,
+                                max_shirt_pages=max_shirt_pages)
+    levels = pre['levels']
+    data = pre['data']
+    page_groups = pre['page_groups']
+    lhr = pre['lhr']
+    lgap = pre['lgap']
+    mfill = pre['mfill']
+    mfs = pre['mfs']
+    mxfs = pre['mxfs']
 
-    levels, data = _get_winners_by_event_and_level(db_path, meet_name,
-                                                    name_sort=name_sort)
     if not levels:
         doc = fitz.open()
         doc.new_page(width=PAGE_W, height=PAGE_H)
@@ -734,40 +774,6 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     name_to_gym = _get_winners_with_gym(db_path, meet_name)
     all_gyms = _get_all_winner_gyms(db_path, meet_name)
-
-    # Classify levels into Xcel and numbered (same as generate_shirt_pdf)
-    xcel_levels = []
-    numbered_levels = []
-    for level in levels:
-        if level in XCEL_MAP:
-            xcel_levels.append(level)
-        else:
-            numbered_levels.append(level)
-
-    xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
-                     if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
-    numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
-
-    # Build page groups (same as generate_shirt_pdf)
-    page_groups = []
-    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
-
-    if xcel_levels:
-        xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
-        for group in xcel_groups:
-            page_groups.append(('XCEL', group))
-
-    if numbered_levels:
-        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
-        for group in groups:
-            nums = sorted([int(lv) for lv in group if lv.isdigit()])
-            if len(nums) >= 2:
-                label = f'LEVELS {nums[0]}-{nums[-1]}'
-            elif len(nums) == 1:
-                label = f'LEVEL {nums[0]}'
-            else:
-                label = 'LEVELS'
-            page_groups.append((label, group))
 
     # Pre-compute which names appear on each page group
     def _names_on_page(group_levels):

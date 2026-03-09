@@ -25,6 +25,7 @@ from python.core.pdf_generator import (
     LINE_HEIGHT_RATIO, LEVEL_GAP, DEFAULT_NAME_SIZE, MAX_PAGE_FILL,
     MIN_NAME_SIZE, NAMES_BOTTOM_Y, NAMES_START_Y,
     _get_winners_by_event_and_level, _bin_pack_levels,
+    precompute_shirt_data,
 )
 
 
@@ -33,57 +34,23 @@ def generate_shirt_icml(db_path: str, meet_name: str, output_path: str,
                         line_spacing: float = None, level_gap: float = None,
                         max_fill: float = None, min_font_size: float = None,
                         max_font_size: float = None,
-                        name_sort: str = 'age'):
+                        name_sort: str = 'age',
+                        max_shirt_pages: int = None):
     """Generate back-of-shirt ICML file for InDesign.
 
     Uses the same data query and level grouping as the PDF generator
     so the two outputs always match.
     """
-    lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
-    lgap = level_gap if level_gap is not None else LEVEL_GAP
-    mfill = max_fill if max_fill is not None else MAX_PAGE_FILL
-    mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
+    pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
+                                line_spacing=line_spacing, level_gap=level_gap,
+                                max_fill=max_fill, max_font_size=max_font_size,
+                                max_shirt_pages=max_shirt_pages)
+    page_groups = pre['page_groups']
+    data = pre['data']
 
-    levels, data = _get_winners_by_event_and_level(db_path, meet_name,
-                                                    name_sort=name_sort)
-    if not levels:
-        # Write minimal empty ICML
+    if not page_groups:
         _write_icml([], output_path, year, state)
         return
-
-    # Classify and sort levels (same logic as pdf_generator)
-    xcel_levels = []
-    numbered_levels = []
-    for level in levels:
-        if level in XCEL_MAP:
-            xcel_levels.append(level)
-        else:
-            numbered_levels.append(level)
-
-    xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
-                     if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
-    numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
-
-    # Build page groups (same bin-packing as PDF)
-    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
-    page_groups = []
-
-    if xcel_levels:
-        xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
-        for group in xcel_groups:
-            page_groups.append(('XCEL', group))
-
-    if numbered_levels:
-        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
-        for group in groups:
-            nums = sorted([int(lv) for lv in group if lv.isdigit()])
-            if len(nums) >= 2:
-                label = f'LEVELS {nums[-1]}-{nums[0]}'
-            elif len(nums) == 1:
-                label = f'LEVEL {nums[0]}'
-            else:
-                label = 'LEVELS'
-            page_groups.append((label, group))
 
     _write_icml(page_groups, output_path, year, state, data)
 

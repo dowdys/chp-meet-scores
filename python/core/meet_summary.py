@@ -15,12 +15,14 @@ from python.core.pdf_generator import (
     LINE_HEIGHT_RATIO, LEVEL_GAP, DEFAULT_NAME_SIZE, MAX_PAGE_FILL,
     MIN_NAME_SIZE, NAMES_BOTTOM_Y, NAMES_START_Y,
     _get_winners_by_event_and_level, _bin_pack_levels,
+    precompute_shirt_data,
 )
 
 
 def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
                           line_spacing: float = None, level_gap: float = None,
-                          max_fill: float = None, max_font_size: float = None):
+                          max_fill: float = None, max_font_size: float = None,
+                          max_shirt_pages: int = None):
     """Generate a meet summary text file."""
     lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
     lgap = level_gap if level_gap is not None else LEVEL_GAP
@@ -124,34 +126,16 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
     conn.close()
 
     # --- Shirt page breakdown ---
-    levels, data = _get_winners_by_event_and_level(db_path, meet_name)
-    if levels:
-        xcel_levels = [lv for lv in levels if lv in XCEL_MAP]
-        numbered_levels = [lv for lv in levels if lv not in XCEL_MAP]
+    pre = precompute_shirt_data(db_path, meet_name,
+                                line_spacing=line_spacing,
+                                level_gap=level_gap,
+                                max_fill=max_fill,
+                                max_font_size=max_font_size,
+                                max_shirt_pages=max_shirt_pages)
+    page_groups = pre['page_groups']
+    data = pre['data']
 
-        xcel_levels.sort(key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
-                         if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
-        numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
-
-        available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
-        page_groups = []
-
-        if xcel_levels:
-            xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
-            for group in xcel_groups:
-                page_groups.append(('XCEL', group))
-        if numbered_levels:
-            groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
-            for group in groups:
-                nums = sorted([int(lv) for lv in group if lv.isdigit()])
-                if len(nums) >= 2:
-                    label = f'LEVELS {nums[-1]}-{nums[0]}'
-                elif len(nums) == 1:
-                    label = f'LEVEL {nums[0]}'
-                else:
-                    label = 'LEVELS'
-                page_groups.append((label, group))
-
+    if page_groups:
         lines.append('SHIRT BACK PAGES')
         lines.append('-' * 40)
         total_shirt_names = 0

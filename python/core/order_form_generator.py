@@ -45,7 +45,8 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              max_fill: float = None,
                              min_font_size: float = None,
                              max_font_size: float = None,
-                             name_sort: str = 'age'):
+                             name_sort: str = 'age',
+                             max_shirt_pages: int = None):
     """Generate per-athlete order form PDF using the template overlay approach.
 
     Each athlete gets an order form page (template with filled-in variables)
@@ -69,7 +70,8 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                                        level_gap=level_gap,
                                        max_fill=max_fill,
                                        min_font_size=min_font_size,
-                                       max_font_size=max_font_size)
+                                       max_font_size=max_font_size,
+                                       max_shirt_pages=max_shirt_pages)
 
     if not os.path.exists(TEMPLATE_PDF):
         raise FileNotFoundError(

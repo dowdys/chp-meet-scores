@@ -181,7 +181,7 @@ function getToolDefinitions(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
-          args: { type: 'string', description: 'Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--year YYYY] [layout flags] [date flags]. Selective regeneration (no --source/--data needed): --state <State> --meet "<Meet Name>" --regenerate shirt icml (or: order_forms, order_txt, csv, gym_highlights, summary, all). Layout: --line-spacing 1.15 --level-gap 6 --max-fill 0.90 --min-font-size 6.5 --max-font-size 9. Dates: --postmark-date "March 15, 2026" --online-date "..." --ship-date "...". Quote paths with spaces.' },
+          args: { type: 'string', description: 'Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--year YYYY] [layout flags] [date flags]. Selective regeneration (no --source/--data needed): --state <State> --meet "<Meet Name>" --regenerate shirt icml (or: order_forms, order_txt, csv, gym_highlights, summary, all). Layout: --line-spacing 1.15 --level-gap 6 --max-fill 0.90 --min-font-size 6.5 --max-font-size 9 --max-shirt-pages N (force all levels into at most N total pages). Dates: --postmark-date "March 15, 2026" --online-date "..." --ship-date "...". Quote paths with spaces.' },
         },
         required: ['args'],
       },
@@ -374,7 +374,7 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'render_pdf_page',
-      description: 'Render a PDF page as an image so you can visually inspect it. Use this after generating back_of_shirt.pdf to check sizing, spacing, and layout. Returns the rendered page as an image you can see. If the layout needs adjustment, re-run run_python with different --line-spacing, --level-gap, --max-fill, --min-font-size, or --max-font-size values.',
+      description: 'Render a PDF page as an image so you can visually inspect it. Use this after generating back_of_shirt.pdf to check sizing, spacing, and layout. Returns the rendered page as an image you can see. If the layout needs adjustment, re-run run_python with different --line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size, or --max-shirt-pages values. Use --max-shirt-pages N to force all levels to fit within N total pages.',
       input_schema: {
         type: 'object',
         properties: {
