@@ -363,40 +363,35 @@ function setupIPC(): void {
 
   // Check for updates
   let updateDownloaded = false;
-  let updateTriggeredByUser = false;
+  let lastLoggedPercent = 0;
   autoUpdater.on('download-progress', (progress) => {
+    const pct = Math.round(progress.percent);
     if (mainWindow) {
       mainWindow.webContents.send('update-progress', {
-        percent: Math.round(progress.percent),
+        percent: pct,
         bytesPerSecond: progress.bytesPerSecond,
         transferred: progress.transferred,
         total: progress.total,
       });
     }
+    // Log progress to activity log at 25% intervals so user sees it on any tab
+    if (pct >= lastLoggedPercent + 25 || pct === 100) {
+      const mbDown = (progress.transferred / 1024 / 1024).toFixed(1);
+      const mbTotal = (progress.total / 1024 / 1024).toFixed(1);
+      sendActivityLog(`Downloading update... ${pct}% (${mbDown}/${mbTotal} MB)`, 'info');
+      lastLoggedPercent = pct;
+    }
   });
-  autoUpdater.on('update-downloaded', async () => {
+  autoUpdater.on('update-downloaded', () => {
     updateDownloaded = true;
     if (mainWindow) {
       mainWindow.webContents.send('update-ready');
     }
-    // If the user manually triggered the check, auto-relaunch after a short delay
-    if (updateTriggeredByUser) {
-      setTimeout(() => {
-        autoUpdater.quitAndInstall();
-      }, 1500);
-    } else if (mainWindow) {
-      // Background download finished — ask if they want to restart now
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Ready',
-        message: 'A new version has been downloaded. Restart now to apply the update?',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-      });
-      if (result.response === 0) {
-        autoUpdater.quitAndInstall();
-      }
-    }
+    sendActivityLog('Update downloaded. Restarting to apply...', 'success');
+    // Auto-relaunch after a short delay (whether user-triggered or background)
+    setTimeout(() => {
+      autoUpdater.quitAndInstall();
+    }, 2000);
   });
 
   ipcMain.handle('get-version', () => {
@@ -413,15 +408,12 @@ function setupIPC(): void {
       return { status: 'ready', message: 'Update is ready to install.' };
     }
     try {
-      updateTriggeredByUser = true;
       const result = await autoUpdater.checkForUpdates();
       if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
         return { status: 'available', message: `Version ${result.updateInfo.version} is available and downloading.` };
       }
-      updateTriggeredByUser = false;
       return { status: 'current', message: `You are on the latest version (${app.getVersion()}).` };
     } catch (err) {
-      updateTriggeredByUser = false;
       const msg = err instanceof Error ? err.message : String(err);
       return { status: 'error', message: `Could not check for updates: ${msg}` };
     }
