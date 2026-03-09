@@ -25,6 +25,28 @@ Since http_fetch auto-saves responses >5KB, check the saved file for:
 
 If the response is empty or fields are unexpected, switch to Method 2 (HTML scraping).
 
+### CRITICAL: JSON Response Structure
+
+The MSO JSON API response has this exact structure — do NOT guess:
+
+```json
+{
+  "results": [
+    {
+      "result": {
+        "row": [
+          { "fullname": "...", "gym": "...", "sess": "...", "level": "...", ... },
+          ...
+        ]
+      }
+    }
+  ],
+  "paging": { "from": 1, "to": 1500 }
+}
+```
+
+The athlete array is at **`data.results[0].result.row`** — NOT `data.results[0].data.row` or `data.result.row` or any other path. This is confirmed and stable across all MSO meets.
+
 ### Fetch All Athletes via chrome_save_to_file
 
 Use `chrome_save_to_file` to extract all data in one tool call. Navigate Chrome to any MSO page first (e.g., the meet results page), then run the extraction script:

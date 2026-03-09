@@ -18,6 +18,12 @@ Before searching, determine the following. If the user's request is ambiguous, u
 3. **State**: Usually in the meet name, but confirm if ambiguous.
 4. **Levels/programs**: The user may want only certain levels (e.g., "L3-5 and Xcel Bronze-Silver"). Note this for later verification.
 
+## IMPORTANT: Avoid Redundant Searches
+
+When a state championship is split across multiple sub-meets (e.g., "Dev State" + "Xcel State"), you will typically find ALL of them in a single Algolia search. Do NOT re-search ScoreCat for each sub-meet after the user selects them — you already have their `meet_id` values from the initial search results. Extract each selected meet directly using its `meet_id`.
+
+Similarly, if one search finds a meet on ScoreCat, do NOT also search MSO or MyMeetScores for the same meet. Move directly to extraction.
+
 ## Step 1: ScoreCat — Algolia Search (headless, fastest)
 
 ScoreCat uses Algolia for meet search. It's a public API, no browser needed.

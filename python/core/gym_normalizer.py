@@ -29,6 +29,10 @@ def _title_case_word(word: str) -> str:
     # Preserve all-caps words that look like acronyms (2-4 uppercase letters)
     if word.isupper() and 2 <= len(word) <= 4:
         return word
+    # Preserve dotted acronyms like "A.C.E.S.", "G.M.S.", "N.E.T.S."
+    stripped = word.rstrip('.')
+    if stripped and all(c == '.' or c.isupper() for c in stripped) and any(c == '.' for c in stripped):
+        return word
     return word.capitalize()
 
 
