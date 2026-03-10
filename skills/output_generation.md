@@ -112,7 +112,7 @@ When using `--regenerate`, only `--state` and `--meet` are required. `--source` 
 
 Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `all`. (Legacy: `order_txt`, `csv` still work if explicitly requested.)
 
-**Auto-regenerate**: `--regenerate shirt` automatically also regenerates `meet_summary.txt` so the summary always reflects the current shirt layout (page count, grouping). You don't need to add `summary` explicitly.
+**Auto-regenerate**: `--regenerate shirt` automatically also regenerates ALL shirt-dependent outputs: `meet_summary.txt`, `back_of_shirt.icml`, `order_forms.pdf`, and `gym_highlights.pdf`. This ensures they all use the updated layout (page groups, font sizes, spacing). You don't need to list them explicitly.
 
 **When to use**: Adjusting layout params (font size, spacing, fill), changing dates on order forms, or any change that doesn't affect the underlying data. Always prefer `--regenerate` over full pipeline when data hasn't changed.
 

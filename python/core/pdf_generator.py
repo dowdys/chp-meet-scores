@@ -132,34 +132,34 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
             page_groups.append((label, group))
 
     # If max_shirt_pages is set and we have too many pages, try shrinking
-    # the bin-pack font estimate to merge groups
+    # the bin-pack font estimate to merge groups.  Compresses BOTH Xcel and
+    # numbered levels — the per-page _fit_font_size() will independently
+    # find the actual optimal font for each page afterward.
     if max_shirt_pages and len(page_groups) > max_shirt_pages:
-        target_xcel = len([g for g in page_groups if g[0] == 'XCEL'])
-        target_numbered = max_shirt_pages - target_xcel
-        if target_numbered >= 1 and numbered_levels:
-            # Try progressively smaller font estimates until numbered levels
-            # fit within target_numbered pages
-            for try_size_10x in range(int(mxfs * 10) - 1, int(mfs * 10) - 1, -1):
-                try_size = try_size_10x / 10
-                groups = _bin_pack_levels(numbered_levels, data, available,
-                                         lhr, lgap, try_size)
-                if len(groups) <= target_numbered:
-                    # Rebuild page_groups with the tighter grouping
-                    page_groups = []
-                    if xcel_levels:
-                        for group in _bin_pack_levels(xcel_levels, data,
-                                                      available, lhr, lgap, mxfs):
-                            page_groups.append(('XCEL', group))
-                    for group in groups:
-                        nums = sorted([int(lv) for lv in group if lv.isdigit()])
-                        if len(nums) >= 2:
-                            label = f'LEVELS {nums[0]}-{nums[-1]}'
-                        elif len(nums) == 1:
-                            label = f'LEVEL {nums[0]}'
-                        else:
-                            label = 'LEVELS'
-                        page_groups.append((label, group))
-                    break
+        for try_size_10x in range(int(mxfs * 10) - 1, int(mfs * 10) - 1, -1):
+            try_size = try_size_10x / 10
+            new_page_groups = []
+
+            if xcel_levels:
+                for group in _bin_pack_levels(xcel_levels, data, available,
+                                              lhr, lgap, try_size):
+                    new_page_groups.append(('XCEL', group))
+
+            if numbered_levels:
+                for group in _bin_pack_levels(numbered_levels, data, available,
+                                              lhr, lgap, try_size):
+                    nums = sorted([int(lv) for lv in group if lv.isdigit()])
+                    if len(nums) >= 2:
+                        label = f'LEVELS {nums[0]}-{nums[-1]}'
+                    elif len(nums) == 1:
+                        label = f'LEVEL {nums[0]}'
+                    else:
+                        label = 'LEVELS'
+                    new_page_groups.append((label, group))
+
+            if len(new_page_groups) <= max_shirt_pages:
+                page_groups = new_page_groups
+                break
 
     return {'levels': levels, 'data': data, 'page_groups': page_groups,
             'lhr': lhr, 'lgap': lgap, 'mfill': mfill,

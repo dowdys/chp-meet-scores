@@ -155,9 +155,11 @@ def main():
             print(f"Error: Database not found at {db_path}. Run full pipeline first.")
             sys.exit(1)
 
-        # Always regenerate summary when shirt regenerates (keeps page counts accurate)
-        if 'shirt' in regen_set and 'summary' not in regen_set:
-            regen_set.add('summary')
+        # When shirt regenerates, also regenerate all shirt-dependent outputs
+        # so they use the updated layout (page groups, font sizes, etc.)
+        if 'shirt' in regen_set:
+            for dep in ('summary', 'icml', 'order_forms', 'gym_highlights'):
+                regen_set.add(dep)
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
     else:
