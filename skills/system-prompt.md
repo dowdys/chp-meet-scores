@@ -145,7 +145,7 @@ If potential duplicates need manual mapping:
 ## When to Stop
 
 You are done when:
-- Output files are generated (back_of_shirt.pdf, back_of_shirt.icml, order_forms.pdf, order_forms_by_gym.txt, winners_sheet.csv, meet_summary.txt)
+- Output files are generated (back_of_shirt.pdf, back_of_shirt.icml, order_forms.pdf, gym_highlights.pdf, meet_summary.txt)
 - Winner counts look correct (spot-check a few)
 - Gym names are reasonably clean (auto-normalize ran, no obvious issues)
 

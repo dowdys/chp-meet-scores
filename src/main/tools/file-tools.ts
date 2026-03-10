@@ -24,10 +24,16 @@ export const fileToolExecutors: Record<string, (args: Record<string, unknown>) =
       if (path.isAbsolute(filePath)) {
         resolvedPath = filePath;
       } else {
+        // Strip leading "data/" or "data\" prefix — the agent often includes it
+        // redundantly since we already prepend the data directory
+        let cleanPath = filePath;
+        if (cleanPath.startsWith('data/') || cleanPath.startsWith('data\\')) {
+          cleanPath = cleanPath.substring(5);
+        }
         const writableData = getDataDir();
         const resourcesData = path.join(getProjectRoot(), 'data');
-        const writablePath = path.join(writableData, filePath);
-        const resourcesPath = path.join(resourcesData, filePath);
+        const writablePath = path.join(writableData, cleanPath);
+        const resourcesPath = path.join(resourcesData, cleanPath);
         // Prefer writable data dir (where chrome_save_to_file writes)
         if (fs.existsSync(writablePath)) {
           resolvedPath = writablePath;

@@ -31,41 +31,7 @@ Carol Davis
 - Names: DISTINCT per event per level (deduplicate if same athlete appears in multiple sessions/divisions)
 - Alphabetical sort within each event section
 
-## Output 2: Order Forms by Gym (`order_forms_by_gym.txt`)
-
-Grouped by gym (alphabetical). Each winner listed with events won and level/division.
-
-**Structure**:
-```
-============================================================
-  Gym Name Here
-============================================================
-  Athlete Name - Vault, Beam, AA
-  Level 7 Division Jr A
-
-  Another Athlete - Floor
-  Level 8 Division Sr B
-```
-
-**Rules**:
-- Gyms alphabetical
-- Within each gym: athletes sorted by level (ascending), then division, then name
-- Events listed in order: Vault, Bars, Beam, Floor, AA
-- Each athlete entry shows all events won in one line, level+division on the next
-
-## Output 3: Winners CSV (`winners_sheet.csv`)
-
-Spreadsheet format with TRUE/FALSE event columns.
-
-**Columns**: `name, gym name, level, Vault, Bars, Beam, Floor, AA`
-
-**Rules**:
-- One row per unique winning athlete (per level+division+session)
-- Event columns: TRUE if athlete won that event, FALSE otherwise
-- Sort order: level descending (highest first), then division youngest-to-oldest, then AA score descending
-- Division ordering is auto-detected from division names in the database (Child < Youth < Junior < Senior, with sub-letters A-D). Cached per state in `state_divisions.json` alongside the database.
-
-## Output 4: Back-of-Shirt PDF (`back_of_shirt.pdf`)
+## Output 2: Back-of-Shirt PDF (`back_of_shirt.pdf`)
 
 Championship-style back-of-shirt PDF. Always generated (no longer optional).
 
@@ -93,7 +59,7 @@ Championship-style back-of-shirt PDF. Always generated (no longer optional).
 
 **Column centers**: [72, 192, 306, 420, 546] on 612x792pt (Letter) page
 
-## Output 5: Order Forms PDF (`order_forms.pdf`)
+## Output 3: Order Forms PDF (`order_forms.pdf`)
 
 Personalized per-athlete order forms, grouped by gym with blank separator pages.
 
@@ -144,7 +110,7 @@ When using `--regenerate`, only `--state` and `--meet` are required. `--source` 
 --state Iowa --meet "2025 Iowa State Championships" --regenerate all
 ```
 
-Available values: `shirt`, `icml`, `order_forms`, `order_txt`, `csv`, `gym_highlights`, `summary`, `all`.
+Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `all`. (Legacy: `order_txt`, `csv` still work if explicitly requested.)
 
 **Auto-regenerate**: `--regenerate shirt` automatically also regenerates `meet_summary.txt` so the summary always reflects the current shirt layout (page count, grouping). You don't need to add `summary` explicitly.
 

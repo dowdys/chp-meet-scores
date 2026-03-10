@@ -48,7 +48,7 @@ if not getattr(sys, 'frozen', False):
 from python.core.models import MeetConfig
 from python.core.db_builder import build_database
 from python.core.output_generator import (
-    generate_order_forms, generate_winners_csv
+    generate_order_forms, generate_winners_csv  # kept for --regenerate backward compat
 )
 from python.core.pdf_generator import generate_shirt_pdf, generate_gym_highlights_pdf
 from python.core.icml_generator import generate_shirt_icml
@@ -113,7 +113,8 @@ def main():
                              'Bin-packer will shrink font estimate to fit within this limit.')
     parser.add_argument('--regenerate', nargs='*', default=None,
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
-                             'Values: shirt, icml, order_forms, order_txt, csv, gym_highlights, summary, all. '
+                             'Values: shirt, icml, order_forms, gym_highlights, summary, all. '
+                             'Legacy: order_txt, csv (only on explicit request). '
                              'E.g. --regenerate shirt icml  or  --regenerate all')
 
     args = parser.parse_args()
@@ -210,7 +211,8 @@ def main():
     # Each output is wrapped in try/except so one failure doesn't block the rest
     errors = []
 
-    if do_all or 'order_txt' in regen_set:
+    # order_txt and csv are only generated on explicit --regenerate request (not in full pipeline)
+    if 'order_txt' in regen_set:
         try:
             orders_path = os.path.join(args.output, 'order_forms_by_gym.txt')
             generate_order_forms(db_path, config.meet_name, orders_path)
@@ -219,7 +221,7 @@ def main():
             print(f"ERROR generating order_forms_by_gym.txt: {e}")
             errors.append(('order_txt', str(e)))
 
-    if do_all or 'csv' in regen_set:
+    if 'csv' in regen_set:
         try:
             csv_path = os.path.join(args.output, 'winners_sheet.csv')
             generate_winners_csv(db_path, config.meet_name, csv_path, division_order)

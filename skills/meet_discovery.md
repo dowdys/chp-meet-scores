@@ -24,6 +24,8 @@ When a state championship is split across multiple sub-meets (e.g., "Dev State" 
 
 Similarly, if one search finds a meet on ScoreCat, do NOT also search MSO or MyMeetScores for the same meet. Move directly to extraction.
 
+**When ScoreCat returns no match for the requested year** (e.g., only returns a 2024 meet when you searched for 2025), do NOT repeat the Algolia search with query variations — the meet simply isn't on ScoreCat. Move immediately to MSO (Step 2). Algolia's fuzzy matching means if it didn't find a 2025 meet on the first try, rephrasing won't help.
+
 ## Step 1: ScoreCat — Algolia Search (headless, fastest)
 
 ScoreCat uses Algolia for meet search. It's a public API, no browser needed.
