@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import datetime
+import json
 import os
 import sys
 
@@ -216,6 +217,27 @@ def main():
                                         config.state, config_dir)
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
 
+    # --- Sticky shirt layout params ---
+    # After a user adjusts layout (e.g. --max-shirt-pages 2), those params
+    # persist in shirt_layout.json so future runs use the same layout.
+    # CLI args override saved params; saved params override defaults.
+    layout_json = os.path.join(args.output, 'shirt_layout.json')
+    saved_layout = {}
+    if os.path.exists(layout_json):
+        try:
+            with open(layout_json, 'r') as f:
+                saved_layout = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Merge: CLI (if explicitly set, i.e. not None) > saved > default (None)
+    LAYOUT_PARAMS = ['line_spacing', 'level_gap', 'max_fill',
+                     'min_font_size', 'max_font_size', 'max_shirt_pages']
+    for param in LAYOUT_PARAMS:
+        cli_val = getattr(args, param)
+        if cli_val is None and param in saved_layout:
+            setattr(args, param, saved_layout[param])
+
     # Generate outputs (all or selected)
     # Each output is wrapped in try/except so one failure doesn't block the rest
     errors = []
@@ -252,6 +274,14 @@ def main():
                                name_sort=args.name_sort,
                                max_shirt_pages=args.max_shirt_pages)
             print(f"Generated {pdf_path}")
+            # Save effective layout params so future runs reuse them
+            effective_layout = {}
+            for param in LAYOUT_PARAMS:
+                val = getattr(args, param)
+                if val is not None:
+                    effective_layout[param] = val
+            with open(layout_json, 'w') as f:
+                json.dump(effective_layout, f, indent=2)
         except Exception as e:
             print(f"ERROR generating back_of_shirt.pdf: {e}")
             errors.append(('shirt', str(e)))

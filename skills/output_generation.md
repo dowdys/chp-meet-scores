@@ -120,6 +120,13 @@ Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `
 
 **IMPORTANT**: Never try to edit a generated PDF directly (using PyMuPDF redaction, text replacement, etc.). Always regenerate with the correct parameters.
 
+## Sticky Layout Params
+
+Layout params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
+- `--regenerate shirt --max-shirt-pages 2` → saves `max_shirt_pages: 2` → all future runs use 2 pages
+- Full pipeline re-run (no layout args) → reads saved params → still uses 2 pages
+- `--regenerate shirt --max-shirt-pages 3` → overrides saved value → now uses 3 pages
+
 ## Copy to Windows Downloads
 After generating all outputs:
 ```bash
