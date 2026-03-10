@@ -142,6 +142,13 @@ def main():
     db_path = args.db if args.db else os.path.join(args.output, 'meet_results.db')
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
+    # Clean up deprecated output files from older versions
+    for deprecated in ('order_forms_by_gym.txt', 'winners_sheet.csv'):
+        dep_path = os.path.join(args.output, deprecated)
+        if os.path.exists(dep_path):
+            os.remove(dep_path)
+            print(f"Cleaned up deprecated output: {deprecated}")
+
     # --regenerate mode: skip parsing/DB build, just regenerate specified outputs
     regen = args.regenerate
     if regen is not None:

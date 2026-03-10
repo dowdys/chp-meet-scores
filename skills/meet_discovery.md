@@ -71,10 +71,11 @@ When Algolia returns multiple hits:
 
 ### After Extraction: Verify Levels
 
-After `scorecat_extract` returns data, **immediately verify** that the levels match what the user requested. Use `run_script` to check levels in the extracted JSON:
+After `scorecat_extract` or `mso_extract` returns data, **immediately verify** that the levels match what the user requested. Use a **single** `run_script` call to check levels in the extracted JSON:
 ```python
-import json
-with open('<extract_file>') as f:
+import json, os
+filepath = os.path.join(os.environ['DATA_DIR'], '<extract_filename>')
+with open(filepath) as f:
     data = json.load(f)
 from collections import Counter
 levels = Counter(a.get('level', '') for a in data)
@@ -117,16 +118,10 @@ JSON.stringify(
 
 ### If found on MSO
 
-The meetId from `data-meetid` is what you need. Check if the JSON API has data:
+The meetId from `data-meetid` is what you need. **Go directly to `mso_extract`** — do NOT manually check the JSON API with `http_fetch` + `run_script`. The `mso_extract` tool handles API calls, data validation, and reports per-meet athlete counts automatically.
 
-```
-POST https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999
-Body: p_meetid=XXXXX&query_name=lookup_scores
-```
-
-- If rows returned → load `mso_html_extraction` skill (which now covers both JSON API and HTML table approaches)
-- If 0 rows → the meet may use Report Builder (PDF) format. Load `mso_pdf_extraction` skill.
-- See `skills/details/mso_schema.md` for full API documentation
+- If `mso_extract` returns athletes → proceed to level verification and `run_python`
+- If `mso_extract` returns 0 athletes for a meet → it may use Report Builder (PDF) format. Load `mso_pdf_extraction` skill.
 
 ## Step 3: MyMeetScores (headless)
 

@@ -26,6 +26,7 @@ extraResources:
 mac:
   target:
     - target: dmg
+    - target: zip
   icon: assets/icon.png
   category: public.app-category.business
   darkModeSupport: true

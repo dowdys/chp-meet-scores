@@ -109,6 +109,7 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 - **Chunk retrieval**: When pulling data from browser JS, store in a window variable and retrieve in chunks of 100 via JSON.stringify slicing.
 - **Save progress**: Before approaching context limits, use `save_progress` with a detailed summary of what you've accomplished and what's left. Include `data_files` to track produced files.
 - **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/). When referencing files (for `read_file`, `render_pdf_page`, `open_file`, etc.), ALWAYS use the full absolute path returned by tool results. Never guess or construct paths from memory — copy the exact path from the previous tool output.
+- **`run_script` file paths**: The `run_script` tool passes `DATA_DIR`, `DB_PATH`, and `STAGING_DB_PATH` as environment variables. ALWAYS use `os.environ['DATA_DIR']` to build file paths in scripts — never use bare relative paths like `data/` or hardcoded absolute paths. Example: `import os; data_dir = os.environ['DATA_DIR']; filepath = os.path.join(data_dir, 'myfile.json')`.
 - **User interaction**: Use the `ask_user` tool whenever you need the user to make a choice or provide input. Pass a clear question and an array of option strings. The user can click a suggested option OR type a custom response. Use this when:
   - Multiple meets match a search query (let them pick which one)
   - You need to confirm something before proceeding
@@ -164,7 +165,8 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 
 **Anti-patterns to avoid:**
 - Do NOT manually script MSO or ScoreCat extraction — use the dedicated `mso_extract` and `scorecat_extract` tools.
-- Use `http_fetch` for small API calls (Algolia search, MSO JSON API row-count checks). Use `chrome_save_to_file` for bulk data extraction from unknown sources.
+- Do NOT manually verify MSO JSON API data with `http_fetch` + `run_script` before extraction. The `mso_extract` tool already checks for data and reports per-meet counts (including 0 if no data). Go directly from MSO discovery to `mso_extract`. If a meet returns 0 athletes, it may use PDF format — load `mso_pdf_extraction` skill.
+- Use `http_fetch` for small API calls (Algolia search). Use `chrome_save_to_file` for bulk data extraction from unknown sources.
 - ALWAYS use `chrome_save_to_file` for data extraction from unknown sources. Never extract data through `chrome_execute_js` in chunks.
 - Do NOT retry JS execution after "Execution context was destroyed" without navigating first.
 - Do NOT try to reverse-engineer a web app. Use the extraction approach in the loaded skill.
