@@ -178,9 +178,14 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - Do NOT build a database before verifying the extracted levels match the user's request.
 - Do NOT try to find, read, or edit the Python source code on the user's machine — `process_meet.py` is a compiled PyInstaller binary. Use `run_python` with CLI flags. If you need a feature that no flag supports, tell the user it requires a code change.
 - Do NOT edit generated PDFs directly (redact/replace text). Always fix the source: adjust `run_python` parameters and regenerate with `--regenerate`.
+- Do NOT attempt layout changes without first loading the `output_generation` skill. It lists ALL available flags. Loading the skill takes 1 iteration; guessing wastes 3-5 iterations.
 - Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, order_forms, etc.) to skip parsing and DB build. Note: `--regenerate shirt` auto-regenerates `meet_summary.txt` too, so you always have an up-to-date summary after shirt regeneration.
 - Do NOT ask for dates one at a time. Ask for all dates (postmark, online, ship) in a single `ask_user` call.
 - When the user asks to constrain shirt pages, use `--max-shirt-pages N`. This forces tighter level grouping by trying smaller font estimates until the total page count fits.
+- When the user asks for custom level grouping (e.g., "put levels 1-5 together" or "all Xcel on one page"), use `--level-groups`. Format: semicolon-separated groups, comma-separated levels. E.g. `--level-groups "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`.
+- When the user asks to change title size (e.g., "make 2026 Gymnastics bigger"), use `--title1-size` (default 18) or `--title2-size` (default 20).
+- When the user asks to reduce spacing between names, use `--line-spacing` (default 1.15, lower = tighter, e.g. 1.05).
+- **ALWAYS load the `output_generation` skill BEFORE attempting layout changes.** This skill documents all available flags and their defaults. Do NOT guess about what is or isn't configurable — check the skill docs first. This prevents wasting iterations trying to change something you think is hardcoded when a flag actually exists.
 
 ## Available Skills
 

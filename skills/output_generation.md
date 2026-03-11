@@ -35,20 +35,21 @@ Carol Davis
 
 Championship-style back-of-shirt PDF. Always generated (no longer optional).
 
-**Visual elements**:
-- Title line 1: "{Year} GYMNASTICS" in small caps (~16pt)
-- Title line 2: "STATE CHAMPIONS OF {STATE}" in small caps (~20pt)
+**Visual elements** (all sizes configurable via flags):
+- Title line 1: "{Year} GYMNASTICS" in small caps (~18pt, configurable via `--title1-size`)
+- Title line 2: "STATE CHAMPIONS OF {STATE}" in small caps (~20pt, configurable via `--title2-size`)
 - Red filled oval below title containing level group label ("XCEL", "LEVELS 2-5", "LEVELS 6-10", etc.)
 - Column headers in small caps: VAULT, BARS, BEAM, FLOOR, ALL AROUND
 - Level dividers: red horizontal lines extending left/right with letter-spaced text in the middle ("L E V E L  1 0")
-- Names centered in 5 columns (Times-Roman, 9pt default, shrinks to 6pt minimum if needed)
+- Names centered in 5 columns (Times-Roman, 9pt default, shrinks to 6.5pt minimum if needed)
+- Name spacing controlled by `--line-spacing` (default 1.15, lower = tighter names)
 - Copyright "© C. H. Publishing" centered at page bottom (7pt)
+- Y positions auto-adjust when title sizes change (bigger titles = less space for names)
 
-**Auto-grouping**:
-- Xcel levels (XSA/Sapphire, XD/Diamond, etc.) → one page labeled "XCEL", sorted by prestige
-- Numbered levels → bin-packed descending (10, 9, 8... down) into page-sized groups
-- Each group = one page in the PDF
-- Oval label auto-derived from level range
+**Level grouping** (auto or custom):
+- **Default (auto)**: Xcel levels → one or more pages labeled "XCEL", sorted by prestige. Numbered levels → bin-packed descending (10, 9, 8... down) into page-sized groups. Oval labels auto-derived.
+- **Custom** (`--level-groups`): Override auto grouping with explicit page assignments. Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"` → page 1 = all Xcel, page 2 = levels 6-10, page 3 = levels 1-5. Use this when the user wants specific levels on specific pages.
+- **Constrained** (`--max-shirt-pages N`): Auto grouping but constrained to N total pages. Bin-packer shrinks font estimates until groups fit.
 
 **Name sort order** (`--name-sort` flag):
 - `age` (DEFAULT — always use this): Names sorted by division age group (youngest first: Junior A → Junior B → ... → Senior A → Senior B → ...), then alphabetically within each age group
@@ -93,9 +94,23 @@ The `process_meet.py` script accepts:
 - `--postmark-date` — Postmark deadline date for order forms (e.g. "March 15, 2026"). Defaults to "TBD".
 - `--online-date` — Online ordering deadline date for order forms (e.g. "March 20, 2026"). Defaults to "TBD".
 - `--ship-date` — Shipping date for order forms (e.g. "April 5, 2026"). Defaults to "TBD".
-- `--max-shirt-pages N` — Constrain the total number of shirt pages to N. When set, the bin-packing algorithm tries progressively smaller font estimates for numbered levels until the page count fits. Xcel pages are kept as-is. Use this when the user wants to limit total pages (e.g., "I need this to fit on 2 pages").
-- PDFs are always generated; no `--title-line` flags needed
-- **Important**: Use `ask_user` to get ALL deadline dates from the user in a single prompt before generating order forms
+
+**Layout flags** (all have sensible defaults, all saved to `shirt_layout.json` for future runs):
+- `--title1-size FLOAT` — Font size for "{Year} GYMNASTICS" title (default 18). The user may want this bigger (e.g. 22, 24) for visual impact. Y positions auto-adjust.
+- `--title2-size FLOAT` — Font size for "STATE CHAMPIONS OF {STATE}" (default 20).
+- `--max-font-size FLOAT` — Maximum name font size (default 9). Pages with few names use this size.
+- `--min-font-size FLOAT` — Minimum name font size (default 6.5). Pages with many names shrink toward this.
+- `--line-spacing FLOAT` — Line height ratio for name spacing (default 1.15). Lower = tighter names (e.g. 1.05 for very tight, 1.3 for more breathing room). This is the main way to reduce margins between names.
+- `--level-gap FLOAT` — Vertical gap before each level section (default 6).
+- `--max-fill FLOAT` — Max page fill fraction (default 0.90). E.g. 0.85 = 85%.
+- `--max-shirt-pages N` — Constrain total shirt pages (bin-packer shrinks font estimates to fit).
+- `--level-groups STRING` — Custom level grouping (overrides auto bin-packing). Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`.
+
+PDFs are always generated; no `--title-line` flags needed.
+
+**Important**: Use `ask_user` to get ALL deadline dates from the user in a single prompt before generating order forms.
+
+**Important**: Before attempting ANY layout change, load this skill first so you know what flags are available. Do NOT guess or assume a feature doesn't exist.
 
 ## Selective Regeneration (`--regenerate`)
 
@@ -122,9 +137,10 @@ Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `
 
 ## Sticky Layout Params
 
-Layout params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
+ALL layout params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`, `--title1-size`, `--title2-size`, `--level-groups`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
 - `--regenerate shirt --max-shirt-pages 2` → saves `max_shirt_pages: 2` → all future runs use 2 pages
-- Full pipeline re-run (no layout args) → reads saved params → still uses 2 pages
+- `--regenerate shirt --level-groups "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3"` → saves custom grouping → persists
+- Full pipeline re-run (no layout args) → reads saved params → uses saved layout
 - `--regenerate shirt --max-shirt-pages 3` → overrides saved value → now uses 3 pages
 
 ## Copy to Windows Downloads

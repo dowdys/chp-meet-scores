@@ -112,6 +112,15 @@ def main():
     parser.add_argument('--max-shirt-pages', type=int, default=None,
                         help='Target maximum total pages for back-of-shirt PDF. '
                              'Bin-packer will shrink font estimate to fit within this limit.')
+    parser.add_argument('--title1-size', type=float, default=None,
+                        help='Font size for title line 1 "{Year} GYMNASTICS" (default 18). '
+                             'Larger values make the title more prominent.')
+    parser.add_argument('--title2-size', type=float, default=None,
+                        help='Font size for title line 2 "STATE CHAMPIONS OF {STATE}" (default 20).')
+    parser.add_argument('--level-groups', default=None,
+                        help='Custom level grouping for shirt pages. Semicolon-separated groups, '
+                             'comma-separated levels within each group. Overrides auto bin-packing. '
+                             'E.g. "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"')
     parser.add_argument('--regenerate', nargs='*', default=None,
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
                              'Values: shirt, icml, order_forms, gym_highlights, summary, all. '
@@ -232,7 +241,8 @@ def main():
 
     # Merge: CLI (if explicitly set, i.e. not None) > saved > default (None)
     LAYOUT_PARAMS = ['line_spacing', 'level_gap', 'max_fill',
-                     'min_font_size', 'max_font_size', 'max_shirt_pages']
+                     'min_font_size', 'max_font_size', 'max_shirt_pages',
+                     'title1_size', 'title2_size', 'level_groups']
     for param in LAYOUT_PARAMS:
         cli_val = getattr(args, param)
         if cli_val is None and param in saved_layout:
@@ -272,7 +282,10 @@ def main():
                                min_font_size=args.min_font_size,
                                max_font_size=args.max_font_size,
                                name_sort=args.name_sort,
-                               max_shirt_pages=args.max_shirt_pages)
+                               max_shirt_pages=args.max_shirt_pages,
+                               title1_size=args.title1_size,
+                               title2_size=args.title2_size,
+                               level_groups=args.level_groups)
             print(f"Generated {pdf_path}")
             # Save effective layout params so future runs reuse them
             effective_layout = {}
@@ -297,7 +310,10 @@ def main():
                                 min_font_size=args.min_font_size,
                                 max_font_size=args.max_font_size,
                                 name_sort=args.name_sort,
-                                max_shirt_pages=args.max_shirt_pages)
+                                max_shirt_pages=args.max_shirt_pages,
+                                title1_size=args.title1_size,
+                                title2_size=args.title2_size,
+                                level_groups=args.level_groups)
             print(f"Generated {icml_path}")
         except Exception as e:
             print(f"ERROR generating back_of_shirt.icml: {e}")
@@ -317,7 +333,10 @@ def main():
                                      min_font_size=args.min_font_size,
                                      max_font_size=args.max_font_size,
                                      name_sort=args.name_sort,
-                                     max_shirt_pages=args.max_shirt_pages)
+                                     max_shirt_pages=args.max_shirt_pages,
+                                     title1_size=args.title1_size,
+                                     title2_size=args.title2_size,
+                                     level_groups=args.level_groups)
             print(f"Generated {order_pdf_path}")
         except Exception as e:
             print(f"ERROR generating order_forms.pdf: {e}")
@@ -334,7 +353,10 @@ def main():
                                         min_font_size=args.min_font_size,
                                         max_font_size=args.max_font_size,
                                         name_sort=args.name_sort,
-                                        max_shirt_pages=args.max_shirt_pages)
+                                        max_shirt_pages=args.max_shirt_pages,
+                                        title1_size=args.title1_size,
+                                        title2_size=args.title2_size,
+                                        level_groups=args.level_groups)
             print(f"Generated {gym_highlights_path}")
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")

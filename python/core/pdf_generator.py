@@ -43,18 +43,13 @@ XCEL_MAP = {
 # Prestige order (highest first)
 XCEL_ORDER = ['SAPPHIRE', 'DIAMOND', 'PLATINUM', 'GOLD', 'SILVER', 'BRONZE']
 
-# Layout Y positions (tight margins to maximize name space)
-TITLE_LINE1_Y = 30
-TITLE_LINE2_Y = 52
-OVAL_CENTER_Y = 76
-HEADERS_Y = 100
-NAMES_START_Y = 116
+# Layout Y positions
 COPYRIGHT_Y = PAGE_H - 8
 NAMES_BOTTOM_Y = PAGE_H - 18
 
 # Font sizes
-TITLE1_LARGE = 16
-TITLE1_SMALL = 12
+TITLE1_LARGE = 18
+TITLE1_SMALL = 14
 TITLE2_LARGE = 20
 TITLE2_SMALL = 15
 HEADER_LARGE = 11
@@ -76,10 +71,30 @@ FONT_BOLD = 'Times-Bold'
 MAX_PAGE_FILL = 0.90
 
 
+def _compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE):
+    """Compute Y positions for page elements based on title font sizes.
+
+    Returns (title1_y, title2_y, oval_y, headers_y, names_start_y).
+    """
+    t1_y = 14 + int(t1l)
+    t2_y = t1_y + round(t1l * 1.375)
+    ov_y = t2_y + round(t2l * 1.2)
+    hd_y = ov_y + 24
+    ns_y = hd_y + 16
+    return t1_y, t2_y, ov_y, hd_y, ns_y
+
+
+# Default layout Y positions (computed from default title sizes)
+TITLE_LINE1_Y, TITLE_LINE2_Y, OVAL_CENTER_Y, HEADERS_Y, NAMES_START_Y = \
+    _compute_layout()
+
+
 def precompute_shirt_data(db_path, meet_name, name_sort='age',
                           line_spacing=None, level_gap=None,
                           max_fill=None, min_font_size=None,
-                          max_font_size=None, max_shirt_pages=None):
+                          max_font_size=None, max_shirt_pages=None,
+                          title1_size=None, title2_size=None,
+                          level_groups=None):
     """Pre-compute shirt layout data for reuse across multiple renders.
 
     Returns a dict with levels, data, page_groups, and resolved layout params.
@@ -90,12 +105,29 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
     mfs = min_font_size if min_font_size is not None else MIN_NAME_SIZE
     mxfs = max_font_size if max_font_size is not None else DEFAULT_NAME_SIZE
 
+    # Title sizes (large/small caps pairs)
+    t1l = title1_size if title1_size is not None else TITLE1_LARGE
+    t1s = round(t1l * 0.75)
+    t2l = title2_size if title2_size is not None else TITLE2_LARGE
+    t2s = round(t2l * 0.75)
+
+    # Compute Y positions from title sizes
+    title1_y, title2_y, oval_y, headers_y, names_start = _compute_layout(t1l, t2l)
+
     levels, data = _get_winners_by_event_and_level(db_path, meet_name,
                                                     name_sort=name_sort)
+
+    empty_result = {
+        'levels': [], 'data': {}, 'page_groups': [],
+        'lhr': lhr, 'lgap': lgap, 'mfill': mfill, 'mfs': mfs, 'mxfs': mxfs,
+        't1l': t1l, 't1s': t1s, 't2l': t2l, 't2s': t2s,
+        'title1_y': title1_y, 'title2_y': title2_y,
+        'oval_y': oval_y, 'headers_y': headers_y,
+        'names_start_y': names_start,
+    }
+
     if not levels:
-        return {'levels': [], 'data': {}, 'page_groups': [],
-                'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
-                'mfs': mfs, 'mxfs': mxfs}
+        return empty_result
 
     # Classify levels into Xcel and numbered
     xcel_levels = []
@@ -110,60 +142,124 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                      if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
     numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
 
-    # Build page groups: (oval_label, [levels])
+    available = (NAMES_BOTTOM_Y - names_start) * mfill
+
+    # Custom level groups override auto bin-packing
+    if level_groups:
+        level_set = set(levels)
+        page_groups = _parse_level_groups(level_groups, level_set)
+    else:
+        # Auto bin-packing
+        page_groups = []
+        if xcel_levels:
+            xcel_groups = _bin_pack_levels(xcel_levels, data, available,
+                                           lhr, lgap, mxfs)
+            for group in xcel_groups:
+                page_groups.append(('XCEL', group))
+
+        if numbered_levels:
+            groups = _bin_pack_levels(numbered_levels, data, available,
+                                      lhr, lgap, mxfs)
+            for group in groups:
+                page_groups.append(_label_numbered_group(group))
+
+        # If max_shirt_pages is set and we have too many pages, try shrinking
+        # the bin-pack font estimate to merge groups. Uses multi-resolution
+        # search (1.0 → 0.5 → 0.2 → 0.1) for efficiency.
+        if max_shirt_pages and len(page_groups) > max_shirt_pages:
+            def _groups_at_size(try_size):
+                new_groups = []
+                if xcel_levels:
+                    for g in _bin_pack_levels(xcel_levels, data, available,
+                                              lhr, lgap, try_size):
+                        new_groups.append(('XCEL', g))
+                if numbered_levels:
+                    for g in _bin_pack_levels(numbered_levels, data, available,
+                                              lhr, lgap, try_size):
+                        new_groups.append(_label_numbered_group(g))
+                return new_groups
+
+            best_size = mfs
+            best_groups = _groups_at_size(mfs)
+
+            for step in [1.0, 0.5, 0.2, 0.1]:
+                candidate = best_size + step
+                while candidate <= mxfs + 0.001:
+                    candidate_groups = _groups_at_size(candidate)
+                    if len(candidate_groups) <= max_shirt_pages:
+                        best_size = candidate
+                        best_groups = candidate_groups
+                        candidate += step
+                    else:
+                        break
+
+            page_groups = best_groups
+
+    return {'levels': levels, 'data': data, 'page_groups': page_groups,
+            'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
+            'mfs': mfs, 'mxfs': mxfs,
+            't1l': t1l, 't1s': t1s, 't2l': t2l, 't2s': t2s,
+            'title1_y': title1_y, 'title2_y': title2_y,
+            'oval_y': oval_y, 'headers_y': headers_y,
+            'names_start_y': names_start}
+
+
+def _label_numbered_group(group):
+    """Derive an oval label from a list of numbered levels."""
+    nums = sorted([int(lv) for lv in group if lv.isdigit()])
+    if len(nums) >= 2:
+        label = f'LEVELS {nums[0]}-{nums[-1]}'
+    elif len(nums) == 1:
+        label = f'LEVEL {nums[0]}'
+    else:
+        label = 'LEVELS'
+    return (label, group)
+
+
+def _parse_level_groups(level_groups, level_set):
+    """Parse custom level groups into page_groups list.
+
+    level_groups: semicolon-separated groups, comma-separated levels.
+        E.g. "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"
+    level_set: set of levels that exist in the data.
+    """
+    if isinstance(level_groups, str):
+        raw_groups = level_groups.split(';')
+    else:
+        raw_groups = level_groups
+
     page_groups = []
-    available = (NAMES_BOTTOM_Y - NAMES_START_Y) * mfill
-
-    if xcel_levels:
-        xcel_groups = _bin_pack_levels(xcel_levels, data, available, lhr, lgap, mxfs)
-        for group in xcel_groups:
-            page_groups.append(('XCEL', group))
-
-    if numbered_levels:
-        groups = _bin_pack_levels(numbered_levels, data, available, lhr, lgap, mxfs)
-        for group in groups:
-            nums = sorted([int(lv) for lv in group if lv.isdigit()])
+    for group_str in raw_groups:
+        if isinstance(group_str, str):
+            group_levels = [lv.strip() for lv in group_str.split(',')]
+        else:
+            group_levels = list(group_str)
+        # Filter to only levels that exist in the data
+        group_levels = [lv for lv in group_levels if lv in level_set]
+        if not group_levels:
+            continue
+        # Auto-derive label
+        xcel_in = [lv for lv in group_levels if lv in XCEL_MAP]
+        numbered_in = [lv for lv in group_levels if lv not in XCEL_MAP]
+        if xcel_in and not numbered_in:
+            label = 'XCEL'
+        elif numbered_in and not xcel_in:
+            nums = sorted([int(lv) for lv in numbered_in if lv.isdigit()])
             if len(nums) >= 2:
                 label = f'LEVELS {nums[0]}-{nums[-1]}'
             elif len(nums) == 1:
                 label = f'LEVEL {nums[0]}'
             else:
                 label = 'LEVELS'
-            page_groups.append((label, group))
-
-    # If max_shirt_pages is set and we have too many pages, try shrinking
-    # the bin-pack font estimate to merge groups.  Compresses BOTH Xcel and
-    # numbered levels — the per-page _fit_font_size() will independently
-    # find the actual optimal font for each page afterward.
-    if max_shirt_pages and len(page_groups) > max_shirt_pages:
-        for try_size_10x in range(int(mxfs * 10) - 1, int(mfs * 10) - 1, -1):
-            try_size = try_size_10x / 10
-            new_page_groups = []
-
-            if xcel_levels:
-                for group in _bin_pack_levels(xcel_levels, data, available,
-                                              lhr, lgap, try_size):
-                    new_page_groups.append(('XCEL', group))
-
-            if numbered_levels:
-                for group in _bin_pack_levels(numbered_levels, data, available,
-                                              lhr, lgap, try_size):
-                    nums = sorted([int(lv) for lv in group if lv.isdigit()])
-                    if len(nums) >= 2:
-                        label = f'LEVELS {nums[0]}-{nums[-1]}'
-                    elif len(nums) == 1:
-                        label = f'LEVEL {nums[0]}'
-                    else:
-                        label = 'LEVELS'
-                    new_page_groups.append((label, group))
-
-            if len(new_page_groups) <= max_shirt_pages:
-                page_groups = new_page_groups
-                break
-
-    return {'levels': levels, 'data': data, 'page_groups': page_groups,
-            'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
-            'mfs': mfs, 'mxfs': mxfs}
+        else:
+            # Mixed Xcel + numbered
+            nums = sorted([int(lv) for lv in numbered_in if lv.isdigit()])
+            if nums:
+                label = f'XCEL & LEVELS {nums[0]}-{nums[-1]}'
+            else:
+                label = 'XCEL'
+        page_groups.append((label, group_levels))
+    return page_groups
 
 
 def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
@@ -179,6 +275,15 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
     mfill = precomputed['mfill']
     mfs = precomputed['mfs']
     mxfs = precomputed['mxfs']
+    t1l = precomputed['t1l']
+    t1s = precomputed['t1s']
+    t2l = precomputed['t2l']
+    t2s = precomputed['t2s']
+    p_title1_y = precomputed['title1_y']
+    p_title2_y = precomputed['title2_y']
+    p_oval_y = precomputed['oval_y']
+    p_headers_y = precomputed['headers_y']
+    p_names_start = precomputed['names_start_y']
 
     star_set = {athlete_name}
 
@@ -198,31 +303,32 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
         page = doc.new_page(width=PAGE_W, height=PAGE_H)
 
         # Title lines
-        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
-                         f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
-        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE2_Y,
+        _draw_small_caps(page, PAGE_W / 2, p_title1_y,
+                         f'{year} GYMNASTICS', t1l, t1s)
+        _draw_small_caps(page, PAGE_W / 2, p_title2_y,
                          f'STATE CHAMPIONS OF {state.upper()}',
-                         TITLE2_LARGE, TITLE2_SMALL)
+                         t2l, t2s)
 
         # Red oval
-        _draw_oval(page, label, OVAL_CENTER_Y)
+        _draw_oval(page, label, p_oval_y)
 
         # Column headers with red underlines
         for i, header in enumerate(COL_HEADERS):
-            _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
+            _draw_small_caps(page, COL_CENTERS[i], p_headers_y,
                              header, HEADER_LARGE, HEADER_SMALL)
             hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
-            line_y = HEADERS_Y + 3
+            line_y = p_headers_y + 3
             page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
                            fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
                            color=RED, width=0.5)
 
         # Determine best font size
-        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
+                                    names_start_y=p_names_start)
         line_height = font_size * lhr
 
         # Draw each level's names with star
-        y = NAMES_START_Y
+        y = p_names_start
         for level in group_levels:
             y += lgap
             if level in XCEL_MAP:
@@ -250,7 +356,10 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        max_fill: float = None, min_font_size: float = None,
                        max_font_size: float = None,
                        name_sort: str = 'age',
-                       max_shirt_pages: int = None):
+                       max_shirt_pages: int = None,
+                       title1_size: float = None,
+                       title2_size: float = None,
+                       level_groups: str = None):
     """Generate enhanced back-of-shirt PDF.
 
     Args:
@@ -266,13 +375,19 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         max_font_size: Maximum/starting name font size in points (default 9).
         name_sort: 'age' (default) sorts by division age group youngest-first,
                    'alpha' sorts alphabetically.
+        title1_size: Font size for title line 1 "{Year} GYMNASTICS" (default 18).
+        title2_size: Font size for title line 2 "STATE CHAMPIONS OF..." (default 20).
+        level_groups: Custom page grouping, e.g. "XSA,XD;10,9,8;7,6,5,4,3".
     """
     # Use precompute to get shared data
     pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                 line_spacing=line_spacing, level_gap=level_gap,
                                 max_fill=max_fill, min_font_size=min_font_size,
                                 max_font_size=max_font_size,
-                                max_shirt_pages=max_shirt_pages)
+                                max_shirt_pages=max_shirt_pages,
+                                title1_size=title1_size,
+                                title2_size=title2_size,
+                                level_groups=level_groups)
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
@@ -281,6 +396,15 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     mfill = pre['mfill']
     mfs = pre['mfs']
     mxfs = pre['mxfs']
+    t1l = pre['t1l']
+    t1s = pre['t1s']
+    t2l = pre['t2l']
+    t2s = pre['t2s']
+    p_title1_y = pre['title1_y']
+    p_title2_y = pre['title2_y']
+    p_oval_y = pre['oval_y']
+    p_headers_y = pre['headers_y']
+    p_names_start = pre['names_start_y']
 
     if not levels:
         doc = fitz.open()
@@ -296,32 +420,33 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         page = doc.new_page(width=PAGE_W, height=PAGE_H)
 
         # Title lines (small caps)
-        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
-                         f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
-        _draw_small_caps(page, PAGE_W / 2, TITLE_LINE2_Y,
+        _draw_small_caps(page, PAGE_W / 2, p_title1_y,
+                         f'{year} GYMNASTICS', t1l, t1s)
+        _draw_small_caps(page, PAGE_W / 2, p_title2_y,
                          f'STATE CHAMPIONS OF {state.upper()}',
-                         TITLE2_LARGE, TITLE2_SMALL)
+                         t2l, t2s)
 
         # Red oval with group label
-        _draw_oval(page, label, OVAL_CENTER_Y)
+        _draw_oval(page, label, p_oval_y)
 
         # Column headers (small caps) with red underlines
         for i, header in enumerate(COL_HEADERS):
-            _draw_small_caps(page, COL_CENTERS[i], HEADERS_Y,
+            _draw_small_caps(page, COL_CENTERS[i], p_headers_y,
                              header, HEADER_LARGE, HEADER_SMALL)
             # Red underline below header
             hw = _measure_small_caps_width(header, HEADER_LARGE, HEADER_SMALL)
-            line_y = HEADERS_Y + 3
+            line_y = p_headers_y + 3
             page.draw_line(fitz.Point(COL_CENTERS[i] - hw / 2, line_y),
                            fitz.Point(COL_CENTERS[i] + hw / 2, line_y),
                            color=RED, width=0.5)
 
         # Determine best font size for this page's content
-        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs)
+        font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
+                                    names_start_y=p_names_start)
         line_height = font_size * lhr
 
         # Draw each level's names
-        y = NAMES_START_Y
+        y = p_names_start
         for level in group_levels:
             y += lgap
 
@@ -484,27 +609,41 @@ def _fit_font_size(levels, data,
                    names_start_y=NAMES_START_Y):
     """Find the largest font size that fits all levels on page.
 
-    Tries max_font_size down to min_name_size in 0.1 steps.
-    Targets max_page_fill fraction of available space.
+    Uses multi-resolution search (like a B-tree index): tests at
+    progressively finer steps (1.0 -> 0.5 -> 0.2 -> 0.1) instead
+    of scanning every 0.1 increment linearly. Precise to 0.1pt.
     """
     available = (NAMES_BOTTOM_Y - names_start_y) * max_page_fill
-    min_10x = int(min_name_size * 10)
-    max_10x = int(max_font_size * 10)
 
-    for size_10x in range(max_10x, min_10x - 1, -1):
-        size = size_10x / 10
+    def _total_height(size):
         lh = size * line_height_ratio
-        total = 0
-        for level in levels:
-            max_names = max(
-                len(data[event].get(level, []))
-                for event in EVENT_KEYS
-            )
-            total += level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * lh + 1
-        if total <= available:
-            return size
+        return sum(
+            level_gap + LEVEL_DIVIDER_SIZE * 1.3 +
+            max(len(data[event].get(level, [])) for event in EVENT_KEYS) * lh + 1
+            for level in levels
+        )
 
-    return min_name_size
+    # Quick check: if max fits, use it
+    if _total_height(max_font_size) <= available:
+        return max_font_size
+
+    # Quick check: if min doesn't fit, use min anyway
+    if _total_height(min_name_size) > available:
+        return min_name_size
+
+    # Multi-resolution search: start at min (definitely fits) and
+    # step upward at progressively finer increments
+    best = min_name_size
+    for step in [1.0, 0.5, 0.2, 0.1]:
+        candidate = best + step
+        while candidate <= max_font_size + 0.001:
+            if _total_height(candidate) <= available:
+                best = candidate
+                candidate += step
+            else:
+                break
+
+    return round(best, 1)
 
 
 # --- Drawing functions ---
@@ -741,7 +880,9 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 line_spacing=None, level_gap=None,
                                 max_fill=None, min_font_size=None,
                                 max_font_size=None, name_sort='age',
-                                max_shirt_pages=None):
+                                max_shirt_pages=None,
+                                title1_size=None, title2_size=None,
+                                level_groups=None):
     """Generate a gym highlights version of the back-of-shirt PDF.
 
     For each gym (alphabetically), generates the same back-of-shirt pages
@@ -755,7 +896,10 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 line_spacing=line_spacing, level_gap=level_gap,
                                 max_fill=max_fill, min_font_size=min_font_size,
                                 max_font_size=max_font_size,
-                                max_shirt_pages=max_shirt_pages)
+                                max_shirt_pages=max_shirt_pages,
+                                title1_size=title1_size,
+                                title2_size=title2_size,
+                                level_groups=level_groups)
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
@@ -764,6 +908,12 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     mfill = pre['mfill']
     mfs = pre['mfs']
     mxfs = pre['mxfs']
+    t1l = pre['t1l']
+    t1s = pre['t1s']
+    t2l = pre['t2l']
+    t2s = pre['t2s']
+    p_title1_y = pre['title1_y']
+    p_title2_y = pre['title2_y']
 
     if not levels:
         doc = fitz.open()
@@ -787,10 +937,10 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     doc = fitz.open()
 
     # Gym highlights layout: shifted down to accommodate gym name below title
-    gh_gym_name_y = 68
-    gh_oval_y = 92
-    gh_headers_y = 116
-    gh_names_start = 132
+    gh_gym_name_y = p_title2_y + round(t2l * 0.8)
+    gh_oval_y = gh_gym_name_y + 24
+    gh_headers_y = gh_oval_y + 24
+    gh_names_start = gh_headers_y + 16
 
     for gym in all_gyms:
         # Build highlight set: all athletes from this gym
@@ -815,11 +965,11 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
             page = doc.new_page(width=PAGE_W, height=PAGE_H)
 
             # Title lines (small caps)
-            _draw_small_caps(page, PAGE_W / 2, TITLE_LINE1_Y,
-                             f'{year} GYMNASTICS', TITLE1_LARGE, TITLE1_SMALL)
-            _draw_small_caps(page, PAGE_W / 2, TITLE_LINE2_Y,
+            _draw_small_caps(page, PAGE_W / 2, p_title1_y,
+                             f'{year} GYMNASTICS', t1l, t1s)
+            _draw_small_caps(page, PAGE_W / 2, p_title2_y,
                              f'STATE CHAMPIONS OF {state.upper()}',
-                             TITLE2_LARGE, TITLE2_SMALL)
+                             t2l, t2s)
 
             # Gym name centered below title in red
             _draw_small_caps(page, PAGE_W / 2, gh_gym_name_y,
