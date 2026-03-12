@@ -16,6 +16,7 @@ graphics (ovals, lines) and does not require manual decoration work.
 DOMVersion 8.0 targets InDesign CS6 and is compatible with all later versions.
 """
 
+import json
 import math
 import zipfile
 from xml.sax.saxutils import escape as xml_escape
@@ -125,7 +126,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
         'font_regular': pre.get('font_regular', FONT_REGULAR),
     }
 
-    _write_idml(output_path, year, state, **style)
+    _write_idml(output_path, year, state,
+                meet_name=meet_name, db_path=db_path, **style)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +135,7 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
 # ---------------------------------------------------------------------------
 
 def _write_idml(output_path, year, state,
+                meet_name='', db_path='',
                 page_groups=None, data=None,
                 t1l=TITLE1_LARGE, t1s=TITLE1_SMALL,
                 t2l=TITLE2_LARGE, t2s=TITLE2_SMALL,
@@ -389,6 +392,29 @@ def _write_idml(output_path, year, state,
             page_id = _uid()
             spread_xml = _build_spread(spread_id, page_id, layer_id, page_items)
             spreads.append(spread_xml)
+
+    # --- Metadata story (hidden on pasteboard, identifies the meet) ---
+    meta = json.dumps({
+        'meet_name': meet_name,
+        'state': state,
+        'year': year,
+        'db_path': db_path,
+    }, separators=(',', ':'))
+    meta_story_id = _uid()
+    meta_story_xml = _build_story(meta_story_id, [
+        _para_plain('WinnerName', f'CHP_METADATA:{meta}', 1,
+                     fr_style, fr_family, fill_color='Color/Paper')
+    ])
+    stories.append((meta_story_id, meta_story_xml))
+    # Add a 1x1 text frame off-page (pasteboard) on the first spread
+    meta_frame_id = _uid()
+    meta_frame = _text_frame(meta_frame_id, meta_story_id, layer_id,
+                              -200, -200, 1, 1)
+    if spreads:
+        # Insert the metadata frame into the first spread XML
+        insert_before = '</Spread>'
+        spreads[0] = spreads[0].replace(
+            insert_before, f'    {meta_frame}\n  {insert_before}', 1)
 
     # --- Assemble the IDML ZIP ---
     story_ids = ' '.join(sid for sid, _ in stories)
