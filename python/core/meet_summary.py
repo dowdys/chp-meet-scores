@@ -22,7 +22,9 @@ from python.core.pdf_generator import (
 def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
                           line_spacing: float = None, level_gap: float = None,
                           max_fill: float = None, max_font_size: float = None,
-                          max_shirt_pages: int = None):
+                          max_shirt_pages: int = None,
+                          title1_size: float = None, title2_size: float = None,
+                          level_groups: str = None, exclude_levels: str = None):
     """Generate a meet summary text file."""
     lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
     lgap = level_gap if level_gap is not None else LEVEL_GAP
@@ -131,7 +133,11 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
                                 level_gap=level_gap,
                                 max_fill=max_fill,
                                 max_font_size=max_font_size,
-                                max_shirt_pages=max_shirt_pages)
+                                max_shirt_pages=max_shirt_pages,
+                                title1_size=title1_size,
+                                title2_size=title2_size,
+                                level_groups=level_groups,
+                                exclude_levels=exclude_levels)
     page_groups = pre['page_groups']
     data = pre['data']
 

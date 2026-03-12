@@ -11,6 +11,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 
 # --- Early-exit helper modes (before heavy imports) ---
@@ -53,6 +54,7 @@ from python.core.output_generator import (
 )
 from python.core.pdf_generator import generate_shirt_pdf, generate_gym_highlights_pdf
 from python.core.icml_generator import generate_shirt_icml
+from python.core.idml_generator import generate_shirt_idml
 from python.core.meet_summary import generate_meet_summary
 from python.core.order_form_generator import generate_order_forms_pdf
 from python.core.gym_normalizer import normalize as normalize_gyms, print_gym_report
@@ -86,8 +88,8 @@ def main():
                         help='Back-of-shirt grouping format')
     parser.add_argument('--shirt-title', default=None,
                         help='Title for level_first shirt format')
-    parser.add_argument('--year', default=str(datetime.datetime.now().year),
-                        help='Championship year for PDF titles (default: current year)')
+    parser.add_argument('--year', default=None,
+                        help='Championship year for PDF titles (default: auto from meet name, else current year)')
     parser.add_argument('--gym-map', default=None,
                         help='Path to JSON file mapping gym name aliases to canonical names')
     parser.add_argument('--line-spacing', type=float, default=None,
@@ -120,10 +122,34 @@ def main():
     parser.add_argument('--level-groups', default=None,
                         help='Custom level grouping for shirt pages. Semicolon-separated groups, '
                              'comma-separated levels within each group. Overrides auto bin-packing. '
+                             'Any levels with winners NOT listed are auto-appended to the last group. '
                              'E.g. "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"')
+    parser.add_argument('--exclude-levels', default=None,
+                        help='Comma-separated levels to intentionally exclude from the shirt. '
+                             'Use for levels with no real data (e.g. "3,4" if those levels had '
+                             'no scores). Excluded levels will not appear even with auto-grouping.')
+    parser.add_argument('--copyright', default=None,
+                        help='Copyright footer text (default "\u00a9 C. H. Publishing")')
+    parser.add_argument('--accent-color', default=None,
+                        help='Accent color as hex string for ovals, dividers, underlines '
+                             '(default "#FF0000" red). E.g. "#CC0000" for dark red, "#003366" for navy.')
+    parser.add_argument('--font-family', default=None,
+                        choices=['serif', 'sans-serif'],
+                        help='Font family for shirt PDF: "serif" (default, Times) or '
+                             '"sans-serif" (Helvetica).')
+    parser.add_argument('--sport', default=None,
+                        help='Sport name in title line 1 (default "GYMNASTICS"). '
+                             'E.g. "CHEERLEADING" or "DANCE".')
+    parser.add_argument('--title-prefix', default=None,
+                        help='Title line 2 prefix before state name (default "STATE CHAMPIONS OF"). '
+                             'E.g. "REGIONAL CHAMPIONS OF" or "NATIONAL CHAMPIONS".')
+    parser.add_argument('--header-size', type=float, default=None,
+                        help='Font size for column headers (VAULT, BARS, etc.). Default 11.')
+    parser.add_argument('--divider-size', type=float, default=None,
+                        help='Font size for level divider text (LEVEL 10, SAPPHIRE, etc.). Default 10.')
     parser.add_argument('--regenerate', nargs='*', default=None,
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
-                             'Values: shirt, icml, order_forms, gym_highlights, summary, all. '
+                             'Values: shirt, icml, idml, order_forms, gym_highlights, summary, all. '
                              'Legacy: order_txt, csv (only on explicit request). '
                              'E.g. --regenerate shirt icml  or  --regenerate all')
 
@@ -135,6 +161,11 @@ def main():
             parser.error('--source is required unless --regenerate is used')
         if not args.data:
             parser.error('--data is required unless --regenerate is used')
+
+    # Auto-detect year from meet name if not explicitly provided
+    if args.year is None:
+        m = re.search(r'\b(20\d{2})\b', args.meet or '')
+        args.year = m.group(1) if m else str(datetime.datetime.now().year)
 
     # Build title lines
     title_lines = tuple(l for l in [args.title_line1, args.title_line2, args.title_line3] if l)
@@ -175,7 +206,7 @@ def main():
         # When shirt regenerates, also regenerate all shirt-dependent outputs
         # so they use the updated layout (page groups, font sizes, etc.)
         if 'shirt' in regen_set:
-            for dep in ('summary', 'icml', 'order_forms', 'gym_highlights'):
+            for dep in ('summary', 'icml', 'idml', 'order_forms', 'gym_highlights'):
                 regen_set.add(dep)
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
@@ -242,7 +273,10 @@ def main():
     # Merge: CLI (if explicitly set, i.e. not None) > saved > default (None)
     LAYOUT_PARAMS = ['line_spacing', 'level_gap', 'max_fill',
                      'min_font_size', 'max_font_size', 'max_shirt_pages',
-                     'title1_size', 'title2_size', 'level_groups']
+                     'title1_size', 'title2_size', 'level_groups',
+                     'exclude_levels',
+                     'copyright', 'accent_color', 'font_family',
+                     'sport', 'title_prefix', 'header_size', 'divider_size']
     for param in LAYOUT_PARAMS:
         cli_val = getattr(args, param)
         if cli_val is None and param in saved_layout:
@@ -285,7 +319,15 @@ def main():
                                max_shirt_pages=args.max_shirt_pages,
                                title1_size=args.title1_size,
                                title2_size=args.title2_size,
-                               level_groups=args.level_groups)
+                               level_groups=args.level_groups,
+                               exclude_levels=args.exclude_levels,
+                               copyright=args.copyright,
+                               accent_color=args.accent_color,
+                               font_family=args.font_family,
+                               sport=args.sport,
+                               title_prefix=args.title_prefix,
+                               header_size=args.header_size,
+                               divider_size=args.divider_size)
             print(f"Generated {pdf_path}")
             # Save effective layout params so future runs reuse them
             effective_layout = {}
@@ -313,11 +355,47 @@ def main():
                                 max_shirt_pages=args.max_shirt_pages,
                                 title1_size=args.title1_size,
                                 title2_size=args.title2_size,
-                                level_groups=args.level_groups)
+                                level_groups=args.level_groups,
+                                exclude_levels=args.exclude_levels,
+                                copyright=args.copyright,
+                                sport=args.sport,
+                                title_prefix=args.title_prefix,
+                                accent_color=args.accent_color,
+                                font_family=args.font_family,
+                                header_size=args.header_size,
+                                divider_size=args.divider_size)
             print(f"Generated {icml_path}")
         except Exception as e:
             print(f"ERROR generating back_of_shirt.icml: {e}")
             errors.append(('icml', str(e)))
+
+    if do_all or 'idml' in regen_set:
+        try:
+            idml_path = os.path.join(args.output, 'back_of_shirt.idml')
+            generate_shirt_idml(db_path, config.meet_name, idml_path,
+                                year=args.year, state=args.state,
+                                line_spacing=args.line_spacing,
+                                level_gap=args.level_gap,
+                                max_fill=args.max_fill,
+                                min_font_size=args.min_font_size,
+                                max_font_size=args.max_font_size,
+                                name_sort=args.name_sort,
+                                max_shirt_pages=args.max_shirt_pages,
+                                title1_size=args.title1_size,
+                                title2_size=args.title2_size,
+                                level_groups=args.level_groups,
+                                exclude_levels=args.exclude_levels,
+                                copyright=args.copyright,
+                                sport=args.sport,
+                                title_prefix=args.title_prefix,
+                                accent_color=args.accent_color,
+                                font_family=args.font_family,
+                                header_size=args.header_size,
+                                divider_size=args.divider_size)
+            print(f"Generated {idml_path}")
+        except Exception as e:
+            print(f"ERROR generating back_of_shirt.idml: {e}")
+            errors.append(('idml', str(e)))
 
     if do_all or 'order_forms' in regen_set:
         try:
@@ -336,7 +414,15 @@ def main():
                                      max_shirt_pages=args.max_shirt_pages,
                                      title1_size=args.title1_size,
                                      title2_size=args.title2_size,
-                                     level_groups=args.level_groups)
+                                     level_groups=args.level_groups,
+                                     exclude_levels=args.exclude_levels,
+                                     copyright=args.copyright,
+                                     accent_color=args.accent_color,
+                                     font_family=args.font_family,
+                                     sport=args.sport,
+                                     title_prefix=args.title_prefix,
+                                     header_size=args.header_size,
+                                     divider_size=args.divider_size)
             print(f"Generated {order_pdf_path}")
         except Exception as e:
             print(f"ERROR generating order_forms.pdf: {e}")
@@ -356,7 +442,15 @@ def main():
                                         max_shirt_pages=args.max_shirt_pages,
                                         title1_size=args.title1_size,
                                         title2_size=args.title2_size,
-                                        level_groups=args.level_groups)
+                                        level_groups=args.level_groups,
+                                        exclude_levels=args.exclude_levels,
+                                        copyright=args.copyright,
+                                        accent_color=args.accent_color,
+                                        font_family=args.font_family,
+                                        sport=args.sport,
+                                        title_prefix=args.title_prefix,
+                                        header_size=args.header_size,
+                                        divider_size=args.divider_size)
             print(f"Generated {gym_highlights_path}")
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
@@ -370,7 +464,11 @@ def main():
                                   level_gap=args.level_gap,
                                   max_fill=args.max_fill,
                                   max_font_size=args.max_font_size,
-                                  max_shirt_pages=args.max_shirt_pages)
+                                  max_shirt_pages=args.max_shirt_pages,
+                                  title1_size=args.title1_size,
+                                  title2_size=args.title2_size,
+                                  level_groups=args.level_groups,
+                                  exclude_levels=args.exclude_levels)
             print(f"Generated {summary_path}")
         except Exception as e:
             print(f"ERROR generating meet_summary.txt: {e}")

@@ -24,7 +24,7 @@ When a state championship is split across multiple sub-meets (e.g., "Dev State" 
 
 Similarly, if one search finds a meet on ScoreCat, do NOT also search MSO or MyMeetScores for the same meet. Move directly to extraction.
 
-**When ScoreCat returns no match for the requested year** (e.g., returns 0 hits, or only a different-year meet), do NOT repeat the Algolia search with query variations — the meet simply isn't on ScoreCat. One retry with a shorter query is acceptable, but if you still get 0 hits or only wrong-year results, move immediately to MSO (Step 2). Algolia's fuzzy matching means rephrasing rarely helps.
+**When ScoreCat finds only a partial match** (e.g., one sub-meet for "Level 2, XB, XS" when you need all levels), do NOT keep re-searching ScoreCat with different queries. If you found one sub-meet, the rest are likely on a different platform. Move immediately to MSO (Step 2). Maximum 2 Algolia searches total — one initial + one retry with shorter query if needed. Algolia's fuzzy matching means rephrasing rarely helps.
 
 ## Step 1: ScoreCat — Algolia Search (headless, fastest)
 

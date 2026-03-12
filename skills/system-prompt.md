@@ -22,10 +22,10 @@ However, most data sources split a state championship across **multiple separate
 4. **Get dates** — Use `ask_user` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Do NOT ask for dates one at a time.
 5. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
 6. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
-7. **Check quality** — Run the full data quality checklist (load `data_quality` skill)
-8. **Generate outputs** — Produce back-of-shirt PDF, ICML, order forms PDF, winners CSV, and meet summary (load `output_generation` skill). Pass deadline dates as `--postmark-date`, `--online-date`, `--ship-date` flags.
+7. **Check quality** — Run the full data quality checklist (load `data_quality` skill). Batch multiple `query_db` checks into a single `run_script` call when possible (e.g., total results + total winners + zero-score count = one script, not three iterations).
+8. **Generate outputs** — Produce back-of-shirt PDF, ICML, IDML, order forms PDF, winners CSV, and meet summary (load `output_generation` skill). Pass deadline dates as `--postmark-date`, `--online-date`, `--ship-date` flags.
 9. **Visually inspect shirt PDF** — Read `meet_summary.txt` first to know the page count and layout. Then use `render_pdf_page` on 1-2 pages to spot-check layout quality (e.g., the most crowded page). Do NOT render every page one by one — the user will review the full PDF via `open_file`. Check that names are as large as possible, spacing looks good, and no page is too full or cut off. If layout needs adjustment, use `--regenerate shirt` to quickly regenerate the shirt PDF and all dependent outputs (ICML, order forms, gym highlights, summary) with different layout params. This skips the full pipeline. One round of adjustment is usually enough. Names are sorted by age division by default (`--name-sort age`). Do NOT change this to alphabetical unless the user explicitly asks for it.
-10. **Review with user** — Use `open_file` to open `back_of_shirt.pdf` AND `meet_summary.txt` on the user's computer so they can review both. Then ask with `ask_user`: "I've opened the back-of-shirt PDF and meet summary for you to review. Are you satisfied with the layout, or would you like any changes?" If the user requests changes (e.g., "make names bigger", "too cramped on page 2", "fix gym name X"), use `--regenerate shirt` (or the relevant output) with adjusted params, open the new PDF again with `open_file`, and ask again. Repeat until satisfied. Common adjustments: layout params (--line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size), gym name corrections (--gym-map). The ICML file is generated as a companion to the finalized PDF for InDesign editing — it does not need user review.
+10. **Review with user** — Use `open_file` to open `back_of_shirt.pdf` on the user's computer for review. Do NOT auto-open `meet_summary.txt` — only open it if the user asks. Then ask with `ask_user`: "I've opened the back-of-shirt PDF for you to review. Are you satisfied with the layout, or would you like any changes?" If the user requests changes (e.g., "make names bigger", "too cramped on page 2", "fix gym name X"), use `--regenerate shirt` (or the relevant output) with adjusted params, open the new PDF again with `open_file`, and ask again. Repeat until satisfied. Common adjustments: layout params (--line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size), gym name corrections (--gym-map). The ICML and IDML files are generated as companions to the finalized PDF for InDesign editing — they do not need user review. IDML is preferred (complete document with graphics); ICML is text-only fallback.
 11. **Finalize** — CRITICAL: Call `finalize_meet` with the meet name to merge the staging database into the central database. This MUST happen or the data will be lost and the Query Results tab won't work. Do this after the user approves the outputs.
 
 ## Quick Reference: ScoreCat Algolia
@@ -146,7 +146,7 @@ If potential duplicates need manual mapping:
 ## When to Stop
 
 You are done when:
-- Output files are generated (back_of_shirt.pdf, back_of_shirt.icml, order_forms.pdf, gym_highlights.pdf, meet_summary.txt)
+- Output files are generated (back_of_shirt.pdf, back_of_shirt.icml, back_of_shirt.idml, order_forms.pdf, gym_highlights.pdf, meet_summary.txt)
 - Winner counts look correct (spot-check a few)
 - Gym names are reasonably clean (auto-normalize ran, no obvious issues)
 
@@ -170,7 +170,8 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - ALWAYS use `chrome_save_to_file` for data extraction from unknown sources. Never extract data through `chrome_execute_js` in chunks.
 - Do NOT retry JS execution after "Execution context was destroyed" without navigating first.
 - Do NOT try to reverse-engineer a web app. Use the extraction approach in the loaded skill.
-- Do NOT make more than 2 failed attempts at any single approach. Switch strategies.
+- Do NOT make more than 2 failed attempts at any single approach. Switch strategies. If a layout change seems to have no effect after 2 regenerations, verify the actual PDF (e.g. render a page or check page count) rather than re-reading meet_summary.txt repeatedly.
+- **meet_summary.txt may lag behind the PDF** — the PDF is always the authoritative source. If the summary shows old page groupings but the rendered PDF looks correct, trust the PDF and move on. Do NOT spend iterations re-running regeneration because the summary text doesn't match — this is a known issue.
 - Do NOT navigate to Google manually — use the `web_search` tool which handles search for you.
 - Do NOT open multiple tabs. Use `chrome_navigate` which reuses the same tab.
 - Do NOT use `web_search` as the first step. Search data sources directly first (Algolia, MSO Results.All).
@@ -178,13 +179,19 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - Do NOT build a database before verifying the extracted levels match the user's request.
 - Do NOT try to find, read, or edit the Python source code on the user's machine — `process_meet.py` is a compiled PyInstaller binary. Use `run_python` with CLI flags. If you need a feature that no flag supports, tell the user it requires a code change.
 - Do NOT edit generated PDFs directly (redact/replace text). Always fix the source: adjust `run_python` parameters and regenerate with `--regenerate`.
-- Do NOT attempt layout changes without first loading the `output_generation` skill. It lists ALL available flags. Loading the skill takes 1 iteration; guessing wastes 3-5 iterations.
-- Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, order_forms, etc.) to skip parsing and DB build. Note: `--regenerate shirt` auto-regenerates `meet_summary.txt` too, so you always have an up-to-date summary after shirt regeneration.
+- Do NOT attempt layout changes without first loading the `output_generation` skill. It lists ALL available flags. Loading the skill takes 1 iteration; guessing wastes 3-5 iterations. **Load it BEFORE generating outputs, not after a layout issue arises.**
+- Do NOT run the full pipeline when only one output needs regenerating — use `--regenerate shirt` (or icml, idml, order_forms, etc.) to skip parsing and DB build. Note: `--regenerate shirt` auto-regenerates `meet_summary.txt` too, so you always have an up-to-date summary after shirt regeneration.
+- After regenerating with layout changes (`--level-groups`, `--max-shirt-pages`, etc.), verify the ACTUAL PDF by rendering page 1 (and attempting the expected last page). Do NOT rely solely on `meet_summary.txt` — if there's a mismatch, the PDF is the source of truth.
 - Do NOT ask for dates one at a time. Ask for all dates (postmark, online, ship) in a single `ask_user` call.
 - When the user asks to constrain shirt pages, use `--max-shirt-pages N`. This forces tighter level grouping by trying smaller font estimates until the total page count fits.
 - When the user asks for custom level grouping (e.g., "put levels 1-5 together" or "all Xcel on one page"), use `--level-groups`. Format: semicolon-separated groups, comma-separated levels. E.g. `--level-groups "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`.
+- **CRITICAL: When building custom `--level-groups`, verify ALL levels with winners are included.** Compare the level list in your groups against the levels in the meet summary. If a level with winners is missing from your groups, those winners will NOT appear on the shirt. Flag this to the user before proceeding (e.g., "Note: Bronze (72 winners) is not included in this grouping — should I add it?").
 - When the user asks to change title size (e.g., "make 2026 Gymnastics bigger"), use `--title1-size` (default 18) or `--title2-size` (default 20).
 - When the user asks to reduce spacing between names, use `--line-spacing` (default 1.15, lower = tighter, e.g. 1.05).
+- When the user asks to change colors, use `--accent-color "#HEX"` (default red "#FF0000"). This controls ovals, dividers, and header underlines.
+- When the user asks for a different font, use `--font-family sans-serif` (default serif = Times, sans-serif = Helvetica).
+- When the user asks to change the sport name, copyright text, or title prefix, use `--sport`, `--copyright`, or `--title-prefix`.
+- When the user asks to change column header or level divider text sizes, use `--header-size` (default 11) or `--divider-size` (default 10).
 - **ALWAYS load the `output_generation` skill BEFORE attempting layout changes.** This skill documents all available flags and their defaults. Do NOT guess about what is or isn't configurable — check the skill docs first. This prevents wasting iterations trying to change something you think is hardcoded when a flag actually exists.
 
 ## Available Skills

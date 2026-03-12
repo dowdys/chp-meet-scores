@@ -1,7 +1,7 @@
 # Skill: Output Generation
 
 ## Overview
-After the database is built and quality-checked, generate five output files. All outputs are derived from the `winners` table.
+After the database is built and quality-checked, generate six output files. All outputs are derived from the `winners` table.
 
 ## Output 1: Back of Shirt (`back_of_shirt.md`)
 
@@ -36,19 +36,19 @@ Carol Davis
 Championship-style back-of-shirt PDF. Always generated (no longer optional).
 
 **Visual elements** (all sizes configurable via flags):
-- Title line 1: "{Year} GYMNASTICS" in small caps (~18pt, configurable via `--title1-size`)
-- Title line 2: "STATE CHAMPIONS OF {STATE}" in small caps (~20pt, configurable via `--title2-size`)
-- Red filled oval below title containing level group label ("XCEL", "LEVELS 2-5", "LEVELS 6-10", etc.)
-- Column headers in small caps: VAULT, BARS, BEAM, FLOOR, ALL AROUND
-- Level dividers: red horizontal lines extending left/right with letter-spaced text in the middle ("L E V E L  1 0")
-- Names centered in 5 columns (Times-Roman, 9pt default, shrinks to 6.5pt minimum if needed)
+- Title line 1: "{Year} {SPORT}" in small caps (~18pt, configurable via `--title1-size`, sport via `--sport`)
+- Title line 2: "{TITLE_PREFIX} {STATE}" in small caps (~20pt, configurable via `--title2-size`, prefix via `--title-prefix`)
+- Accent-colored filled oval below title containing level group label ("XCEL", "LEVELS 2-5", etc.) — color via `--accent-color`
+- Column headers in small caps: VAULT, BARS, BEAM, FLOOR, ALL AROUND (size via `--header-size`)
+- Level dividers: accent-colored lines extending left/right with letter-spaced text (size via `--divider-size`)
+- Names centered in 5 columns (default Times-Roman, 9pt, shrinks to 6.5pt minimum if needed; font via `--font-family`)
 - Name spacing controlled by `--line-spacing` (default 1.15, lower = tighter names)
-- Copyright "© C. H. Publishing" centered at page bottom (7pt)
+- Copyright text centered at page bottom (7pt, text via `--copyright`)
 - Y positions auto-adjust when title sizes change (bigger titles = less space for names)
 
 **Level grouping** (auto or custom):
 - **Default (auto)**: Xcel levels → one or more pages labeled "XCEL", sorted by prestige. Numbered levels → bin-packed descending (10, 9, 8... down) into page-sized groups. Oval labels auto-derived.
-- **Custom** (`--level-groups`): Override auto grouping with explicit page assignments. Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"` → page 1 = all Xcel, page 2 = levels 6-10, page 3 = levels 1-5. Use this when the user wants specific levels on specific pages.
+- **Custom** (`--level-groups`): Override auto grouping with explicit page assignments. Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"` → page 1 = all Xcel, page 2 = levels 6-10, page 3 = levels 1-5. Use this when the user wants specific levels on specific pages. **IMPORTANT: Any level NOT included in the groups will be omitted from the shirt entirely.** Always cross-check your groups against the "WINNERS PER LEVEL" list in meet_summary.txt to ensure no levels with winners are accidentally excluded.
 - **Constrained** (`--max-shirt-pages N`): Auto grouping but constrained to N total pages. Bin-packer shrinks font estimates until groups fit.
 
 **Name sort order** (`--name-sort` flag):
@@ -59,6 +59,20 @@ Championship-style back-of-shirt PDF. Always generated (no longer optional).
 **Signature**: `generate_shirt_pdf(db_path, meet_name, output_path, year='2026', state='Maryland', name_sort='age')`
 
 **Column centers**: [72, 192, 306, 420, 546] on 612x792pt (Letter) page
+
+## Output 2b: Back-of-Shirt IDML (`back_of_shirt.idml`)
+
+Full InDesign document (ZIP of XML files) that opens in InDesign CS6+ as a complete, editable document. Unlike ICML, IDML includes:
+- Vector graphics: red filled oval behind group label, red underlines below column headers, red flanking lines on level dividers
+- Proper page layouts with Letter-size pages and positioned text frames
+- All paragraph styles, colors, and fonts embedded in the package
+- No manual decoration work needed — opens as a complete document
+
+**When to use IDML vs ICML**: IDML is the preferred InDesign format. ICML is text-only (no graphics) and requires manual InDesign work to add ovals and lines. IDML is a complete document that needs no manual work.
+
+**Signature**: `generate_shirt_idml(db_path, meet_name, output_path, year='2026', state='Maryland', name_sort='age')`
+
+Same style flags as the PDF (all `--accent-color`, `--font-family`, `--sport`, etc. flow through).
 
 ## Output 3: Order Forms PDF (`order_forms.pdf`)
 
@@ -96,15 +110,25 @@ The `process_meet.py` script accepts:
 - `--ship-date` — Shipping date for order forms (e.g. "April 5, 2026"). Defaults to "TBD".
 
 **Layout flags** (all have sensible defaults, all saved to `shirt_layout.json` for future runs):
-- `--title1-size FLOAT` — Font size for "{Year} GYMNASTICS" title (default 18). The user may want this bigger (e.g. 22, 24) for visual impact. Y positions auto-adjust.
-- `--title2-size FLOAT` — Font size for "STATE CHAMPIONS OF {STATE}" (default 20).
+- `--title1-size FLOAT` — Font size for title line 1 (default 18). The user may want this bigger (e.g. 22, 24) for visual impact. Y positions auto-adjust.
+- `--title2-size FLOAT` — Font size for title line 2 (default 20).
 - `--max-font-size FLOAT` — Maximum name font size (default 9). Pages with few names use this size.
 - `--min-font-size FLOAT` — Minimum name font size (default 6.5). Pages with many names shrink toward this.
 - `--line-spacing FLOAT` — Line height ratio for name spacing (default 1.15). Lower = tighter names (e.g. 1.05 for very tight, 1.3 for more breathing room). This is the main way to reduce margins between names.
 - `--level-gap FLOAT` — Vertical gap before each level section (default 6).
 - `--max-fill FLOAT` — Max page fill fraction (default 0.90). E.g. 0.85 = 85%.
 - `--max-shirt-pages N` — Constrain total shirt pages (bin-packer shrinks font estimates to fit).
-- `--level-groups STRING` — Custom level grouping (overrides auto bin-packing). Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`.
+- `--level-groups STRING` — Custom level grouping (overrides auto bin-packing). Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`. Any levels with winners NOT listed are auto-appended to the last group (no winners are silently dropped).
+- `--exclude-levels STRING` — Comma-separated levels to intentionally exclude from the shirt (e.g. `"3,4"` if those levels had no real scores). Excluded levels will not appear even with auto-grouping.
+
+**Style flags** (all saved to `shirt_layout.json`):
+- `--copyright TEXT` — Copyright footer text (default "© C. H. Publishing"). E.g. `--copyright "© My Company 2026"`.
+- `--accent-color HEX` — Accent color for ovals, dividers, header underlines (default "#FF0000" red). E.g. `--accent-color "#003366"` for navy, `--accent-color "#CC0000"` for dark red.
+- `--font-family serif|sans-serif` — Font family (default "serif" = Times). Use "sans-serif" for Helvetica.
+- `--sport TEXT` — Sport name in title line 1 (default "GYMNASTICS"). E.g. `--sport "CHEERLEADING"` or `--sport "DANCE"`.
+- `--title-prefix TEXT` — Title line 2 prefix before state (default "STATE CHAMPIONS OF"). E.g. `--title-prefix "REGIONAL CHAMPIONS OF"`.
+- `--header-size FLOAT` — Font size for column headers VAULT, BARS, etc. (default 11).
+- `--divider-size FLOAT` — Font size for level divider text LEVEL 10, SAPPHIRE, etc. (default 10).
 
 PDFs are always generated; no `--title-line` flags needed.
 
@@ -125,9 +149,9 @@ When using `--regenerate`, only `--state` and `--meet` are required. `--source` 
 --state Iowa --meet "2025 Iowa State Championships" --regenerate all
 ```
 
-Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `all`. (Legacy: `order_txt`, `csv` still work if explicitly requested.)
+Available values: `shirt`, `icml`, `idml`, `order_forms`, `gym_highlights`, `summary`, `all`. (Legacy: `order_txt`, `csv` still work if explicitly requested.)
 
-**Auto-regenerate**: `--regenerate shirt` automatically also regenerates ALL shirt-dependent outputs: `meet_summary.txt`, `back_of_shirt.icml`, `order_forms.pdf`, and `gym_highlights.pdf`. This ensures they all use the updated layout (page groups, font sizes, spacing). You don't need to list them explicitly.
+**Auto-regenerate**: `--regenerate shirt` automatically also regenerates ALL shirt-dependent outputs: `meet_summary.txt`, `back_of_shirt.icml`, `back_of_shirt.idml`, `order_forms.pdf`, and `gym_highlights.pdf`. This ensures they all use the updated layout (page groups, font sizes, spacing). You don't need to list them explicitly.
 
 **When to use**: Adjusting layout params (font size, spacing, fill), changing dates on order forms, or any change that doesn't affect the underlying data. Always prefer `--regenerate` over full pipeline when data hasn't changed.
 
@@ -137,7 +161,7 @@ Available values: `shirt`, `icml`, `order_forms`, `gym_highlights`, `summary`, `
 
 ## Sticky Layout Params
 
-ALL layout params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`, `--title1-size`, `--title2-size`, `--level-groups`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
+ALL layout and style params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`, `--title1-size`, `--title2-size`, `--level-groups`, `--copyright`, `--accent-color`, `--font-family`, `--sport`, `--title-prefix`, `--header-size`, `--divider-size`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
 - `--regenerate shirt --max-shirt-pages 2` → saves `max_shirt_pages: 2` → all future runs use 2 pages
 - `--regenerate shirt --level-groups "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3"` → saves custom grouping → persists
 - Full pipeline re-run (no layout args) → reads saved params → uses saved layout
