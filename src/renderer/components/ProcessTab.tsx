@@ -12,7 +12,9 @@ const ProcessTab: React.FC = () => {
   const [pendingQuestion, setPendingQuestion] = useState<AskUserRequest | null>(null);
   const [customResponse, setCustomResponse] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
+  const [followUpMessage, setFollowUpMessage] = useState('');
   const customInputRef = useRef<HTMLInputElement>(null);
+  const followUpInputRef = useRef<HTMLInputElement>(null);
 
   // Track cleanup functions for IPC listeners
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -192,6 +194,71 @@ const ProcessTab: React.FC = () => {
     }
   };
 
+  const handleContinue = async () => {
+    if (!followUpMessage.trim() || isProcessing) return;
+
+    setIsProcessing(true);
+
+    // Re-attach activity log listener
+    cleanupRef.current = window.electronAPI.onActivityLog(addLogEntry);
+    askCleanupRef.current = window.electronAPI.onAskUser((request: AskUserRequest) => {
+      setPendingQuestion(request);
+    });
+
+    try {
+      const result = await window.electronAPI.continueConversation(followUpMessage.trim());
+      setFollowUpMessage('');
+
+      if (result.success) {
+        addLogEntry({
+          timestamp: new Date().toISOString(),
+          message: 'Follow-up complete!',
+          level: 'success',
+        });
+      } else {
+        addLogEntry({
+          timestamp: new Date().toISOString(),
+          message: `Follow-up failed: ${result.error || result.message}`,
+          level: 'error',
+        });
+      }
+    } catch (err) {
+      addLogEntry({
+        timestamp: new Date().toISOString(),
+        message: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        level: 'error',
+      });
+    } finally {
+      setIsProcessing(false);
+      setPendingQuestion(null);
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+      if (askCleanupRef.current) {
+        askCleanupRef.current();
+        askCleanupRef.current = null;
+      }
+    }
+  };
+
+  const handleFollowUpKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isProcessing) {
+      handleContinue();
+    }
+  };
+
+  const handleBrowseIdml = async () => {
+    if (isProcessing) return;
+    const result = await window.electronAPI.browseFile([
+      { name: 'IDML Files', extensions: ['idml'] },
+      { name: 'All Files', extensions: ['*'] },
+    ]);
+    if (!result.cancelled && result.path) {
+      setMeetName(result.path);
+    }
+  };
+
   return (
     <div className="process-tab">
       <div className="input-section">
@@ -225,6 +292,14 @@ const ProcessTab: React.FC = () => {
               Stop Run
             </button>
           )}
+          <button
+            className="import-button"
+            onClick={handleBrowseIdml}
+            disabled={isProcessing}
+            title="Import a finalized IDML file from InDesign"
+          >
+            Import IDML
+          </button>
           <button
             className="reset-button"
             onClick={handleReset}
@@ -325,6 +400,30 @@ const ProcessTab: React.FC = () => {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {showOutput && !isProcessing && (
+        <div className="follow-up-section">
+          <div className="follow-up-row">
+            <input
+              ref={followUpInputRef}
+              type="text"
+              className="follow-up-input"
+              placeholder="Ask for changes... e.g. &quot;Set postmark date to April 4, 2026&quot;"
+              value={followUpMessage}
+              onChange={e => setFollowUpMessage(e.target.value)}
+              onKeyDown={handleFollowUpKeyDown}
+              disabled={isProcessing}
+            />
+            <button
+              className="follow-up-button"
+              onClick={handleContinue}
+              disabled={isProcessing || !followUpMessage.trim()}
+            >
+              Send
+            </button>
           </div>
         </div>
       )}

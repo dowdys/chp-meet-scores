@@ -179,6 +179,31 @@ function setupIPC(): void {
     }
   });
 
+  // Continue conversation after processing completes
+  ipcMain.handle('continue-conversation', async (_event, message: string) => {
+    if (!activeAgentLoop) {
+      return { success: false, error: 'No previous conversation to continue.' };
+    }
+    try {
+      sendActivityLog(`Continuing conversation...`, 'info');
+
+      // Re-attach activity log listener for this continuation
+      const result = await activeAgentLoop.continueConversation(message);
+
+      if (result.success) {
+        sendActivityLog('Follow-up complete.', 'success');
+      } else {
+        sendActivityLog(`Follow-up failed: ${result.message}`, 'error');
+      }
+
+      return { success: result.success, message: result.message };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      sendActivityLog(`Error: ${errMsg}`, 'error');
+      return { success: false, error: errMsg };
+    }
+  });
+
   // Stop a running agent
   ipcMain.handle('agent:stop-request', async () => {
     if (activeAgentLoop) {
@@ -313,6 +338,22 @@ function setupIPC(): void {
     return { cancelled: false, path: result.filePaths[0] };
   });
 
+  ipcMain.handle('browse-file', async (_event, filters?: { name: string; extensions: string[] }[]) => {
+    if (!mainWindow) return { cancelled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select File',
+      filters: filters || [
+        { name: 'IDML Files', extensions: ['idml'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { cancelled: true };
+    }
+    return { cancelled: false, path: result.filePaths[0] };
+  });
+
   // Reset session — clear temp files, progress, Chrome state
   ipcMain.handle('reset-session', async () => {
     try {
@@ -395,7 +436,19 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('get-version', () => {
-    return app.getVersion();
+    // In dev mode, app.getVersion() returns the Electron version (e.g. 28.3.3)
+    // instead of the app version. Read from package.json as fallback.
+    const version = app.getVersion();
+    if (!app.isPackaged && version.startsWith('28.')) {
+      try {
+        const pkgPath = path.join(__dirname, '..', '..', 'package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        return pkg.version || version;
+      } catch {
+        return version;
+      }
+    }
+    return version;
   });
 
   ipcMain.handle('check-for-updates', async () => {

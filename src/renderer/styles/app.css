@@ -154,6 +154,29 @@ body {
   background: #c0392b;
 }
 
+.import-button {
+  padding: 14px 24px;
+  font-size: 18px;
+  font-weight: 600;
+  background: #2980b9;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 48px;
+  transition: background 0.2s;
+}
+
+.import-button:hover:not(:disabled) {
+  background: #2471a3;
+}
+
+.import-button:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
 .reset-button {
   padding: 14px 24px;
   font-size: 18px;
@@ -791,6 +814,60 @@ body {
 
 .restart-update-button:hover {
   background: #219a52;
+}
+
+/* === Follow-up Section === */
+.follow-up-section {
+  flex-shrink: 0;
+  padding: 12px 0;
+}
+
+.follow-up-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.follow-up-input {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 15px;
+  border: 2px solid #444;
+  border-radius: 8px;
+  background: #1a1a2e;
+  color: #ecf0f1;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.follow-up-input:focus {
+  border-color: #3498db;
+}
+
+.follow-up-input::placeholder {
+  color: #666;
+}
+
+.follow-up-button {
+  padding: 10px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.follow-up-button:hover:not(:disabled) {
+  background: #2980b9;
+}
+
+.follow-up-button:disabled {
+  background: #555;
+  cursor: not-allowed;
 }
 
 /* === Output Files === */

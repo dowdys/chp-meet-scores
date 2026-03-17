@@ -26,6 +26,7 @@ export interface AskUserRequest {
 
 export interface ElectronAPI {
   processMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
+  continueConversation: (message: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   queryResults: (question: string) => Promise<{ success: boolean; answer?: string; error?: string }>;
   resetSession: () => Promise<{ success: boolean; deleted?: number; error?: string }>;
   stopRun: () => Promise<{ success: boolean; error?: string }>;
@@ -35,6 +36,7 @@ export interface ElectronAPI {
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<{ success: boolean; error?: string }>;
   browseFolder: () => Promise<{ cancelled: boolean; path?: string }>;
+  browseFile: (filters?: { name: string; extensions: string[] }[]) => Promise<{ cancelled: boolean; path?: string }>;
   getOutputFiles: (meetName: string) => Promise<{ success: boolean; files: OutputFile[]; error?: string }>;
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   openLogsFolder: () => Promise<{ success: boolean }>;

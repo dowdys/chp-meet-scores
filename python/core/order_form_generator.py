@@ -1,8 +1,9 @@
 """Order form PDF generator using template overlay.
 
-Uses the TX Order Form 2025 PDF as a base template. For each athlete,
-copies the template page, whites out variable fields, and fills in
-dynamic values (year, state, dates, athlete sticker label).
+Uses the 2026 Order Form IDML/PDF as a base template. A state-specific
+template is created on-the-fly (correct logo, state abbreviation, dates),
+then for each athlete, copies the template page and adds athlete-specific
+fields (sticker label with name, events, gym).
 """
 
 import os
@@ -11,11 +12,13 @@ import sqlite3
 from collections import defaultdict
 import fitz  # PyMuPDF
 
-from python.core.constants import EVENTS as EVENT_ORDER, EVENT_DISPLAY
+from python.core.constants import EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to_abbrev
 from python.core.pdf_generator import (
     _draw_small_caps, _measure_small_caps_width,
-    precompute_shirt_data, add_shirt_back_pages
+    precompute_shirt_data, add_shirt_back_pages,
+    add_shirt_back_pages_from_pdf
 )
+from python.core.order_form_idml import get_state_template
 
 PAGE_W = 612
 PAGE_H = 792
@@ -24,6 +27,7 @@ BLACK = (0, 0, 0)
 RED = (0.8, 0, 0)
 FONT_BOLD = 'Times-Bold'
 FONT_REGULAR = 'Times-Roman'
+FONT_ITALIC = 'Times-Italic'
 
 # PyInstaller extracts --add-data files relative to sys._MEIPASS;
 # in dev/system-Python mode, resolve relative to this source file.
@@ -37,6 +41,7 @@ STICKER_EVENT_ORDER = ['Vault', 'Bars', 'Beam', 'Floor', 'AA']
 
 def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              year: str = '2026', state: str = '',
+                             state_abbrev: str = '',
                              postmark_date: str = 'TBD',
                              online_date: str = 'TBD',
                              ship_date: str = 'TBD',
@@ -54,11 +59,15 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              copyright: str = None, accent_color: str = None,
                              font_family: str = None, sport: str = None,
                              title_prefix: str = None, header_size: float = None,
-                             divider_size: float = None):
+                             divider_size: float = None,
+                             shirt_pdf_path: str = None):
     """Generate per-athlete order form PDF using the template overlay approach.
 
     Each athlete gets an order form page (template with filled-in variables)
     followed by back-of-shirt page(s) with a red star next to their name.
+
+    The template is customized per-state: correct logo, abbreviation, and
+    dates are baked in. Only the athlete sticker label is added per-page.
     """
     gym_athletes = _get_gym_athletes(db_path, meet_name)
     if not gym_athletes:
@@ -70,125 +79,78 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
 
     if not state:
         state = _extract_state(meet_name)
+    if not state_abbrev:
+        state_abbrev = state_to_abbrev(state)  # "Arkansas" → "AR"
 
-    # Pre-compute shirt data for back pages
-    shirt_data = precompute_shirt_data(db_path, meet_name,
-                                       name_sort=name_sort,
-                                       line_spacing=line_spacing,
-                                       level_gap=level_gap,
-                                       max_fill=max_fill,
-                                       min_font_size=min_font_size,
-                                       max_font_size=max_font_size,
-                                       max_shirt_pages=max_shirt_pages,
-                                       title1_size=title1_size,
-                                       title2_size=title2_size,
-                                       level_groups=level_groups,
-                                       exclude_levels=exclude_levels,
-                                       copyright=copyright,
-                                       accent_color=accent_color,
-                                       font_family=font_family,
-                                       sport=sport,
-                                       title_prefix=title_prefix,
-                                       header_size=header_size,
-                                       divider_size=divider_size)
+    # When shirt_pdf_path is provided (IDML import), use the rendered PDF
+    # as the visual base for back pages so designer edits are preserved.
+    use_pdf_overlay = shirt_pdf_path and os.path.exists(shirt_pdf_path)
 
-    if not os.path.exists(TEMPLATE_PDF):
-        raise FileNotFoundError(
-            f"Order form template not found at {TEMPLATE_PDF}. "
-            "Place the template PDF in python/core/templates/")
+    shirt_data = None
+    if not use_pdf_overlay:
+        # Pre-compute shirt data for back pages (standard code-rendered path)
+        shirt_data = precompute_shirt_data(db_path, meet_name,
+                                           name_sort=name_sort,
+                                           line_spacing=line_spacing,
+                                           level_gap=level_gap,
+                                           max_fill=max_fill,
+                                           min_font_size=min_font_size,
+                                           max_font_size=max_font_size,
+                                           max_shirt_pages=max_shirt_pages,
+                                           title1_size=title1_size,
+                                           title2_size=title2_size,
+                                           level_groups=level_groups,
+                                           exclude_levels=exclude_levels,
+                                           copyright=copyright,
+                                           accent_color=accent_color,
+                                           font_family=font_family,
+                                           sport=sport,
+                                           title_prefix=title_prefix,
+                                           header_size=header_size,
+                                           divider_size=divider_size)
 
-    template_doc = fitz.open(TEMPLATE_PDF)
+    # Build state-specific template (logo + abbreviation + dates baked in)
+    template_doc = get_state_template(
+        state_abbrev,
+        postmark_date=postmark_date,
+        online_date=online_date,
+        ship_date=ship_date,
+    )
+
     doc = fitz.open()
     gyms = sorted(gym_athletes.keys())
 
     for gym in gyms:
         athletes = gym_athletes[gym]
         for athlete_name, level_events in athletes:
-            # Copy template page
+            # Copy state-specific template page
             page = doc.new_page(width=PAGE_W, height=PAGE_H)
             page.show_pdf_page(page.rect, template_doc, 0)
 
-            # White out and fill variable fields
-            _fill_variables(page, year, state, postmark_date, online_date,
-                            ship_date, athlete_name, gym, level_events)
+            # Add athlete-specific sticker label
+            _add_athlete_label(page, athlete_name, gym, level_events)
 
             # Append back-of-shirt page(s) with red star
-            add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
+            if use_pdf_overlay:
+                add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name)
+            else:
+                add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
 
     template_doc.close()
     doc.save(output_path)
     doc.close()
 
 
-def _white_out(page, rect_coords):
-    """Draw a white filled rectangle to cover existing text."""
-    rect = fitz.Rect(*rect_coords)
-    page.draw_rect(rect, fill=WHITE, color=WHITE, width=0)
+def _add_athlete_label(page, athlete_name, gym, level_events):
+    """Add athlete-specific sticker label to the order form page.
 
-
-def _fill_variables(page, year, state, postmark_date, online_date,
-                    ship_date, athlete_name, gym, level_events):
-    """White out template variables and insert new values."""
-
-    # === Year in title ("2025" portion of "2025 State Champion!") ===
-    # Span "2025 S" bbox [137.3, 37.1, 238.3, 85.1] — cover only "2025"
-    _white_out(page, (136, 38, 211, 82))
-    page.insert_text(fitz.Point(137, 74), year,
-                     fontname=FONT_BOLD, fontsize=36, color=BLACK)
-
-    # === State below scissors ("NorCal" → state) ===
-    # bbox [42.0, 491.2, 71.4, 504.4]
-    _white_out(page, (41, 490, 73, 505))
-    page.insert_text(fitz.Point(42, 501), state,
-                     fontname=FONT_REGULAR, fontsize=10, color=BLACK)
-
-    # === State in t-shirt graphic ("Texas" embedded in image) ===
-    # Image at bbox [57, 311, 132, 374] — state name in upper portion
-    _white_out(page, (58, 314, 131, 330))
-    # Insert state name centered in the whiteout area
-    state_upper = state.upper()
-    sw = fitz.get_text_length(state_upper, fontname=FONT_BOLD, fontsize=10)
-    state_cx = (58 + 131) / 2
-    page.insert_text(fitz.Point(state_cx - sw / 2, 326),
-                     state_upper, fontname=FONT_BOLD, fontsize=10, color=RED)
-
-    # === Deadline dates in body text ===
-
-    # Postmark: "January 17, 2026" bbox [370.2, 210.9, 454.8, 229.6]
-    _white_out(page, (369, 210, 456, 230))
-    page.insert_text(fitz.Point(370, 225), postmark_date,
-                     fontname=FONT_BOLD, fontsize=12.5, color=BLACK)
-
-    # Online: "January 21" + ", 2026" bbox [421.9, 227.7 → 503.7, 246.4]
-    _white_out(page, (421, 227, 504, 247))
-    page.insert_text(fitz.Point(422, 242), online_date,
-                     fontname=FONT_BOLD, fontsize=12.5, color=BLACK)
-
-    # Ship: "February 9, 2026" bbox [373.8, 244.5, 455.6, 263.2]
-    _white_out(page, (373, 244, 456, 264))
-    page.insert_text(fitz.Point(374, 259), ship_date,
-                     fontname=FONT_BOLD, fontsize=12.5, color=BLACK)
-
-    # === Dates in cut line title ===
-
-    # Postmark "January 17" spans [322.3, 488.1 → 398.0, 512.1]
-    _white_out(page, (322, 488, 398, 513))
-    page.insert_text(fitz.Point(323, 507), postmark_date,
-                     fontname=FONT_BOLD, fontsize=11, color=BLACK)
-
-    # Ship "Feb. 9" spans [489.2, 495.5 → 515.2, 509.9]
-    _white_out(page, (488, 495, 516, 510))
-    page.insert_text(fitz.Point(489, 507), ship_date,
-                     fontname=FONT_BOLD, fontsize=7, color=BLACK)
-
-    # === Remove SAMPLE watermark ===
-    # bbox [384.6, 536.8, 461.6, 550.1]
-    _white_out(page, (383, 536, 463, 551))
-
-    # === Athlete sticker label in blank area near top ===
-    # Blank area between subtitle (y≈122) and accomplishment line (y≈173)
-    # Jewel callout occupies x<130 on left, so center in full page width
-
+    Places the athlete name, events, and gym name in the blank area
+    between the subtitle and the accomplishment line.
+    Three lines, centered:
+      1. Athlete name — bold, larger font
+      2. Events — regular, smaller font
+      3. Gym name — italic, smaller font
+    """
     # Collect all events across all levels (deduplicated, ordered)
     all_events = []
     for level in sorted(level_events.keys(),
@@ -201,21 +163,45 @@ def _fill_variables(page, year, state, postmark_date, online_date,
                     if e in STICKER_EVENT_ORDER else 99)
     events_str = ', '.join(all_events)
 
-    # Line 1: "Name - Event1, Event2, ..."
-    label_line1 = f'{athlete_name} - {events_str}'
-    tw1 = fitz.get_text_length(label_line1, fontname=FONT_BOLD, fontsize=12)
-    # Shrink font if too wide
-    fs1 = 12
-    if tw1 > PAGE_W - 160:
-        fs1 = 10
-        tw1 = fitz.get_text_length(label_line1, fontname=FONT_BOLD, fontsize=fs1)
-    page.insert_text(fitz.Point(PAGE_W / 2 - tw1 / 2, 148),
-                     label_line1, fontname=FONT_BOLD, fontsize=fs1, color=BLACK)
+    # Use TextWriter with explicit Font objects — page.insert_text() loses
+    # font identity after show_pdf_page() overlay.
+    font_bold = fitz.Font('tibo')     # Times Bold
+    font_regular = fitz.Font('tiro')  # Times Roman
+    font_italic = fitz.Font('tiit')   # Times Italic
 
-    # Line 2: Gym name
-    tw2 = fitz.get_text_length(gym, fontname=FONT_REGULAR, fontsize=12)
-    page.insert_text(fitz.Point(PAGE_W / 2 - tw2 / 2, 164),
-                     gym, fontname=FONT_REGULAR, fontsize=12, color=BLACK)
+    fs_name = 16
+    fs_detail = 11
+
+    # Check if name is too wide and shrink if needed
+    tw_name = font_bold.text_length(athlete_name, fontsize=fs_name)
+    if tw_name > PAGE_W - 160:
+        fs_name = 14
+        tw_name = font_bold.text_length(athlete_name, fontsize=fs_name)
+
+    # Vertical centering: white space runs y≈120 to y≈178.
+    y_name = 137
+    y_events = 153
+    y_gym = 168
+
+    # Line 1: Athlete name — bold, 16pt
+    writer = fitz.TextWriter(page.rect)
+    writer.append(fitz.Point(PAGE_W / 2 - tw_name / 2, y_name),
+                  athlete_name, font=font_bold, fontsize=fs_name)
+    writer.write_text(page, color=BLACK)
+
+    # Line 2: Events — regular, 11pt
+    tw_ev = font_regular.text_length(events_str, fontsize=fs_detail)
+    writer2 = fitz.TextWriter(page.rect)
+    writer2.append(fitz.Point(PAGE_W / 2 - tw_ev / 2, y_events),
+                   events_str, font=font_regular, fontsize=fs_detail)
+    writer2.write_text(page, color=BLACK)
+
+    # Line 3: Gym name — italic, 11pt
+    tw_gym = font_italic.text_length(gym, fontsize=fs_detail)
+    writer3 = fitz.TextWriter(page.rect)
+    writer3.append(fitz.Point(PAGE_W / 2 - tw_gym / 2, y_gym),
+                   gym, font=font_italic, fontsize=fs_detail)
+    writer3.write_text(page, color=BLACK)
 
 
 def _extract_state(meet_name: str) -> str:

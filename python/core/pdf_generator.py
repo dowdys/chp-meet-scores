@@ -1171,3 +1171,100 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     doc.save(output_path)
     doc.close()
+
+
+def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_path):
+    """Generate gym highlights by overlaying on an existing shirt PDF.
+
+    Uses the rendered back_of_shirt.pdf as the visual base, so any designer
+    edits (fonts, colors, layout, spacing) in the IDML are preserved.
+    For each gym, copies the relevant shirt pages and adds yellow highlight
+    annotations on that gym's athlete names.
+    """
+    shirt_doc = fitz.open(shirt_pdf_path)
+    name_to_gym = _get_winners_with_gym(db_path, meet_name)
+    all_gyms = _get_all_winner_gyms(db_path, meet_name)
+
+    if not all_gyms:
+        shirt_doc.close()
+        doc = fitz.open()
+        doc.new_page(width=PAGE_W, height=PAGE_H)
+        doc.save(output_path)
+        doc.close()
+        return
+
+    # Pre-compute text search hits for each name on each source page
+    page_name_quads = []
+    for pi in range(len(shirt_doc)):
+        src = shirt_doc[pi]
+        hits = {}
+        for name in name_to_gym:
+            quads = src.search_for(name, quads=True)
+            if quads:
+                hits[name] = quads
+        page_name_quads.append(hits)
+
+    doc = fitz.open()
+
+    for gym in all_gyms:
+        gym_names = {n for n, g in name_to_gym.items() if g == gym}
+
+        for pi in range(len(shirt_doc)):
+            hits_on_page = page_name_quads[pi]
+            matched = {n: hits_on_page[n] for n in gym_names if n in hits_on_page}
+            if not matched:
+                continue
+
+            # Copy the shirt page
+            page = doc.new_page(width=PAGE_W, height=PAGE_H)
+            page.show_pdf_page(page.rect, shirt_doc, pi)
+
+            # Add yellow highlight annotations
+            for name, quads in matched.items():
+                annot = page.add_highlight_annot(quads)
+                annot.set_colors(stroke=(1, 1, 0))
+                annot.update()
+
+            # Draw gym name at bottom of page
+            gym_display = gym.upper()
+            gym_fs = 10
+            tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
+            while tw > PAGE_W - 60 and gym_fs > 7:
+                gym_fs -= 0.5
+                tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
+            page.insert_text(fitz.Point(PAGE_W / 2 - tw / 2, PAGE_H - 18),
+                             gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
+                             color=RED)
+
+    shirt_doc.close()
+    doc.save(output_path)
+    doc.close()
+
+
+def add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name):
+    """Append back-of-shirt pages from an existing PDF with a red star overlay.
+
+    Used during IDML import so designer edits are preserved. Copies pages
+    from the shirt PDF where the athlete appears, overlaying a red star
+    next to each occurrence of their name.
+    """
+    shirt_doc = fitz.open(shirt_pdf_path)
+
+    for pi in range(len(shirt_doc)):
+        src = shirt_doc[pi]
+        hits = src.search_for(athlete_name)
+        if not hits:
+            continue
+
+        page = doc.new_page(width=PAGE_W, height=PAGE_H)
+        page.show_pdf_page(page.rect, shirt_doc, pi)
+
+        for rect in hits:
+            font_size = rect.height * 0.8
+            star_r = font_size * 0.65
+            star_cx = rect.x0 - star_r - 3
+            star_cy = (rect.y0 + rect.y1) / 2
+            _draw_star_polygon(page, star_cx, star_cy, star_r, star_r * 0.4,
+                               color=RED)
+
+    shirt_doc.close()

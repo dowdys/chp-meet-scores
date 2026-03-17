@@ -52,7 +52,10 @@ from python.core.db_builder import build_database
 from python.core.output_generator import (
     generate_order_forms, generate_winners_csv  # kept for --regenerate backward compat
 )
-from python.core.pdf_generator import generate_shirt_pdf, generate_gym_highlights_pdf
+from python.core.pdf_generator import (
+    generate_shirt_pdf, generate_gym_highlights_pdf,
+    generate_gym_highlights_from_pdf
+)
 from python.core.icml_generator import generate_shirt_icml
 from python.core.idml_generator import generate_shirt_idml
 from python.core.idml_parser import idml_to_pdf
@@ -72,8 +75,11 @@ def main():
                         choices=['scorecat', 'mso_pdf', 'mso_html', 'generic'],
                         help='Data source type (required unless --regenerate)')
     parser.add_argument('--data', nargs='+', help='Input data file(s) (required unless --regenerate)')
-    parser.add_argument('--state', required=True, help='State name')
-    parser.add_argument('--meet', required=True, help='Meet name')
+    parser.add_argument('--state', required=False, default=None, help='State name')
+    parser.add_argument('--state-abbrev', default=None,
+                        help='State abbreviation for order form logo/template (e.g. "NV", "CA - NorCal"). '
+                             'If not provided, uses --state value.')
+    parser.add_argument('--meet', required=False, default=None, help='Meet name')
     parser.add_argument('--association', default='USAG',
                         choices=['USAG', 'AAU'], help='Association')
     parser.add_argument('--output', required=True, help='Output directory for generated files')
@@ -150,9 +156,8 @@ def main():
                         help='Font size for level divider text (LEVEL 10, SAPPHIRE, etc.). Default 10.')
     parser.add_argument('--regenerate', nargs='*', default=None,
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
-                             'Values: shirt, icml, idml, order_forms, gym_highlights, summary, all. '
-                             'Legacy: order_txt, csv (only on explicit request). '
-                             'E.g. --regenerate shirt icml  or  --regenerate all')
+                             'Values: shirt, idml, order_forms, gym_highlights, summary, all. '
+                             'E.g. --regenerate shirt  or  --regenerate all')
     parser.add_argument('--import-idml', default=None,
                         help='Import a finalized IDML file (edited in InDesign) and convert it to '
                              'the definitive back_of_shirt.pdf. Regenerates order forms and gym '
@@ -161,12 +166,44 @@ def main():
 
     args = parser.parse_args()
 
+    # --state and --meet are required unless --import-idml is used (metadata fallback)
+    if not args.import_idml:
+        if not args.state:
+            parser.error('--state is required unless --import-idml is used')
+        if not args.meet:
+            parser.error('--meet is required unless --import-idml is used')
+
     # --source and --data are required unless --regenerate or --import-idml is used
     if args.regenerate is None and not args.import_idml:
         if not args.source:
             parser.error('--source is required unless --regenerate or --import-idml is used')
         if not args.data:
             parser.error('--data is required unless --regenerate or --import-idml is used')
+
+    # For --import-idml, pre-read embedded metadata to fill in missing state/meet/year
+    if args.import_idml:
+        from python.core.idml_parser import _load_metadata as _peek_metadata
+        import zipfile as _zf
+        try:
+            with _zf.ZipFile(args.import_idml, 'r') as zf:
+                _meta = _peek_metadata(zf)
+                if _meta:
+                    if not args.state:
+                        args.state = _meta.get('state', '')
+                    if not args.meet:
+                        args.meet = _meta.get('meet_name', '')
+                    if args.year is None and _meta.get('year'):
+                        args.year = _meta['year']
+                    print(f"Read metadata from IDML: meet={_meta.get('meet_name')}, state={_meta.get('state')}, year={_meta.get('year')}")
+                else:
+                    print("No embedded metadata found in IDML — will convert to PDF only")
+        except Exception as e:
+            print(f"Warning: Could not read IDML metadata: {e}")
+        # Default to placeholder values if metadata is missing
+        if not args.state:
+            args.state = 'Unknown'
+        if not args.meet:
+            args.meet = 'IDML Import'
 
     # Auto-detect year from meet name if not explicitly provided
     if args.year is None:
@@ -204,17 +241,34 @@ def main():
 
         pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
         print(f"Importing IDML: {args.import_idml}")
+        # Metadata was already read earlier for state/meet/year fallback
         metadata = idml_to_pdf(args.import_idml, pdf_path)
-        if metadata:
-            print(f"  Meet: {metadata.get('meet_name', '?')}")
-            print(f"  State: {metadata.get('state', '?')}")
-            print(f"  Year: {metadata.get('year', '?')}")
         print(f"Generated {pdf_path}")
 
         # Regenerate order forms and gym highlights using the existing DB
+        # Verify the meet actually has data in the DB
+        has_meet_data = False
         if os.path.exists(db_path):
-            # Load sticky layout params
-            layout_json = os.path.join(args.output, 'shirt_layout.json')
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                count = conn.execute(
+                    'SELECT COUNT(*) FROM winners WHERE meet_name = ?',
+                    (config.meet_name,)
+                ).fetchone()[0]
+                conn.close()
+                has_meet_data = count > 0
+                if has_meet_data:
+                    print(f"Found {count} winners for '{config.meet_name}' in database")
+                else:
+                    print(f"No winners found for '{config.meet_name}' in database")
+            except Exception as e:
+                print(f"Warning: Could not query database: {e}")
+
+        if has_meet_data:
+            # Load sticky layout params (stored in data dir, not output folder)
+            _layout_dir = os.environ.get('DATA_DIR') or os.path.dirname(os.path.abspath(db_path))
+            layout_json = os.path.join(_layout_dir, 'shirt_layout.json')
             saved_layout = {}
             if os.path.exists(layout_json):
                 try:
@@ -234,61 +288,61 @@ def main():
                     setattr(args, param, saved_layout[param])
 
             errors = []
-            try:
-                order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
-                generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
-                                         year=args.year, state=args.state,
-                                         postmark_date=args.postmark_date,
-                                         online_date=args.online_date,
-                                         ship_date=args.ship_date,
-                                         line_spacing=args.line_spacing,
-                                         level_gap=args.level_gap,
-                                         max_fill=args.max_fill,
-                                         min_font_size=args.min_font_size,
-                                         max_font_size=args.max_font_size,
-                                         name_sort=args.name_sort,
-                                         max_shirt_pages=args.max_shirt_pages,
-                                         title1_size=args.title1_size,
-                                         title2_size=args.title2_size,
-                                         level_groups=args.level_groups,
-                                         exclude_levels=args.exclude_levels,
-                                         copyright=args.copyright,
-                                         accent_color=args.accent_color,
-                                         font_family=args.font_family,
-                                         sport=args.sport,
-                                         title_prefix=args.title_prefix,
-                                         header_size=args.header_size,
-                                         divider_size=args.divider_size)
-                print(f"Generated {order_pdf_path}")
-            except Exception as e:
-                print(f"ERROR generating order_forms.pdf: {e}")
-                errors.append(('order_forms', str(e)))
+
+            # Gym highlights — overlay on the IDML-generated shirt PDF
             try:
                 gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-                generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
-                                            year=args.year, state=args.state,
-                                            line_spacing=args.line_spacing,
-                                            level_gap=args.level_gap,
-                                            max_fill=args.max_fill,
-                                            min_font_size=args.min_font_size,
-                                            max_font_size=args.max_font_size,
-                                            name_sort=args.name_sort,
-                                            max_shirt_pages=args.max_shirt_pages,
-                                            title1_size=args.title1_size,
-                                            title2_size=args.title2_size,
-                                            level_groups=args.level_groups,
-                                            exclude_levels=args.exclude_levels,
-                                            copyright=args.copyright,
-                                            accent_color=args.accent_color,
-                                            font_family=args.font_family,
-                                            sport=args.sport,
-                                            title_prefix=args.title_prefix,
-                                            header_size=args.header_size,
-                                            divider_size=args.divider_size)
+                generate_gym_highlights_from_pdf(pdf_path, db_path,
+                                                 config.meet_name,
+                                                 gym_highlights_path)
                 print(f"Generated {gym_highlights_path}")
             except Exception as e:
                 print(f"ERROR generating gym_highlights.pdf: {e}")
                 errors.append(('gym_highlights', str(e)))
+
+            # Order forms — back pages overlay on the shirt PDF
+            try:
+                order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
+                generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
+                                         year=args.year, state=args.state,
+                                         state_abbrev=args.state_abbrev,
+                                         postmark_date=args.postmark_date,
+                                         online_date=args.online_date,
+                                         ship_date=args.ship_date,
+                                         name_sort=args.name_sort,
+                                         shirt_pdf_path=pdf_path)
+                print(f"Generated {order_pdf_path}")
+            except Exception as e:
+                print(f"ERROR generating order_forms.pdf: {e}")
+                errors.append(('order_forms', str(e)))
+
+            # Meet summary
+            try:
+                summary_path = os.path.join(args.output, 'meet_summary.txt')
+                generate_meet_summary(db_path, config.meet_name, summary_path,
+                                      line_spacing=args.line_spacing,
+                                      level_gap=args.level_gap,
+                                      max_fill=args.max_fill,
+                                      max_font_size=args.max_font_size,
+                                      max_shirt_pages=args.max_shirt_pages,
+                                      title1_size=args.title1_size,
+                                      title2_size=args.title2_size,
+                                      level_groups=args.level_groups,
+                                      exclude_levels=args.exclude_levels)
+                print(f"Generated {summary_path}")
+            except Exception as e:
+                print(f"ERROR generating meet_summary.txt: {e}")
+                errors.append(('summary', str(e)))
+
+            # Copy the imported IDML to the output folder for round-tripping
+            try:
+                import shutil
+                idml_dest = os.path.join(args.output, 'back_of_shirt.idml')
+                shutil.copy2(args.import_idml, idml_dest)
+                print(f"Copied {idml_dest}")
+            except Exception as e:
+                print(f"ERROR copying IDML: {e}")
+                errors.append(('idml_copy', str(e)))
 
             if errors:
                 print(f"\nDone with {len(errors)} error(s):")
@@ -296,8 +350,12 @@ def main():
                     print(f"  - {name}: {msg}")
                 sys.exit(1)
         else:
-            print(f"Note: Database not found at {db_path}. "
-                  "Only the shirt PDF was generated (no order forms or gym highlights).")
+            if not os.path.exists(db_path):
+                print(f"Note: Database not found at {db_path}. "
+                      "Only the shirt PDF was generated (no order forms or gym highlights).")
+            else:
+                print(f"Note: No data for '{config.meet_name}' in database. "
+                      "Only the shirt PDF was generated (no order forms or gym highlights).")
 
         print("\nDone!")
         sys.exit(0)
@@ -318,7 +376,7 @@ def main():
         # When shirt regenerates, also regenerate all shirt-dependent outputs
         # so they use the updated layout (page groups, font sizes, etc.)
         if 'shirt' in regen_set:
-            for dep in ('summary', 'icml', 'idml', 'order_forms', 'gym_highlights'):
+            for dep in ('summary', 'idml', 'order_forms', 'gym_highlights'):
                 regen_set.add(dep)
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
@@ -373,7 +431,9 @@ def main():
     # After a user adjusts layout (e.g. --max-shirt-pages 2), those params
     # persist in shirt_layout.json so future runs use the same layout.
     # CLI args override saved params; saved params override defaults.
-    layout_json = os.path.join(args.output, 'shirt_layout.json')
+    # Stored in app data dir (not user-visible output folder).
+    _layout_dir = os.environ.get('DATA_DIR') or os.path.dirname(os.path.abspath(db_path))
+    layout_json = os.path.join(_layout_dir, 'shirt_layout.json')
     saved_layout = {}
     if os.path.exists(layout_json):
         try:
@@ -453,7 +513,8 @@ def main():
             print(f"ERROR generating back_of_shirt.pdf: {e}")
             errors.append(('shirt', str(e)))
 
-    if do_all or 'icml' in regen_set:
+    # ICML generation removed — only generated on explicit --regenerate icml request
+    if 'icml' in regen_set:
         try:
             icml_path = os.path.join(args.output, 'back_of_shirt.icml')
             generate_shirt_icml(db_path, config.meet_name, icml_path,
@@ -512,8 +573,12 @@ def main():
     if do_all or 'order_forms' in regen_set:
         try:
             order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
+            # Use existing back_of_shirt.pdf for back pages so IDML edits are preserved
+            existing_shirt_pdf = os.path.join(args.output, 'back_of_shirt.pdf')
+            _shirt_path = existing_shirt_pdf if os.path.exists(existing_shirt_pdf) else None
             generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
                                      year=args.year, state=args.state,
+                                     state_abbrev=args.state_abbrev,
                                      postmark_date=args.postmark_date,
                                      online_date=args.online_date,
                                      ship_date=args.ship_date,
@@ -534,7 +599,8 @@ def main():
                                      sport=args.sport,
                                      title_prefix=args.title_prefix,
                                      header_size=args.header_size,
-                                     divider_size=args.divider_size)
+                                     divider_size=args.divider_size,
+                                     shirt_pdf_path=_shirt_path)
             print(f"Generated {order_pdf_path}")
         except Exception as e:
             print(f"ERROR generating order_forms.pdf: {e}")

@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app, shell } from 'electron';
+import Database from 'better-sqlite3';
 import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse, ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import { configStore } from './config-store';
@@ -177,11 +178,11 @@ function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'run_python',
-      description: 'Run process_meet.py to build the database and generate outputs. The --db and --output are ALWAYS auto-injected (do NOT pass them). Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. SELECTIVE REGENERATION: Use --regenerate to skip parsing/DB build and just regenerate specific outputs from the existing database. Values: shirt, icml, order_forms, order_txt, csv, gym_highlights, summary, all. Example: --regenerate shirt icml (only regenerates back_of_shirt.pdf and .icml). This is MUCH faster than a full run — use it when adjusting layout params like font size or spacing. When using --regenerate, only --state and --meet are required (--source and --data are NOT needed). Example: --state Iowa --meet "2025 Iowa State Championships" --regenerate shirt. PDF layout tuning: --line-spacing <float> (default 1.15), --level-gap <float> (default 6), --max-fill <float> (default 0.90), --min-font-size <float> (default 6.5), --max-font-size <float> (default 9). Order form dates: --postmark-date, --online-date, --ship-date. IMPORTANT: Never try to edit generated PDFs directly — always adjust parameters and regenerate. The Python source code is a compiled binary; do NOT search for or try to edit .py files on the user machine.',
+      description: 'Run process_meet.py to build the database and generate outputs. The --db and --output are ALWAYS auto-injected (do NOT pass them). Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--association USAG|AAU] [--year YYYY]. SELECTIVE REGENERATION: Use --regenerate to skip parsing/DB build and just regenerate specific outputs from the existing database. Values: shirt, idml, order_forms, gym_highlights, summary, all. Example: --regenerate shirt (only regenerates back_of_shirt.pdf and dependents). This is MUCH faster than a full run — use it when adjusting layout params like font size or spacing. When using --regenerate, only --state and --meet are required (--source and --data are NOT needed). Example: --state Iowa --meet "2025 Iowa State Championships" --regenerate shirt. PDF layout tuning: --line-spacing <float> (default 1.15), --level-gap <float> (default 6), --max-fill <float> (default 0.90), --min-font-size <float> (default 6.5), --max-font-size <float> (default 9). Order form dates: --postmark-date, --online-date, --ship-date. IDML IMPORT: Use --import-idml <path> to convert a finalized IDML file (edited in InDesign) back into back_of_shirt.pdf, then automatically regenerates gym_highlights.pdf, order_forms.pdf, and meet_summary.txt. The IDML contains embedded metadata (meet name, state, year) which is used automatically — you do NOT need to provide --state or --meet. IDML IMPORT WITH DATES: You CAN pass date flags with --import-idml. Example: --import-idml <path> --postmark-date "April 4, 2026" --online-date "April 8, 2026" --ship-date "April 20, 2026". ADDING DATES AFTER IMPORT: If you need to change just the order form dates after an import, use --regenerate order_forms with date flags: --state <State> --meet "<Meet Name>" --regenerate order_forms --postmark-date "..." --online-date "..." --ship-date "...". This regenerates ONLY the order forms without touching back_of_shirt. CRITICAL: NEVER run full pipeline (--source generic) after --import-idml — it overwrites the user\'s edited IDML design. Use --regenerate order_forms instead. Windows paths are auto-converted to WSL paths. Expected output files: back_of_shirt.pdf, back_of_shirt.idml, gym_highlights.pdf, order_forms.pdf, meet_summary.txt. Do NOT generate order_forms_by_gym.txt or winners_sheet.csv — those are deprecated.',
       input_schema: {
         type: 'object',
         properties: {
-          args: { type: 'string', description: 'Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--year YYYY] [layout flags] [date flags]. Selective regeneration (no --source/--data needed): --state <State> --meet "<Meet Name>" --regenerate shirt icml (or: order_forms, order_txt, csv, gym_highlights, summary, all). Layout: --line-spacing 1.15 --level-gap 6 --max-fill 0.90 --min-font-size 6.5 --max-font-size 9 --max-shirt-pages N (force all levels into at most N total pages). Dates: --postmark-date "March 15, 2026" --online-date "..." --ship-date "...". Quote paths with spaces.' },
+          args: { type: 'string', description: 'Full pipeline: --source {scorecat,mso_pdf,mso_html,generic} --data <path> --state <State> --meet "<Meet Name>" [--year YYYY] [layout flags] [date flags]. Selective regeneration (no --source/--data needed): --state <State> --meet "<Meet Name>" --regenerate order_forms --postmark-date "..." --online-date "..." --ship-date "..." (also: shirt, idml, gym_highlights, summary, all). Layout: --line-spacing 1.15 --level-gap 6 --max-fill 0.90 --min-font-size 6.5 --max-font-size 9 --max-shirt-pages N. Dates: --postmark-date "March 15, 2026" --online-date "..." --ship-date "...". IDML import with dates: --import-idml <path> --postmark-date "..." --online-date "..." --ship-date "..." (self-contained). To change dates after import: --state <State> --meet "<Meet Name>" --regenerate order_forms --postmark-date "..." --online-date "..." --ship-date "..." (does NOT touch back_of_shirt). NEVER use --source after --import-idml. Quote paths with spaces.' },
         },
         required: ['args'],
       },
@@ -431,6 +432,7 @@ export class AgentLoop {
   private onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
   private queryConversation: LLMMessage[] = [];
   private activeContext: AgentContext | null = null;
+  private lastContext: AgentContext | null = null; // Preserved after processMeet for continuation
 
   constructor(
     llmClient: LLMClient,
@@ -549,6 +551,8 @@ export class AgentLoop {
       // Save the full process log for review
       this.saveProcessLog(context, result);
       this.activeContext = null;
+      // Preserve context for possible continuation
+      this.lastContext = context;
 
       return { ...result, outputName: context.outputName };
     } catch (err) {
@@ -560,6 +564,43 @@ export class AgentLoop {
       }
       this.activeContext = null;
       return { success: false, message };
+    }
+  }
+
+  /**
+   * Continue the conversation from a completed processMeet run.
+   * Appends the user's follow-up message and runs the agent loop again.
+   */
+  async continueConversation(message: string): Promise<{ success: boolean; message: string }> {
+    const context = this.lastContext;
+    if (!context) {
+      return { success: false, message: 'No previous conversation to continue. Process a meet first.' };
+    }
+
+    this.onActivity(`Follow-up: ${message}`, 'info');
+
+    try {
+      // Append user message to the existing conversation
+      context.messages.push({
+        role: 'user',
+        content: message,
+      });
+      context.abortRequested = false;
+      this.activeContext = context;
+
+      // Run the loop again with the extended conversation
+      const result = await this.runLoop(context);
+
+      this.saveProcessLog(context, result);
+      this.activeContext = null;
+      this.lastContext = context; // Keep for further continuation
+
+      return result;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.onActivity(`Agent error: ${errMsg}`, 'error');
+      this.activeContext = null;
+      return { success: false, message: errMsg };
     }
   }
 
@@ -751,10 +792,25 @@ export class AgentLoop {
       }
 
       if (response.stop_reason === 'end_turn') {
-        // Agent is done
         const textBlocks = response.content.filter((b) => b.type === 'text');
         const finalMessage = textBlocks.map((b) => b.text ?? '').join('\n');
         context.messages.push({ role: 'assistant', content: response.content });
+
+        // Check if the agent described next steps without executing them.
+        // Only trigger on clear tool-call planning language, not conversational use.
+        const lowerText = finalMessage.toLowerCase();
+        const planPatterns = /\blet me (now |then )?(run|call|use|execute|extract|generate|regenerate)\b|\bnext.{0,20}(run_python|run_script|scorecat_extract|mso_extract|query_db|--regenerate)\b|\bi'll (now |then )?(run|call|use|execute|extract|generate)\b/.test(lowerText);
+        const completionPatterns = /\bdone\b|\bcomplete\b|\bfinished\b|\bno (more|further)\b|\breview\b|\bready\b|\bgenerated\b|\bsuccessfully\b/.test(lowerText);
+        if (planPatterns && !completionPatterns && iterations < maxIterations - 1) {
+          console.log('[AGENT] Detected unfinished plan in end_turn text — prompting agent to continue.');
+          this.onActivity('Continuing — agent described next steps without executing them.', 'info');
+          context.messages.push({
+            role: 'user',
+            content: 'You described next steps but stopped without executing them. Please continue by calling the appropriate tools now. Do not describe what you plan to do — just do it.',
+          });
+          continue;
+        }
+
         this.onActivity('Agent completed processing.', 'success');
         return { success: true, message: finalMessage || 'Processing complete.' };
       }
@@ -983,7 +1039,7 @@ export class AgentLoop {
     // are NOT listed here — they run via this.toolExecutors above.
     switch (name) {
       case 'run_python':
-        return this.toolRunPython(context.outputName || context.meetName, args.args as string);
+        return this.toolRunPython(context.outputName || context.meetName, args.args as string, context);
 
       case 'set_output_name':
         context.outputName = args.name as string;
@@ -1030,7 +1086,15 @@ export class AgentLoop {
 
   // --- Tool implementations (context-aware, inline only) ---
 
-  private async toolRunPython(meetName: string, args: string): Promise<string> {
+  private async toolRunPython(meetName: string, args: string, context?: { outputName?: string }): Promise<string> {
+    // Convert Windows paths to WSL paths only when running under WSL/Linux.
+    // When Electron runs natively on Windows, Python is also Windows — keep paths as-is.
+    if (process.platform === 'linux') {
+      args = args.replace(/([A-Za-z]):\\([\w\\. -]+)/g, (_match, drive, rest) => {
+        return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/g, '/')}`;
+      });
+    }
+
     // Split args respecting quoted strings (e.g. --meet "2025 Iowa State Championships")
     const argParts = (args.match(/(?:[^\s"]+|"[^"]*")+/g) || [])
       .map(a => a.replace(/^"(.*)"$/, '$1'));
@@ -1044,9 +1108,115 @@ export class AgentLoop {
         argParts.splice(idx, 2); // remove flag and its value
       }
     }
-    // Write to staging DB instead of central — use finalize_meet to merge later
-    argParts.push('--db', getStagingDbPath());
-    argParts.push('--output', getOutputDir(meetName));
+
+    // Check if this is an --import-idml call
+    const importIdx = argParts.indexOf('--import-idml');
+    if (importIdx !== -1 && importIdx + 1 < argParts.length) {
+      // IDML import mode: pre-read metadata to get meet name, use central DB
+      const idmlPath = argParts[importIdx + 1];
+      let outputMeetName = 'IDML Import';
+
+      // Extract metadata from IDML to identify the meet
+      const dataDir = getDataDir();
+      const metaScriptPath = path.join(dataDir, `tmp_idml_meta_${Date.now()}.py`);
+      const metaCode = [
+        'import zipfile, json, os, sys',
+        'from xml.etree import ElementTree as ET',
+        'idml_path = os.environ.get("IDML_PATH", "")',
+        'meta = {}',
+        'try:',
+        '    with zipfile.ZipFile(idml_path, "r") as zf:',
+        '        for name in zf.namelist():',
+        '            if name.startswith("Stories/") and name.endswith(".xml"):',
+        '                xml = zf.read(name).decode("utf-8")',
+        '                if "CHP_METADATA" in xml:',
+        '                    root = ET.fromstring(xml)',
+        '                    for c in root.iter("Content"):',
+        '                        t = c.text or ""',
+        '                        if t.startswith("CHP_METADATA:"):',
+        '                            meta = json.loads(t[len("CHP_METADATA:"):])',
+        '                            break',
+        '                    if meta: break',
+        'except Exception:',
+        '    pass',
+        'print(json.dumps(meta))',
+      ].join('\n');
+      fs.writeFileSync(metaScriptPath, metaCode, 'utf8');
+
+      try {
+        const metaResult = await pythonManager.runScript(
+          'process_meet.py',
+          ['--exec-script', metaScriptPath],
+          undefined,
+          { IDML_PATH: idmlPath },
+          10000
+        );
+        const metaJson = JSON.parse(metaResult.stdout.trim() || '{}');
+        if (metaJson.meet_name) {
+          outputMeetName = metaJson.meet_name;
+          // Set context.outputName so the UI knows the correct output folder
+          if (context) {
+            context.outputName = outputMeetName;
+          }
+          this.onActivity(`IDML metadata: meet="${metaJson.meet_name}", state="${metaJson.state || '?'}"`, 'info');
+        } else {
+          this.onActivity('No embedded metadata found in IDML — using fallback folder', 'warning');
+        }
+      } catch {
+        this.onActivity('Could not read IDML metadata — using fallback folder', 'warning');
+      }
+
+      try { fs.unlinkSync(metaScriptPath); } catch { /* ignore */ }
+
+      // Prefer central DB, but fall back to staging DB if central doesn't have this meet.
+      // This handles the case where the user edits an IDML between sessions before
+      // finalize_meet was called — the data is still in the staging DB.
+      let dbPathForImport = getDbPath();
+      const centralExists = fs.existsSync(dbPathForImport);
+      let centralHasMeet = false;
+      if (centralExists) {
+        try {
+          const checkDb = new Database(dbPathForImport, { readonly: true });
+          const row = checkDb.prepare('SELECT COUNT(*) as cnt FROM winners WHERE meet_name = ?').get(outputMeetName) as { cnt: number } | undefined;
+          centralHasMeet = (row?.cnt ?? 0) > 0;
+          checkDb.close();
+        } catch { /* table might not exist */ }
+      }
+      if (!centralHasMeet) {
+        // Check for staging DBs that might have this meet
+        const dataDir = getDataDir();
+        const stagingFiles = fs.readdirSync(dataDir)
+          .filter(f => f.startsWith('staging_') && f.endsWith('.db'))
+          .sort()
+          .reverse();
+        for (const sf of stagingFiles) {
+          const sfPath = path.join(dataDir, sf);
+          try {
+            const sDb = new Database(sfPath, { readonly: true });
+            const row = sDb.prepare('SELECT COUNT(*) as cnt FROM winners WHERE meet_name = ?').get(outputMeetName) as { cnt: number } | undefined;
+            sDb.close();
+            if ((row?.cnt ?? 0) > 0) {
+              dbPathForImport = sfPath;
+              this.onActivity(`Using staging DB for import: ${sf}`, 'info');
+              break;
+            }
+          } catch { /* skip unreadable DBs */ }
+        }
+      }
+      argParts.push('--db', dbPathForImport);
+      argParts.push('--output', getOutputDir(outputMeetName));
+    } else {
+      // Check if --regenerate is in args — use central DB for regeneration
+      // since the data is already finalized there
+      const isRegenerate = argParts.includes('--regenerate');
+      let outputMeetName = meetName;
+      const meetIdx = argParts.indexOf('--meet');
+      if (meetIdx !== -1 && meetIdx + 1 < argParts.length) {
+        // If --meet is explicitly in args, prefer that for folder name
+      }
+      argParts.push('--db', isRegenerate ? getDbPath() : getStagingDbPath());
+      argParts.push('--output', getOutputDir(outputMeetName));
+    }
 
     const result = await pythonManager.runScript('process_meet.py', argParts, (line) => {
       this.onActivity(`[python] ${line}`, 'info');

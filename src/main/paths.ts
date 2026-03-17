@@ -18,8 +18,13 @@ export function getProjectRoot(): string {
   if (app.isPackaged) {
     return process.resourcesPath!;
   }
-  // dev: app.getAppPath() is dist/main, go up 2 levels to repo root
-  return path.join(app.getAppPath(), '..', '..');
+  const appPath = app.getAppPath();
+  // When launched as `electron <project-dir>`, appPath IS the project root.
+  // When launched as `electron dist/main/main.js`, appPath is dist/main.
+  if (fs.existsSync(path.join(appPath, 'package.json'))) {
+    return appPath;
+  }
+  return path.join(appPath, '..', '..');
 }
 
 export function getOutputDir(meetName: string, createIfMissing = true): string {
