@@ -7,7 +7,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release (draft)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release create "$TAG" --draft --title "$TAG" --notes "Release $TAG" || true
+
   build-windows:
+    needs: [create-release]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -101,7 +115,7 @@ jobs:
           path: dist/pyinstaller/process_meet
 
   build-macos:
-    needs: [build-python-macos-x64, build-python-macos-arm64]
+    needs: [create-release, build-python-macos-x64, build-python-macos-arm64]
     runs-on: macos-14
     permissions:
       contents: write
@@ -166,3 +180,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --mac --x64 --publish always
+
+  publish-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release (remove draft)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release edit "$TAG" --draft=false
