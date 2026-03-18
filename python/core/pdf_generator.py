@@ -1052,12 +1052,16 @@ def _draw_copyright(page, text=None, font=None, page_h=None):
 # --- Gym Highlights PDF ---
 
 def _get_winners_with_gym(db_path, meet_name):
-    """Get a mapping of winner name -> gym."""
+    """Get a mapping of winner name -> gym (with cleaned names)."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute('SELECT DISTINCT name, gym FROM winners WHERE meet_name = ?',
                 (meet_name,))
-    result = {row[0]: row[1] for row in cur.fetchall()}
+    result = {}
+    for row in cur.fetchall():
+        cleaned = _clean_name_for_shirt(row[0])
+        if cleaned:
+            result[cleaned] = row[1]
     conn.close()
     return result
 
@@ -1400,11 +1404,13 @@ def add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name):
     from the shirt PDF where the athlete appears, overlaying a red star
     next to each occurrence of their name.
     """
+    # Clean the name to match what's on the shirt PDF (which uses cleaned names)
+    search_name = _clean_name_for_shirt(athlete_name)
     shirt_doc = fitz.open(shirt_pdf_path)
 
     for pi in range(len(shirt_doc)):
         src = shirt_doc[pi]
-        hits = src.search_for(athlete_name)
+        hits = src.search_for(search_name)
         if not hits:
             continue
 

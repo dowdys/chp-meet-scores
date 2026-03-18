@@ -121,9 +121,27 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     doc = fitz.open()
     gyms = sorted(gym_athletes.keys())
 
+    # Diagnostic: report which path and source is used for order form backs
+    total_athletes = sum(len(a) for a in gym_athletes.values())
+    if use_pdf_overlay:
+        import fitz as _fitz_diag
+        _diag_doc = _fitz_diag.open(shirt_pdf_path)
+        print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
+              f"({len(_diag_doc)} pages, {_diag_doc[0].rect.width:.0f}x{_diag_doc[0].rect.height:.0f})")
+        _diag_doc.close()
+    else:
+        _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
+        print(f"Order form backs: using code-generated path ({_pg_count} page groups)")
+    print(f"Order forms: {total_athletes} athletes across {len(gyms)} gyms")
+
+    backs_found = 0
+    backs_missing = 0
+
     for gym in gyms:
         athletes = gym_athletes[gym]
         for athlete_name, level_events in athletes:
+            pages_before = len(doc)
+
             # Copy state-specific template page
             page = doc.new_page(width=PAGE_W, height=PAGE_H)
             page.show_pdf_page(page.rect, template_doc, 0)
@@ -136,6 +154,21 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                 add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name)
             else:
                 add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
+
+            # Track if back pages were added (front page = 1, so >1 means backs exist)
+            pages_added = len(doc) - pages_before
+            if pages_added > 1:
+                backs_found += 1
+            else:
+                backs_missing += 1
+                if backs_missing <= 5:  # Only print first 5 to avoid spam
+                    print(f"  WARNING: No back pages found for \"{athlete_name}\" ({gym})")
+
+    if backs_missing > 0:
+        print(f"Order form backs: {backs_found} athletes have backs, "
+              f"{backs_missing} athletes MISSING backs")
+    else:
+        print(f"Order form backs: all {backs_found} athletes have back pages")
 
     template_doc.close()
     doc.save(output_path)
@@ -247,9 +280,13 @@ def _get_gym_athletes(db_path: str, meet_name: str):
                  END
     ''', (meet_name,))
 
+    from python.core.pdf_generator import _clean_name_for_shirt
     gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     athlete_divisions = {}
-    for gym, name, level, division, event in cur.fetchall():
+    for gym, raw_name, level, division, event in cur.fetchall():
+        name = _clean_name_for_shirt(raw_name)
+        if not name:
+            continue
         display = EVENT_DISPLAY.get(event, event)
         if display not in gym_data[gym][name][level]:
             gym_data[gym][name][level].append(display)
