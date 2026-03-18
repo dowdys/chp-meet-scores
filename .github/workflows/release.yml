@@ -59,6 +59,17 @@ jobs:
           UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
         run: npm run build
 
+      - name: Clean stale Windows assets (for re-runs)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          for asset in $(gh release view "$TAG" --json assets --jq ".assets[].name" 2>/dev/null | grep -i -e "Setup" -e "latest.yml" -e ".exe"); do
+            echo "Deleting stale asset: $asset"
+            gh release delete-asset "$TAG" "$asset" --yes 2>/dev/null || true
+          done
+
       - name: Build and publish installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -158,6 +169,16 @@ jobs:
           chmod +x python/process_meet
           file python/process_meet
 
+      - name: Clean stale arm64 assets (for re-runs)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -i 'arm64'); do
+            echo "Deleting stale asset: $asset"
+            gh release delete-asset "$TAG" "$asset" --yes 2>/dev/null || true
+          done
+
       - name: Build and publish arm64 DMG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -175,6 +196,16 @@ jobs:
           cp artifacts/x64/process_meet python/process_meet
           chmod +x python/process_meet
           file python/process_meet
+
+      - name: Clean stale x64 mac assets (for re-runs)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -iv 'arm64' | grep -i -e '\.dmg' -e 'mac\.zip' -e 'latest-mac'); do
+            echo "Deleting stale asset: $asset"
+            gh release delete-asset "$TAG" "$asset" --yes 2>/dev/null || true
+          done
 
       - name: Build and publish x64 DMG
         env:
