@@ -562,6 +562,30 @@ def main():
             print(f"ERROR generating winners_sheet.csv: {e}")
             errors.append(('csv', str(e)))
 
+    # Determine which page groups need legal-size output
+    _legal_groups = args.page_size_legal
+    if args.page_size == 'legal' and not _legal_groups:
+        _legal_groups = ['']  # empty string matches all groups
+
+    # Pre-check names for suspicious content before generating shirt
+    if do_all or 'shirt' in regen_set:
+        from python.core.pdf_generator import precompute_shirt_data as _pre_check
+        _check = _pre_check(db_path, config.meet_name, name_sort=args.name_sort)
+        _flagged = _check.get('flagged_names', [])
+        _modified = _check.get('modified_names', [])
+        if _modified:
+            print(f"NAME_CLEANUP: {len(_modified)} name(s) were auto-cleaned:")
+            for raw, cleaned, event, level in _modified[:20]:
+                print(f"  L{level} {event}: \"{raw}\" → \"{cleaned}\"")
+            if len(_modified) > 20:
+                print(f"  ... and {len(_modified) - 20} more")
+        if _flagged:
+            print(f"SUSPICIOUS_NAMES: {len(_flagged)} name(s) look unusual and may need manual review:")
+            for cleaned, raw, event, level, reason in _flagged:
+                print(f"  L{level} {event}: \"{cleaned}\" — {reason}")
+            print("If any of these need fixing, you can update the names in the database "
+                  "with query_db or re-run the data extraction.")
+
     if do_all or 'shirt' in regen_set:
         try:
             pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
@@ -601,9 +625,6 @@ def main():
             errors.append(('shirt', str(e)))
 
         # Generate 8.5x14 versions for specified page groups
-        _legal_groups = args.page_size_legal
-        if args.page_size == 'legal' and not _legal_groups:
-            _legal_groups = ['']  # empty string matches all groups
         if _legal_groups:
             from python.core.pdf_generator import PAGE_H_LEGAL
             _filter = _legal_groups if any(_legal_groups) else None
@@ -767,16 +788,33 @@ def main():
             errors.append(('order_forms', str(e)))
 
     if do_all or 'gym_highlights' in regen_set:
-        # Always generate gym highlights from the 8.5x11 back_of_shirt
         letter_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
         legal_shirt = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
+        # Only use legal shirt for exclusion/generation when it was explicitly requested
+        _has_legal = _legal_groups and os.path.exists(legal_shirt)
 
+        # Generate 8.5x14 gym highlights ONLY when legal was explicitly requested
+        if _has_legal:
+            try:
+                gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
+                tmp = _tmp_path_for(gh_legal_path)
+                generate_gym_highlights_from_pdf(legal_shirt, db_path,
+                                                 config.meet_name, tmp)
+                actual = _safe_move(tmp, gh_legal_path)
+                print(f"Generated {actual} (8.5x14)")
+            except Exception as e:
+                print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
+                errors.append(('gym_highlights_legal', str(e)))
+
+        # Generate 8.5x11 gym highlights (excluding names on legal pages)
         try:
             gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+            _exclude = legal_shirt if _has_legal else None
             if os.path.exists(letter_shirt):
                 tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_from_pdf(letter_shirt, db_path,
-                                                 config.meet_name, tmp)
+                                                 config.meet_name, tmp,
+                                                 exclude_shirt_path=_exclude)
                 actual = _safe_move(tmp, gym_highlights_path)
                 print(f"Generated {actual}")
             else:
@@ -806,19 +844,6 @@ def main():
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
             errors.append(('gym_highlights', str(e)))
-
-        # Also generate 8.5x14 gym highlights if legal back exists
-        if os.path.exists(legal_shirt):
-            try:
-                gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
-                tmp = _tmp_path_for(gh_legal_path)
-                generate_gym_highlights_from_pdf(legal_shirt, db_path,
-                                                 config.meet_name, tmp)
-                actual = _safe_move(tmp, gh_legal_path)
-                print(f"Generated {actual} (8.5x14)")
-            except Exception as e:
-                print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
-                errors.append(('gym_highlights_legal', str(e)))
 
     if do_all or 'summary' in regen_set:
         try:

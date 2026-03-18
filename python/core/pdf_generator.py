@@ -13,6 +13,7 @@ Generates championship-style PDFs with:
 - Copyright footer
 """
 
+import os
 import re
 import sqlite3
 import math
@@ -151,8 +152,8 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
     # Compute Y positions from title sizes
     title1_y, title2_y, oval_y, headers_y, names_start = _compute_layout(t1l, t2l)
 
-    levels, data = _get_winners_by_event_and_level(db_path, meet_name,
-                                                    name_sort=name_sort)
+    levels, data, _flagged, _modified = _get_winners_by_event_and_level(
+        db_path, meet_name, name_sort=name_sort)
 
     # Intentionally exclude specific levels (e.g. levels with no real data)
     if exclude_levels:
@@ -260,6 +261,8 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
             'oval_y': oval_y, 'headers_y': headers_y,
             'names_start_y': names_start,
             'page_h': _page_h,
+            'flagged_names': _flagged,
+            'modified_names': _modified,
             **style}
 
 
@@ -589,11 +592,19 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
 
 # --- Data query ---
 
+# Event code patterns used for name cleaning
+_EVENT_CODES = r'(?:VT|UB|BB|FX|BX|V|Be|Fl|AA|IES)'
+_EVENT_CODES_PATTERN = re.compile(
+    rf'\s+{_EVENT_CODES}(?:[,\s]+{_EVENT_CODES})*\s*$', re.IGNORECASE)
+_DASH_EVENT_PATTERN = re.compile(
+    rf'\s*-\s*{_EVENT_CODES}(?:[,\s]+{_EVENT_CODES})*\s*$', re.IGNORECASE)
+
+
 def _clean_name_for_shirt(name: str) -> str:
     """Strip parenthetical annotations, pronunciation guides, and event
     suffixes from an athlete name before putting it on the shirt.
 
-    Handles: "(Ah-nee-uh)", "(VT UB BB FX)", "(specialist)", etc.
+    Handles: "(Ah-nee-uh)", "(VT UB BB FX)", "Name VT UB", "Name - FX", etc.
     """
     # Remove trailing asterisk + parens first: "Name*(V,BB)" → "Name"
     cleaned = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', name)
@@ -603,10 +614,36 @@ def _clean_name_for_shirt(name: str) -> str:
     cleaned = re.sub(r'\s*[\u201c][^\u201d]*[\u201d]', '', cleaned)
     # Remove trailing standalone asterisk
     cleaned = re.sub(r'\s*\*\s*$', '', cleaned)
-    # Remove trailing event codes: "Name - VT, FX" → "Name"
-    cleaned = re.sub(r'\s*-\s*(?:VT|UB|BB|FX|V|Be|Fl|AA)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|AA))*\s*$',
-                     '', cleaned, flags=re.IGNORECASE)
+    # Remove trailing event codes with dash: "Name - VT, FX" → "Name"
+    cleaned = _DASH_EVENT_PATTERN.sub('', cleaned)
+    # Remove bare trailing event codes: "Name VT UB BB FX" → "Name"
+    cleaned = _EVENT_CODES_PATTERN.sub('', cleaned)
     return cleaned.strip()
+
+
+def _flag_suspicious_name(name: str) -> str:
+    """Check if a cleaned name still looks suspicious. Returns a reason
+    string if suspicious, or empty string if it looks normal.
+    """
+    if not name:
+        return 'empty name'
+    # Single word names (might be missing first or last name)
+    if ' ' not in name.strip():
+        return 'single word (missing first or last name?)'
+    # Contains digits (might have scores or numbers appended)
+    if re.search(r'\d', name):
+        return 'contains digits (score or number in name?)'
+    # Very long name (>35 chars might have extra data)
+    if len(name) > 40:
+        return f'unusually long ({len(name)} chars)'
+    # Ends with all-caps word that's 2-3 chars (might be an event code we missed)
+    last_word = name.split()[-1]
+    if len(last_word) <= 3 and last_word.isupper() and last_word not in ('II', 'III', 'IV', 'Jr', 'JR', 'SR'):
+        return f'ends with "{last_word}" (event code?)'
+    # Contains common event/score patterns we might have missed
+    if re.search(r'\b(?:IES|spec|vault|bars|beam|floor)\b', name, re.IGNORECASE):
+        return 'contains event keyword'
+    return ''
 
 
 def _get_winners_by_event_and_level(db_path: str, meet_name: str,
@@ -622,6 +659,8 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
 
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
+    flagged = []   # (cleaned_name, raw_name, event, level, reason)
+    modified = []  # (raw_name, cleaned_name, event, level)
 
     cur.execute('''SELECT DISTINCT level FROM winners
                    WHERE meet_name = ?''', (meet_name,))
@@ -679,14 +718,22 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                 seen = set()
                 clean_names = []
                 for r in rows:
-                    cleaned = _clean_name_for_shirt(r[0])
+                    raw = r[0]
+                    cleaned = _clean_name_for_shirt(raw)
                     if cleaned and cleaned not in seen:
                         seen.add(cleaned)
                         clean_names.append(cleaned)
+                        # Flag suspicious names
+                        reason = _flag_suspicious_name(cleaned)
+                        if reason:
+                            flagged.append((cleaned, raw, event, level, reason))
+                        elif cleaned != raw.strip():
+                            # Name was modified by cleaning — note it
+                            modified.append((raw.strip(), cleaned, event, level))
                 data[event][level] = clean_names
 
     conn.close()
-    return levels, data
+    return levels, data, flagged, modified
 
 
 # --- Layout helpers ---
@@ -1251,13 +1298,20 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     doc.close()
 
 
-def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_path):
+def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_path,
+                                     exclude_shirt_path=None):
     """Generate gym highlights by overlaying on an existing shirt PDF.
 
     Uses the rendered back_of_shirt.pdf as the visual base, so any designer
     edits (fonts, colors, layout, spacing) in the IDML are preserved.
     For each gym, copies the relevant shirt pages and adds yellow highlight
     annotations on that gym's athlete names.
+
+    Args:
+        exclude_shirt_path: Optional path to another shirt PDF (e.g. the 8.5x14
+            version). Names that appear on pages of the exclude PDF will be
+            skipped in this output, preventing duplicate coverage across the
+            8.5x11 and 8.5x14 gym highlights files.
     """
     shirt_doc = fitz.open(shirt_pdf_path)
     # Read page dimensions from the source PDF (handles both letter and legal)
@@ -1265,6 +1319,20 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
     _src_h = shirt_doc[0].rect.height if len(shirt_doc) > 0 else PAGE_H
     name_to_gym = _get_winners_with_gym(db_path, meet_name)
     all_gyms = _get_all_winner_gyms(db_path, meet_name)
+
+    # Build set of names to exclude (names that appear on the exclude PDF)
+    exclude_names = set()
+    if exclude_shirt_path and os.path.exists(exclude_shirt_path):
+        try:
+            excl_doc = fitz.open(exclude_shirt_path)
+            for pi in range(len(excl_doc)):
+                text = excl_doc[pi].get_text()
+                for name in name_to_gym:
+                    if name in text:
+                        exclude_names.add(name)
+            excl_doc.close()
+        except Exception:
+            pass  # If exclude PDF can't be read, include all names
 
     if not all_gyms:
         shirt_doc.close()
@@ -1288,7 +1356,8 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
     doc = fitz.open()
 
     for gym in all_gyms:
-        gym_names = {n for n, g in name_to_gym.items() if g == gym}
+        gym_names = {n for n, g in name_to_gym.items()
+                     if g == gym and n not in exclude_names}
 
         for pi in range(len(shirt_doc)):
             hits_on_page = page_name_quads[pi]
@@ -1308,14 +1377,14 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
                 annot.set_colors(stroke=(1, 1, 0))
                 annot.update()
 
-            # Draw gym name at bottom of page
+            # Draw gym name at top of page (below the title area)
             gym_display = gym.upper()
             gym_fs = 10
             tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
             while tw > pw - 60 and gym_fs > 7:
                 gym_fs -= 0.5
                 tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
-            page.insert_text(fitz.Point(pw / 2 - tw / 2, ph - 18),
+            page.insert_text(fitz.Point(pw / 2 - tw / 2, 15),
                              gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
                              color=RED)
 
