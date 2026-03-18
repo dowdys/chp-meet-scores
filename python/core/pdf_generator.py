@@ -17,9 +17,10 @@ import sqlite3
 import math
 import fitz  # PyMuPDF
 
-# --- Page layout constants (letter: 612 x 792 pt) ---
+# --- Page layout constants ---
 PAGE_W = 612
-PAGE_H = 792
+PAGE_H = 792           # Letter: 8.5 x 11
+PAGE_H_LEGAL = 1008    # Legal:  8.5 x 14
 
 from python.core.constants import EVENTS as EVENT_KEYS, EVENT_HEADERS as COL_HEADERS
 
@@ -111,7 +112,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                           copyright=None, accent_color=None,
                           font_family=None, sport=None,
                           title_prefix=None, header_size=None,
-                          divider_size=None):
+                          divider_size=None, page_h=None):
     """Pre-compute shirt layout data for reuse across multiple renders.
 
     Args:
@@ -195,7 +196,9 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                      if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
     numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
 
-    available = (NAMES_BOTTOM_Y - names_start) * mfill
+    _page_h = page_h or PAGE_H
+    _names_bottom = _page_h - 18
+    available = (_names_bottom - names_start) * mfill
 
     # Custom level groups override auto bin-packing
     if level_groups:
@@ -255,6 +258,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
             'title1_y': title1_y, 'title2_y': title2_y,
             'oval_y': oval_y, 'headers_y': headers_y,
             'names_start_y': names_start,
+            'page_h': _page_h,
             **style}
 
 
@@ -349,6 +353,7 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
     """
     page_groups = precomputed['page_groups']
     data = precomputed['data']
+    _page_h = precomputed.get('page_h', PAGE_H)
     lhr = precomputed['lhr']
     lgap = precomputed['lgap']
     mfill = precomputed['mfill']
@@ -390,7 +395,7 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
         if not found:
             continue
 
-        page = doc.new_page(width=PAGE_W, height=PAGE_H)
+        page = doc.new_page(width=PAGE_W, height=_page_h)
 
         # Title lines
         _draw_small_caps(page, PAGE_W / 2, p_title1_y,
@@ -414,7 +419,8 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
 
         # Determine best font size
         font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
-                                    names_start_y=p_names_start, divider_size=s_ds)
+                                    names_start_y=p_names_start, divider_size=s_ds,
+                                    page_h=_page_h)
         line_height = font_size * lhr
 
         # Draw each level's names with star
@@ -440,7 +446,7 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
                     max_names = max(max_names, len(names))
             y += max_names * line_height + 1
 
-        _draw_copyright(page, text=s_copyright, font=s_freg)
+        _draw_copyright(page, text=s_copyright, font=s_freg, page_h=_page_h)
 
 
 def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
@@ -457,8 +463,9 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        copyright: str = None, accent_color: str = None,
                        font_family: str = None, sport: str = None,
                        title_prefix: str = None, header_size: float = None,
-                       divider_size: float = None):
+                       divider_size: float = None, page_h: int = None):
     """Generate enhanced back-of-shirt PDF."""
+    _page_h = page_h or PAGE_H
     # Use precompute to get shared data
     pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                 line_spacing=line_spacing, level_gap=level_gap,
@@ -473,7 +480,8 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                                 font_family=font_family, sport=sport,
                                 title_prefix=title_prefix,
                                 header_size=header_size,
-                                divider_size=divider_size)
+                                divider_size=divider_size,
+                                page_h=_page_h)
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
@@ -504,7 +512,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
 
     if not levels:
         doc = fitz.open()
-        doc.new_page(width=PAGE_W, height=PAGE_H)
+        doc.new_page(width=PAGE_W, height=_page_h)
         doc.save(output_path)
         doc.close()
         return
@@ -513,7 +521,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     doc = fitz.open()
 
     for label, group_levels in page_groups:
-        page = doc.new_page(width=PAGE_W, height=PAGE_H)
+        page = doc.new_page(width=PAGE_W, height=_page_h)
 
         # Title lines (small caps)
         _draw_small_caps(page, PAGE_W / 2, p_title1_y,
@@ -538,7 +546,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         # Determine best font size for this page's content
         font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
                                     names_start_y=p_names_start,
-                                    divider_size=s_ds)
+                                    divider_size=s_ds, page_h=_page_h)
         line_height = font_size * lhr
 
         # Draw each level's names
@@ -567,7 +575,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
             y += max_names * line_height + 1
 
         # Copyright footer
-        _draw_copyright(page, text=s_copyright, font=s_freg)
+        _draw_copyright(page, text=s_copyright, font=s_freg, page_h=_page_h)
 
     doc.save(output_path)
     doc.close()
@@ -596,6 +604,19 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
     # Get division ordering for age-based sort
     div_order = detect_division_order(db_path, meet_name)
 
+    # Build AA score lookup for tie-breaking (higher AA = listed first)
+    aa_scores = {}
+    try:
+        cur.execute('''SELECT name, level, aa FROM results
+                       WHERE meet_name = ? AND aa IS NOT NULL AND aa > 0''',
+                    (meet_name,))
+        for name, level, aa in cur.fetchall():
+            key = (name, level)
+            if key not in aa_scores or aa > aa_scores[key]:
+                aa_scores[key] = aa
+    except Exception:
+        pass  # results table may not exist or have different schema
+
     data = {}
     for event in EVENT_KEYS:
         data[event] = {}
@@ -609,8 +630,14 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                 if name_sort == 'alpha':
                     rows.sort(key=lambda r: r[0])
                 else:
-                    # Sort by division age (youngest first), then name
-                    rows.sort(key=lambda r: (div_order.get(r[1], 99), r[0]))
+                    # Sort by: 1) division age (youngest first),
+                    #          2) AA score descending (highest first, no-AA last),
+                    #          3) name alphabetically
+                    rows.sort(key=lambda r: (
+                        div_order.get(r[1], 99),
+                        -(aa_scores.get((r[0], level), -1)),
+                        r[0]
+                    ))
                 data[event][level] = [r[0] for r in rows]
 
     conn.close()
@@ -706,7 +733,8 @@ def _fit_font_size(levels, data,
                    min_name_size=MIN_NAME_SIZE,
                    max_font_size=DEFAULT_NAME_SIZE,
                    names_start_y=NAMES_START_Y,
-                   divider_size=None):
+                   divider_size=None,
+                   page_h=None):
     """Find the largest font size that fits all levels on page.
 
     Uses multi-resolution search (like a B-tree index): tests at
@@ -714,7 +742,8 @@ def _fit_font_size(levels, data,
     of scanning every 0.1 increment linearly. Precise to 0.1pt.
     """
     ds = divider_size if divider_size is not None else LEVEL_DIVIDER_SIZE
-    available = (NAMES_BOTTOM_Y - names_start_y) * max_page_fill
+    _names_bottom = (page_h or PAGE_H) - 18
+    available = (_names_bottom - names_start_y) * max_page_fill
 
     def _total_height(size):
         lh = size * line_height_ratio
@@ -916,14 +945,15 @@ def _draw_star_polygon(page, cx, cy, outer_r, inner_r, color=RED):
     shape.commit()
 
 
-def _draw_copyright(page, text=None, font=None):
+def _draw_copyright(page, text=None, font=None, page_h=None):
     """Draw copyright footer at page bottom."""
     if text is None:
         text = DEFAULT_COPYRIGHT
     if font is None:
         font = FONT_REGULAR
+    _copyright_y = (page_h or PAGE_H) - 8
     tw = fitz.get_text_length(text, fontname=font, fontsize=COPYRIGHT_SIZE)
-    page.insert_text(fitz.Point(PAGE_W / 2 - tw / 2, COPYRIGHT_Y), text,
+    page.insert_text(fitz.Point(PAGE_W / 2 - tw / 2, _copyright_y), text,
                      fontname=font, fontsize=COPYRIGHT_SIZE, color=BLACK)
 
 
@@ -1016,7 +1046,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 copyright=None, accent_color=None,
                                 font_family=None, sport=None,
                                 title_prefix=None, header_size=None,
-                                divider_size=None):
+                                divider_size=None, page_h=None):
     """Generate a gym highlights version of the back-of-shirt PDF.
 
     For each gym (alphabetically), generates the same back-of-shirt pages
@@ -1025,6 +1055,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     Only includes pages that contain at least one of that gym's athletes.
     """
+    _page_h = page_h or PAGE_H
     # Reuse precompute for consistent grouping with generate_shirt_pdf
     pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                 line_spacing=line_spacing, level_gap=level_gap,
@@ -1039,7 +1070,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 font_family=font_family, sport=sport,
                                 title_prefix=title_prefix,
                                 header_size=header_size,
-                                divider_size=divider_size)
+                                divider_size=divider_size,
+                                page_h=_page_h)
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
@@ -1067,7 +1099,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     if not levels:
         doc = fitz.open()
-        doc.new_page(width=PAGE_W, height=PAGE_H)
+        doc.new_page(width=PAGE_W, height=_page_h)
         doc.save(output_path)
         doc.close()
         return
@@ -1112,7 +1144,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
             if not page_names.intersection(highlight_names):
                 continue
 
-            page = doc.new_page(width=PAGE_W, height=PAGE_H)
+            page = doc.new_page(width=PAGE_W, height=_page_h)
 
             # Title lines (small caps)
             _draw_small_caps(page, PAGE_W / 2, p_title1_y,
@@ -1141,7 +1173,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
             # Determine best font size (using shifted start position)
             font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill, mfs, mxfs,
-                                        names_start_y=gh_names_start, divider_size=s_ds)
+                                        names_start_y=gh_names_start, divider_size=s_ds,
+                                        page_h=_page_h)
             line_height = font_size * lhr
 
             # Draw each level's names with yellow highlighting
@@ -1167,7 +1200,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                         max_names = max(max_names, len(names))
                 y += max_names * line_height + 1
 
-            _draw_copyright(page, text=s_copyright, font=s_freg)
+            _draw_copyright(page, text=s_copyright, font=s_freg, page_h=_page_h)
 
     doc.save(output_path)
     doc.close()
@@ -1182,13 +1215,16 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
     annotations on that gym's athlete names.
     """
     shirt_doc = fitz.open(shirt_pdf_path)
+    # Read page dimensions from the source PDF (handles both letter and legal)
+    _src_w = shirt_doc[0].rect.width if len(shirt_doc) > 0 else PAGE_W
+    _src_h = shirt_doc[0].rect.height if len(shirt_doc) > 0 else PAGE_H
     name_to_gym = _get_winners_with_gym(db_path, meet_name)
     all_gyms = _get_all_winner_gyms(db_path, meet_name)
 
     if not all_gyms:
         shirt_doc.close()
         doc = fitz.open()
-        doc.new_page(width=PAGE_W, height=PAGE_H)
+        doc.new_page(width=_src_w, height=_src_h)
         doc.save(output_path)
         doc.close()
         return
@@ -1215,8 +1251,10 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             if not matched:
                 continue
 
-            # Copy the shirt page
-            page = doc.new_page(width=PAGE_W, height=PAGE_H)
+            # Copy the shirt page (using source dimensions)
+            src_page = shirt_doc[pi]
+            pw, ph = src_page.rect.width, src_page.rect.height
+            page = doc.new_page(width=pw, height=ph)
             page.show_pdf_page(page.rect, shirt_doc, pi)
 
             # Add yellow highlight annotations
@@ -1229,10 +1267,10 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             gym_display = gym.upper()
             gym_fs = 10
             tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
-            while tw > PAGE_W - 60 and gym_fs > 7:
+            while tw > pw - 60 and gym_fs > 7:
                 gym_fs -= 0.5
                 tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
-            page.insert_text(fitz.Point(PAGE_W / 2 - tw / 2, PAGE_H - 18),
+            page.insert_text(fitz.Point(pw / 2 - tw / 2, ph - 18),
                              gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
                              color=RED)
 
@@ -1256,7 +1294,8 @@ def add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name):
         if not hits:
             continue
 
-        page = doc.new_page(width=PAGE_W, height=PAGE_H)
+        pw, ph = src.rect.width, src.rect.height
+        page = doc.new_page(width=pw, height=ph)
         page.show_pdf_page(page.rect, shirt_doc, pi)
 
         for rect in hits:

@@ -254,15 +254,15 @@ def _get_page_anchors(element, page_offset):
     return anchors
 
 
-def _is_on_page(bounds):
+def _is_on_page(bounds, page_w=PAGE_W, page_h=PAGE_H):
     """Check if element bounds overlap the visible page area."""
     if not bounds:
         return False
     x1, y1, x2, y2 = bounds
     # Allow some margin for elements that slightly overhang
     margin = 20
-    return (x2 > -margin and x1 < PAGE_W + margin and
-            y2 > -margin and y1 < PAGE_H + margin)
+    return (x2 > -margin and x1 < page_w + margin and
+            y2 > -margin and y1 < page_h + margin)
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +519,6 @@ def _render_spread(doc, spread_xml, stories, colors, zf, para_styles=None,
                    obj_styles=None):
     """Parse a Spread XML and render all elements to a new PDF page."""
     root = ET.fromstring(spread_xml)
-    page = doc.new_page(width=PAGE_W, height=PAGE_H)
 
     # Find the Spread element
     spread_el = root.find('.//{*}Spread')
@@ -532,6 +531,18 @@ def _render_spread(doc, spread_xml, stories, colors, zf, para_styles=None,
     if spread_el is None:
         spread_el = root
 
+    # Auto-detect page dimensions from Page element's GeometricBounds
+    _page_w, _page_h = PAGE_W, PAGE_H
+    for child in spread_el:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag == 'Page':
+            gb = child.get('GeometricBounds', '').split()
+            if len(gb) == 4:
+                _page_h = float(gb[2])
+                _page_w = float(gb[3])
+            break
+
+    page = doc.new_page(width=_page_w, height=_page_h)
     page_offset = _get_page_offset(spread_el)
 
     # Collect small unfilled circles/ovals to defer until after text renders,
@@ -547,7 +558,7 @@ def _render_spread(doc, spread_xml, stories, colors, zf, para_styles=None,
 
         # Skip off-page elements (pasteboard)
         bounds = _get_page_bounds(child, page_offset)
-        if not _is_on_page(bounds):
+        if not _is_on_page(bounds, _page_w, _page_h):
             continue
 
         if tag == 'Rectangle':
@@ -1482,6 +1493,11 @@ def idml_to_pdf(idml_path: str, output_pdf_path: str) -> dict:
             spread_xml = zf.read(spread_file).decode('utf-8')
             _render_spread(doc, spread_xml, stories, colors, zf, para_styles,
                            obj_styles)
+
+        # Capture page dimensions from the first rendered page
+        if len(doc) > 0:
+            metadata['page_w'] = doc[0].rect.width
+            metadata['page_h'] = doc[0].rect.height
 
         doc.save(output_pdf_path)
         doc.close()

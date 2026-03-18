@@ -82,7 +82,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                         accent_color: str = None,
                         font_family: str = None,
                         header_size: float = None,
-                        divider_size: float = None):
+                        divider_size: float = None,
+                        page_h: int = None):
     """Generate back-of-shirt IDML file for InDesign.
 
     Uses the same data query, level grouping, and style params as the PDF
@@ -90,6 +91,7 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     """
     _reset_uid()
 
+    _page_h = page_h or PAGE_H
     pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                 line_spacing=line_spacing, level_gap=level_gap,
                                 max_fill=max_fill, max_font_size=max_font_size,
@@ -103,7 +105,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                                 accent_color=accent_color,
                                 font_family=font_family,
                                 header_size=header_size,
-                                divider_size=divider_size)
+                                divider_size=divider_size,
+                                page_h=_page_h)
 
     style = {
         'page_groups': pre['page_groups'],
@@ -127,7 +130,7 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     }
 
     _write_idml(output_path, year, state,
-                meet_name=meet_name, db_path=db_path, **style)
+                meet_name=meet_name, db_path=db_path, page_h=_page_h, **style)
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +149,16 @@ def _write_idml(output_path, year, state,
                 ds=LEVEL_DIVIDER_SIZE,
                 sport=None, prefix=None, copyright=None,
                 accent=RED,
-                font_bold=FONT_BOLD, font_regular=FONT_REGULAR):
+                font_bold=FONT_BOLD, font_regular=FONT_REGULAR,
+                page_h=None):
     """Build and write the IDML ZIP package."""
+    from functools import partial
+    _ph = page_h or PAGE_H
+    # Bind page_h into helper functions so callers don't repeat it
+    _tf = partial(_text_frame, page_h=_ph)
+    _ov = partial(_oval, page_h=_ph)
+    _gl = partial(_graphic_line, page_h=_ph)
+
     s_sport = sport or DEFAULT_SPORT
     s_prefix = prefix or DEFAULT_TITLE_PREFIX
     s_copyright = copyright or DEFAULT_COPYRIGHT
@@ -181,7 +192,8 @@ def _write_idml(output_path, year, state,
         frame_id = _uid()
         spread_xml = _build_spread(
             _uid(), _uid(), layer_id,
-            [_text_frame(frame_id, story_id, layer_id, 0, 0, PAGE_W, PAGE_H)]
+            [_tf(frame_id, story_id, layer_id, 0, 0, PAGE_W, _ph)],
+            page_h=_ph
         )
         spreads.append(spread_xml)
     else:
@@ -202,7 +214,7 @@ def _write_idml(output_path, year, state,
             frame_top = title1_y - t1l * 0.85
             frame_h = t1l * 1.4
             tf_id = _uid()
-            page_items.append(_text_frame(
+            page_items.append(_tf(
                 tf_id, s_id, layer_id, 0, frame_top, PAGE_W, frame_h,
                 v_just='CenterAlign'
             ))
@@ -218,7 +230,7 @@ def _write_idml(output_path, year, state,
             frame_top = title2_y - t2l * 0.85
             frame_h = t2l * 1.4
             tf_id = _uid()
-            page_items.append(_text_frame(
+            page_items.append(_tf(
                 tf_id, s_id, layer_id, 0, frame_top, PAGE_W, frame_h,
                 v_just='CenterAlign'
             ))
@@ -230,7 +242,7 @@ def _write_idml(output_path, year, state,
             oval_x = PAGE_W / 2 - oval_w / 2
             oval_top = oval_y - oval_h / 2
             oval_id = _uid()
-            page_items.append(_oval(
+            page_items.append(_ov(
                 oval_id, layer_id,
                 oval_x, oval_top, oval_w, oval_h,
                 fill_color=accent_ref
@@ -244,7 +256,7 @@ def _write_idml(output_path, year, state,
             ])
             stories.append((s_id, s_xml))
             tf_id = _uid()
-            page_items.append(_text_frame(
+            page_items.append(_tf(
                 tf_id, s_id, layer_id,
                 oval_x, oval_top, oval_w, oval_h,
                 v_just='CenterAlign'
@@ -266,7 +278,7 @@ def _write_idml(output_path, year, state,
                 ])
                 stories.append((s_id, s_xml))
                 tf_id = _uid()
-                page_items.append(_text_frame(
+                page_items.append(_tf(
                     tf_id, s_id, layer_id,
                     cx - col_frame_w / 2, hdr_top, col_frame_w, hdr_h,
                     v_just='CenterAlign'
@@ -275,7 +287,7 @@ def _write_idml(output_path, year, state,
                 # Header underline
                 approx_w = len(header) * hl * 0.52
                 line_id = _uid()
-                page_items.append(_graphic_line(
+                page_items.append(_gl(
                     line_id, layer_id,
                     cx - approx_w / 2, underline_y,
                     cx + approx_w / 2, underline_y,
@@ -289,6 +301,12 @@ def _write_idml(output_path, year, state,
                                         divider_size=ds)
             line_height = font_size * lhr
             y = names_start_y
+
+            # Pass 1: render dividers/lines and collect per-column paragraphs
+            # Each column accumulates all names across levels with spacing.
+            col_paras = [[] for _ in EVENT_KEYS]  # paragraphs per column
+            names_frame_top = None  # Y where names start (first level)
+            is_first_level = True
 
             for level in group_levels:
                 y += lgap
@@ -310,14 +328,13 @@ def _write_idml(output_path, year, state,
                 div_top = y - ds * 0.85
                 div_h = ds * 1.4
                 tf_id = _uid()
-                page_items.append(_text_frame(
+                page_items.append(_tf(
                     tf_id, s_id, layer_id, 0, div_top, PAGE_W, div_h,
                     v_just='CenterAlign'
                 ))
 
                 # Flanking lines
                 line_y_pos = y - ds * 0.35
-                # Approximate text width for spacing
                 approx_tw = len(spaced) * ds * 0.5
                 gap = 8
                 left_margin = 40
@@ -326,14 +343,14 @@ def _write_idml(output_path, year, state,
                 text_right = PAGE_W / 2 + approx_tw / 2
 
                 line_id = _uid()
-                page_items.append(_graphic_line(
+                page_items.append(_gl(
                     line_id, layer_id,
                     left_margin, line_y_pos,
                     text_left - gap, line_y_pos,
                     stroke_color=accent_ref, stroke_weight=0.75
                 ))
                 line_id = _uid()
-                page_items.append(_graphic_line(
+                page_items.append(_gl(
                     line_id, layer_id,
                     text_right + gap, line_y_pos,
                     right_margin, line_y_pos,
@@ -342,7 +359,10 @@ def _write_idml(output_path, year, state,
 
                 y += ds * 1.3
 
-                # Names section: one text frame per event column
+                if names_frame_top is None:
+                    names_frame_top = y
+
+                # Collect names for each event column
                 event_names = []
                 max_names = 0
                 for event in EVENT_KEYS:
@@ -351,26 +371,57 @@ def _write_idml(output_path, year, state,
                     max_names = max(max_names, len(names))
 
                 if max_names > 0:
-                    names_h = max_names * line_height + 2
+                    # Space before this level's names (gap for divider area)
+                    # For the first level, no extra space (frame starts here).
+                    # For subsequent levels, add spacing to bridge the divider gap.
+                    level_space = 0 if is_first_level else (lgap + ds * 1.3 + 1)
+
                     for col_idx, col_names in enumerate(event_names):
-                        if not col_names:
-                            continue
-                        cx = COL_CENTERS[col_idx]
-                        name_paras = [
-                            _para_plain('WinnerName', name, font_size,
-                                        fr_style, fr_family)
-                            for name in col_names
-                        ]
-                        s_id = _uid()
-                        s_xml = _build_story(s_id, name_paras)
-                        stories.append((s_id, s_xml))
-                        tf_id = _uid()
-                        page_items.append(_text_frame(
-                            tf_id, s_id, layer_id,
-                            cx - col_frame_w / 2, y, col_frame_w, names_h
-                        ))
+                        # Add names to this column's paragraph list
+                        for ni, name in enumerate(col_names):
+                            sb = level_space if ni == 0 else 0
+                            col_paras[col_idx].append(
+                                _para_plain('WinnerName', name, font_size,
+                                            fr_style, fr_family,
+                                            space_before=sb if sb > 0 else None)
+                            )
+
+                        # Pad shorter columns with empty paragraphs so levels align
+                        pad_count = max_names - len(col_names)
+                        if pad_count > 0 and not col_names:
+                            # Column has no names at this level — add one spacer
+                            # with the right spacing to keep alignment
+                            col_paras[col_idx].append(
+                                _para_plain('WinnerName', ' ', font_size,
+                                            fr_style, fr_family,
+                                            space_before=level_space if level_space > 0 else None)
+                            )
+                            pad_count -= 1
+                        for _ in range(pad_count):
+                            col_paras[col_idx].append(
+                                _para_plain('WinnerName', ' ', font_size,
+                                            fr_style, fr_family)
+                            )
 
                 y += max_names * line_height + 1
+                is_first_level = False
+
+            # Pass 2: create one text frame per column spanning all levels
+            names_frame_h = y - names_frame_top if names_frame_top else 0
+            if names_frame_top and names_frame_h > 0:
+                for col_idx, paras in enumerate(col_paras):
+                    if not paras:
+                        continue
+                    cx = COL_CENTERS[col_idx]
+                    s_id = _uid()
+                    s_xml = _build_story(s_id, paras)
+                    stories.append((s_id, s_xml))
+                    tf_id = _uid()
+                    page_items.append(_tf(
+                        tf_id, s_id, layer_id,
+                        cx - col_frame_w / 2, names_frame_top,
+                        col_frame_w, names_frame_h
+                    ))
 
             # --- Copyright ---
             s_id = _uid()
@@ -382,7 +433,7 @@ def _write_idml(output_path, year, state,
             cr_top = COPYRIGHT_Y - COPYRIGHT_SIZE
             cr_h = COPYRIGHT_SIZE * 2
             tf_id = _uid()
-            page_items.append(_text_frame(
+            page_items.append(_tf(
                 tf_id, s_id, layer_id, 0, cr_top, PAGE_W, cr_h,
                 v_just='CenterAlign'
             ))
@@ -390,7 +441,7 @@ def _write_idml(output_path, year, state,
             # Build spread for this page
             spread_id = _uid()
             page_id = _uid()
-            spread_xml = _build_spread(spread_id, page_id, layer_id, page_items)
+            spread_xml = _build_spread(spread_id, page_id, layer_id, page_items, page_h=_ph)
             spreads.append(spread_xml)
 
     # --- Metadata story (hidden on pasteboard, identifies the meet) ---
@@ -399,6 +450,7 @@ def _write_idml(output_path, year, state,
         'state': state,
         'year': year,
         'db_path': db_path,
+        'page_h': _ph,
     }, separators=(',', ':'))
     meta_story_id = _uid()
     meta_story_xml = _build_story(meta_story_id, [
@@ -408,7 +460,7 @@ def _write_idml(output_path, year, state,
     stories.append((meta_story_id, meta_story_xml))
     # Add a 1x1 text frame off-page (pasteboard) on the first spread
     meta_frame_id = _uid()
-    meta_frame = _text_frame(meta_frame_id, meta_story_id, layer_id,
+    meta_frame = _tf(meta_frame_id, meta_story_id, layer_id,
                               -200, -200, 1, 1)
     if spreads:
         # Insert the metadata frame into the first spread XML
@@ -431,7 +483,7 @@ def _write_idml(output_path, year, state,
     graphic_xml = _build_graphic(accent_name, ar, ag, ab)
     styles_xml = _build_styles(fb_family, fb_style, fr_family, fr_style,
                                ds, accent_ref)
-    preferences_xml = _build_preferences()
+    preferences_xml = _build_preferences(page_h=_ph)
     backing_story_xml = _build_backing_story()
     tags_xml = _build_tags()
     mapping_xml = _build_mapping()
@@ -504,11 +556,12 @@ def _append_br(para_xml):
 
 
 def _para_plain(style_name, text, point_size, font_style, font_family,
-                fill_color=None):
+                fill_color=None, space_before=None):
     """Build a plain text ParagraphStyleRange XML string."""
     esc_text = xml_escape(text)
     fc_attr = f' FillColor="{fill_color}"' if fill_color else ''
-    return f'''<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/{style_name}">
+    sb_attr = f' SpaceBefore="{_fmt_size(space_before)}"' if space_before else ''
+    return f'''<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/{style_name}"{sb_attr}>
       <CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"
         PointSize="{_fmt_size(point_size)}" FontStyle="{font_style}"{fc_attr}>
         <Properties>
@@ -566,21 +619,20 @@ def _fmt_size(size):
 # Spread / page item builders
 # ---------------------------------------------------------------------------
 
-def _build_spread(spread_id, page_id, layer_id, page_items):
-    """Build a Spread XML file for a single Letter page.
+def _build_spread(spread_id, page_id, layer_id, page_items, page_h=PAGE_H):
+    """Build a Spread XML file for a single page.
 
     IDML coordinate system: Y increases downward. Spread origin is at center
-    of spread. For a single Letter page, page ItemTransform shifts up by
-    half page height: "1 0 0 1 0 -{PAGE_H/2}".
+    of spread. Page ItemTransform shifts up by half page height.
     """
-    half_h = PAGE_H / 2  # 396
+    half_h = page_h / 2
     items_xml = '\n    '.join(page_items)
     return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <idPkg:Spread xmlns:idPkg="{_NS}" DOMVersion="8.0">
   <Spread Self="{spread_id}" FlattenerOverride="Default"
     AllowPageShuffle="true" ItemTransform="1 0 0 1 0 0"
     ShowMasterItems="true" PageCount="1" BindingLocation="0">
-    <Page Self="{page_id}" GeometricBounds="0 0 {PAGE_H} {PAGE_W}"
+    <Page Self="{page_id}" GeometricBounds="0 0 {page_h} {PAGE_W}"
       ItemTransform="1 0 0 1 0 -{half_h:.0f}" Name="1"
       AppliedTrapPreset="TrapPreset/$ID/kDefaultTrapStyleName"
       OverrideList="" AppliedMaster="n"
@@ -599,13 +651,13 @@ def _build_spread(spread_id, page_id, layer_id, page_items):
 
 
 def _text_frame(frame_id, story_id, layer_id, x, y, w, h,
-                v_just='TopAlign'):
+                v_just='TopAlign', page_h=PAGE_H):
     """Build a TextFrame XML element.
 
     Coordinates are in page space (origin at top-left of page).
     The ItemTransform shifts everything into spread coordinates.
     """
-    half_h = PAGE_H / 2
+    half_h = page_h / 2
     x1, y1 = x, y
     x2, y2 = x + w, y + h
     return f'''<TextFrame Self="{frame_id}" ParentStory="{story_id}"
@@ -643,13 +695,13 @@ def _text_frame(frame_id, story_id, layer_id, x, y, w, h,
     </TextFrame>'''
 
 
-def _oval(oval_id, layer_id, x, y, w, h, fill_color='Color/Black'):
+def _oval(oval_id, layer_id, x, y, w, h, fill_color='Color/Black', page_h=PAGE_H):
     """Build an Oval XML element using Bezier PathPointType.
 
     Uses the standard 4-point Bezier approximation for ellipses:
     control handle offset = radius * 0.5522847498
     """
-    half_h_page = PAGE_H / 2
+    half_h_page = page_h / 2
     x1, y1 = x, y
     x2, y2 = x + w, y + h
     cx = (x1 + x2) / 2
@@ -685,9 +737,9 @@ def _oval(oval_id, layer_id, x, y, w, h, fill_color='Color/Black'):
 
 
 def _graphic_line(line_id, layer_id, x1, y1, x2, y2,
-                  stroke_color='Color/Black', stroke_weight=1.0):
+                  stroke_color='Color/Black', stroke_weight=1.0, page_h=PAGE_H):
     """Build a GraphicLine XML element."""
-    half_h = PAGE_H / 2
+    half_h = page_h / 2
     return f'''<GraphicLine Self="{line_id}" ItemLayer="{layer_id}"
       ItemTransform="1 0 0 1 0 -{half_h:.0f}"
       StrokeWeight="{stroke_weight}" StrokeColor="{stroke_color}"
@@ -962,12 +1014,12 @@ def _build_styles(fb_family, fb_style, fr_family, fr_style,
 
 
 
-def _build_preferences():
-    """Build Resources/Preferences.xml for Letter page."""
+def _build_preferences(page_h=PAGE_H):
+    """Build Resources/Preferences.xml."""
     return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <idPkg:Preferences xmlns:idPkg="{_NS}" DOMVersion="8.0">
   <DocumentPreference Self="d-DocumentPreference1"
-    PageHeight="{PAGE_H}" PageWidth="{PAGE_W}" PagesPerDocument="1"
+    PageHeight="{page_h}" PageWidth="{PAGE_W}" PagesPerDocument="1"
     FacingPages="false" DocumentBleedTopOffset="0"
     DocumentBleedBottomOffset="0" DocumentBleedInsideOrLeftOffset="0"
     DocumentBleedOutsideOrRightOffset="0" DocumentBleedUniformSize="true"

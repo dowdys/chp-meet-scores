@@ -6,6 +6,7 @@ then for each athlete, copies the template page and adds athlete-specific
 fields (sticker label with name, events, gym).
 """
 
+import math
 import os
 import sys
 import sqlite3
@@ -141,15 +142,27 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     doc.close()
 
 
+def _draw_star(page, cx, cy, outer_r, inner_r, color=RED):
+    """Draw a filled 5-pointed star polygon."""
+    points = []
+    for i in range(10):
+        angle = math.radians(90 + i * 36)
+        r = outer_r if i % 2 == 0 else inner_r
+        x = cx + r * math.cos(angle)
+        y = cy - r * math.sin(angle)
+        points.append(fitz.Point(x, y))
+    shape = page.new_shape()
+    shape.draw_polyline(points + [points[0]])
+    shape.finish(fill=color, color=color)
+    shape.commit()
+
+
 def _add_athlete_label(page, athlete_name, gym, level_events):
     """Add athlete-specific sticker label to the order form page.
 
-    Places the athlete name, events, and gym name in the blank area
-    between the subtitle and the accomplishment line.
-    Three lines, centered:
-      1. Athlete name — bold, larger font
-      2. Events — regular, smaller font
-      3. Gym name — italic, smaller font
+    Two lines centered in the white space, flanked by big red stars:
+      ★  Name - Event1, Event2  ★
+              Gym Name
     """
     # Collect all events across all levels (deduplicated, ordered)
     all_events = []
@@ -167,41 +180,40 @@ def _add_athlete_label(page, athlete_name, gym, level_events):
     # font identity after show_pdf_page() overlay.
     font_bold = fitz.Font('tibo')     # Times Bold
     font_regular = fitz.Font('tiro')  # Times Roman
-    font_italic = fitz.Font('tiit')   # Times Italic
 
-    fs_name = 16
-    fs_detail = 11
+    # Line 1: "Name - Event1, Event2" in bold
+    label_line1 = f'{athlete_name} - {events_str}'
+    fs1 = 12
+    tw1 = font_bold.text_length(label_line1, fontsize=fs1)
+    if tw1 > PAGE_W - 180:
+        fs1 = 10
+        tw1 = font_bold.text_length(label_line1, fontsize=fs1)
 
-    # Check if name is too wide and shrink if needed
-    tw_name = font_bold.text_length(athlete_name, fontsize=fs_name)
-    if tw_name > PAGE_W - 160:
-        fs_name = 14
-        tw_name = font_bold.text_length(athlete_name, fontsize=fs_name)
+    # Vertical centering: white space y≈122 to y≈178
+    y_line1 = 143
+    y_line2 = 159
 
-    # Vertical centering: white space runs y≈120 to y≈178.
-    y_name = 137
-    y_events = 153
-    y_gym = 168
-
-    # Line 1: Athlete name — bold, 16pt
+    x_text = PAGE_W / 2 - tw1 / 2
     writer = fitz.TextWriter(page.rect)
-    writer.append(fitz.Point(PAGE_W / 2 - tw_name / 2, y_name),
-                  athlete_name, font=font_bold, fontsize=fs_name)
+    writer.append(fitz.Point(x_text, y_line1),
+                  label_line1, font=font_bold, fontsize=fs1)
     writer.write_text(page, color=BLACK)
 
-    # Line 2: Events — regular, 11pt
-    tw_ev = font_regular.text_length(events_str, fontsize=fs_detail)
+    # Line 2: Gym name, regular weight
+    tw2 = font_regular.text_length(gym, fontsize=12)
     writer2 = fitz.TextWriter(page.rect)
-    writer2.append(fitz.Point(PAGE_W / 2 - tw_ev / 2, y_events),
-                   events_str, font=font_regular, fontsize=fs_detail)
+    writer2.append(fitz.Point(PAGE_W / 2 - tw2 / 2, y_line2),
+                   gym, font=font_regular, fontsize=12)
     writer2.write_text(page, color=BLACK)
 
-    # Line 3: Gym name — italic, 11pt
-    tw_gym = font_italic.text_length(gym, fontsize=fs_detail)
-    writer3 = fitz.TextWriter(page.rect)
-    writer3.append(fitz.Point(PAGE_W / 2 - tw_gym / 2, y_gym),
-                   gym, font=font_italic, fontsize=fs_detail)
-    writer3.write_text(page, color=BLACK)
+    # Big red stars on both sides — spanning both lines vertically
+    star_r = 12  # outer radius — big enough to span both lines + extra
+    star_cy = (y_line1 + y_line2) / 2 - 3  # vertically centered between lines
+    star_gap = 6  # gap between star and text
+    _draw_star(page, x_text - star_gap - star_r, star_cy,
+               star_r, star_r * 0.4, color=RED)
+    _draw_star(page, x_text + tw1 + star_gap + star_r, star_cy,
+               star_r, star_r * 0.4, color=RED)
 
 
 def _extract_state(meet_name: str) -> str:

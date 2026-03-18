@@ -12,7 +12,9 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 
 # --- Early-exit helper modes (before heavy imports) ---
 # These let the bundled binary serve as a general Python runner for the agent.
@@ -67,6 +69,41 @@ from python.adapters.html_adapter import HtmlAdapter
 from python.adapters.pdf_adapter import PdfAdapter
 from python.adapters.generic_adapter import GenericAdapter
 from python.core.division_detector import get_division_order
+
+
+def _tmp_path_for(output_path):
+    """Create a temp file path in the same directory as output_path."""
+    dir_name = os.path.dirname(output_path) or '.'
+    _, ext = os.path.splitext(output_path)
+    fd, tmp = tempfile.mkstemp(suffix=ext, dir=dir_name)
+    os.close(fd)
+    return tmp
+
+
+def _safe_move(tmp_path, final_path):
+    """Move tmp_path → final_path, handling Windows file-locking gracefully.
+
+    If the target is locked (open in a PDF viewer), saves as <name>_NEW.<ext>
+    so the user's work is never lost. Returns the actual path used.
+    """
+    try:
+        os.replace(tmp_path, final_path)
+        return final_path
+    except PermissionError:
+        dir_name = os.path.dirname(final_path)
+        base, ext = os.path.splitext(os.path.basename(final_path))
+        new_path = os.path.join(dir_name, f'{base}_NEW{ext}')
+        # Remove stale _NEW file if it exists
+        if os.path.exists(new_path):
+            try:
+                os.remove(new_path)
+            except OSError:
+                pass
+        os.replace(tmp_path, new_path)
+        print(f"WARNING: {os.path.basename(final_path)} is open in another app. "
+              f"Saved as {os.path.basename(new_path)} instead — close the original "
+              f"and rename when ready.")
+        return new_path
 
 
 def main():
@@ -158,6 +195,11 @@ def main():
                         help='Skip parsing/DB build and regenerate specific outputs from existing DB. '
                              'Values: shirt, idml, order_forms, gym_highlights, summary, all. '
                              'E.g. --regenerate shirt  or  --regenerate all')
+    parser.add_argument('--page-size', default='letter',
+                        choices=['letter', 'legal'],
+                        help='Page size: "letter" (8.5x11) or "legal" (8.5x14). '
+                             'When "legal", generates both sizes: 8.5x11 for order forms '
+                             'and 8.5x14 for gym highlights.')
     parser.add_argument('--import-idml', default=None,
                         help='Import a finalized IDML file (edited in InDesign) and convert it to '
                              'the definitive back_of_shirt.pdf. Regenerates order forms and gym '
@@ -239,11 +281,23 @@ def main():
             print(f"Error: IDML file not found: {args.import_idml}")
             sys.exit(1)
 
-        pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
         print(f"Importing IDML: {args.import_idml}")
-        # Metadata was already read earlier for state/meet/year fallback
-        metadata = idml_to_pdf(args.import_idml, pdf_path)
-        print(f"Generated {pdf_path}")
+        # Generate to temp first, then detect page size
+        _tmp_import = os.path.join(args.output, '_import_tmp.pdf')
+        metadata = idml_to_pdf(args.import_idml, _tmp_import)
+        imported_page_h = metadata.get('page_h', 792)
+        is_legal_import = imported_page_h > 800  # 1008 for legal vs 792 for letter
+
+        if is_legal_import:
+            # Legal-size IDML → save as back_of_shirt_8.5x14.pdf
+            pdf_path = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
+            os.replace(_tmp_import, pdf_path)
+            print(f"Generated {pdf_path} (8.5x14 legal)")
+        else:
+            # Standard letter-size IDML → save as back_of_shirt.pdf
+            pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
+            os.replace(_tmp_import, pdf_path)
+            print(f"Generated {pdf_path}")
 
         # Regenerate order forms and gym highlights using the existing DB
         # Verify the meet actually has data in the DB
@@ -292,26 +346,32 @@ def main():
             # Gym highlights — overlay on the IDML-generated shirt PDF
             try:
                 gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+                tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_from_pdf(pdf_path, db_path,
-                                                 config.meet_name,
-                                                 gym_highlights_path)
-                print(f"Generated {gym_highlights_path}")
+                                                 config.meet_name, tmp)
+                actual = _safe_move(tmp, gym_highlights_path)
+                print(f"Generated {actual}")
             except Exception as e:
                 print(f"ERROR generating gym_highlights.pdf: {e}")
                 errors.append(('gym_highlights', str(e)))
 
-            # Order forms — back pages overlay on the shirt PDF
+            # Order forms — always use 8.5x11 back_of_shirt.pdf for back pages
+            # (even when importing a legal-size IDML)
+            _letter_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
+            _order_shirt = _letter_shirt if os.path.exists(_letter_shirt) else pdf_path
             try:
                 order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
-                generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
+                tmp = _tmp_path_for(order_pdf_path)
+                generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                          year=args.year, state=args.state,
                                          state_abbrev=args.state_abbrev,
                                          postmark_date=args.postmark_date,
                                          online_date=args.online_date,
                                          ship_date=args.ship_date,
                                          name_sort=args.name_sort,
-                                         shirt_pdf_path=pdf_path)
-                print(f"Generated {order_pdf_path}")
+                                         shirt_pdf_path=_order_shirt)
+                actual = _safe_move(tmp, order_pdf_path)
+                print(f"Generated {actual}")
             except Exception as e:
                 print(f"ERROR generating order_forms.pdf: {e}")
                 errors.append(('order_forms', str(e)))
@@ -366,7 +426,11 @@ def main():
         # --regenerate with no values means 'all'
         if len(regen) == 0:
             regen = ['all']
-        regen_set = set(regen)
+        # Support comma-separated values: --regenerate order_forms,gym_highlights
+        expanded = []
+        for item in regen:
+            expanded.extend(item.split(','))
+        regen_set = set(expanded)
         do_all = 'all' in regen_set
 
         if not os.path.exists(db_path):
@@ -448,7 +512,8 @@ def main():
                      'title1_size', 'title2_size', 'level_groups',
                      'exclude_levels',
                      'copyright', 'accent_color', 'font_family',
-                     'sport', 'title_prefix', 'header_size', 'divider_size']
+                     'sport', 'title_prefix', 'header_size', 'divider_size',
+                     'page_size']
     for param in LAYOUT_PARAMS:
         cli_val = getattr(args, param)
         if cli_val is None and param in saved_layout:
@@ -480,7 +545,8 @@ def main():
     if do_all or 'shirt' in regen_set:
         try:
             pdf_path = os.path.join(args.output, 'back_of_shirt.pdf')
-            generate_shirt_pdf(db_path, config.meet_name, pdf_path,
+            tmp = _tmp_path_for(pdf_path)
+            generate_shirt_pdf(db_path, config.meet_name, tmp,
                                year=args.year, state=args.state,
                                line_spacing=args.line_spacing,
                                level_gap=args.level_gap,
@@ -500,7 +566,8 @@ def main():
                                title_prefix=args.title_prefix,
                                header_size=args.header_size,
                                divider_size=args.divider_size)
-            print(f"Generated {pdf_path}")
+            actual = _safe_move(tmp, pdf_path)
+            print(f"Generated {actual}")
             # Save effective layout params so future runs reuse them
             effective_layout = {}
             for param in LAYOUT_PARAMS:
@@ -512,6 +579,39 @@ def main():
         except Exception as e:
             print(f"ERROR generating back_of_shirt.pdf: {e}")
             errors.append(('shirt', str(e)))
+
+        # When --page-size legal, also generate 8.5x14 versions
+        if args.page_size == 'legal':
+            from python.core.pdf_generator import PAGE_H_LEGAL
+            try:
+                legal_pdf = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
+                tmp = _tmp_path_for(legal_pdf)
+                generate_shirt_pdf(db_path, config.meet_name, tmp,
+                                   year=args.year, state=args.state,
+                                   line_spacing=args.line_spacing,
+                                   level_gap=args.level_gap,
+                                   max_fill=args.max_fill,
+                                   min_font_size=args.min_font_size,
+                                   max_font_size=args.max_font_size,
+                                   name_sort=args.name_sort,
+                                   max_shirt_pages=args.max_shirt_pages,
+                                   title1_size=args.title1_size,
+                                   title2_size=args.title2_size,
+                                   level_groups=args.level_groups,
+                                   exclude_levels=args.exclude_levels,
+                                   copyright=args.copyright,
+                                   accent_color=args.accent_color,
+                                   font_family=args.font_family,
+                                   sport=args.sport,
+                                   title_prefix=args.title_prefix,
+                                   header_size=args.header_size,
+                                   divider_size=args.divider_size,
+                                   page_h=PAGE_H_LEGAL)
+                actual = _safe_move(tmp, legal_pdf)
+                print(f"Generated {actual} (8.5x14)")
+            except Exception as e:
+                print(f"ERROR generating back_of_shirt_8.5x14.pdf: {e}")
+                errors.append(('shirt_legal', str(e)))
 
     # ICML generation removed — only generated on explicit --regenerate icml request
     if 'icml' in regen_set:
@@ -570,13 +670,45 @@ def main():
             print(f"ERROR generating back_of_shirt.idml: {e}")
             errors.append(('idml', str(e)))
 
+        # When --page-size legal, also generate 8.5x14 IDML
+        if args.page_size == 'legal':
+            from python.core.pdf_generator import PAGE_H_LEGAL
+            try:
+                legal_idml = os.path.join(args.output, 'back_of_shirt_8.5x14.idml')
+                generate_shirt_idml(db_path, config.meet_name, legal_idml,
+                                    year=args.year, state=args.state,
+                                    line_spacing=args.line_spacing,
+                                    level_gap=args.level_gap,
+                                    max_fill=args.max_fill,
+                                    min_font_size=args.min_font_size,
+                                    max_font_size=args.max_font_size,
+                                    name_sort=args.name_sort,
+                                    max_shirt_pages=args.max_shirt_pages,
+                                    title1_size=args.title1_size,
+                                    title2_size=args.title2_size,
+                                    level_groups=args.level_groups,
+                                    exclude_levels=args.exclude_levels,
+                                    copyright=args.copyright,
+                                    sport=args.sport,
+                                    title_prefix=args.title_prefix,
+                                    accent_color=args.accent_color,
+                                    font_family=args.font_family,
+                                    header_size=args.header_size,
+                                    divider_size=args.divider_size,
+                                    page_h=PAGE_H_LEGAL)
+                print(f"Generated {legal_idml} (8.5x14)")
+            except Exception as e:
+                print(f"ERROR generating back_of_shirt_8.5x14.idml: {e}")
+                errors.append(('idml_legal', str(e)))
+
     if do_all or 'order_forms' in regen_set:
         try:
             order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
             # Use existing back_of_shirt.pdf for back pages so IDML edits are preserved
             existing_shirt_pdf = os.path.join(args.output, 'back_of_shirt.pdf')
             _shirt_path = existing_shirt_pdf if os.path.exists(existing_shirt_pdf) else None
-            generate_order_forms_pdf(db_path, config.meet_name, order_pdf_path,
+            tmp = _tmp_path_for(order_pdf_path)
+            generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                      year=args.year, state=args.state,
                                      state_abbrev=args.state_abbrev,
                                      postmark_date=args.postmark_date,
@@ -601,7 +733,8 @@ def main():
                                      header_size=args.header_size,
                                      divider_size=args.divider_size,
                                      shirt_pdf_path=_shirt_path)
-            print(f"Generated {order_pdf_path}")
+            actual = _safe_move(tmp, order_pdf_path)
+            print(f"Generated {actual}")
         except Exception as e:
             print(f"ERROR generating order_forms.pdf: {e}")
             errors.append(('order_forms', str(e)))
@@ -609,27 +742,38 @@ def main():
     if do_all or 'gym_highlights' in regen_set:
         try:
             gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-            generate_gym_highlights_pdf(db_path, config.meet_name, gym_highlights_path,
-                                        year=args.year, state=args.state,
-                                        line_spacing=args.line_spacing,
-                                        level_gap=args.level_gap,
-                                        max_fill=args.max_fill,
-                                        min_font_size=args.min_font_size,
-                                        max_font_size=args.max_font_size,
-                                        name_sort=args.name_sort,
-                                        max_shirt_pages=args.max_shirt_pages,
-                                        title1_size=args.title1_size,
-                                        title2_size=args.title2_size,
-                                        level_groups=args.level_groups,
-                                        exclude_levels=args.exclude_levels,
-                                        copyright=args.copyright,
-                                        accent_color=args.accent_color,
-                                        font_family=args.font_family,
-                                        sport=args.sport,
-                                        title_prefix=args.title_prefix,
-                                        header_size=args.header_size,
-                                        divider_size=args.divider_size)
-            print(f"Generated {gym_highlights_path}")
+            # Use 8.5x14 back_of_shirt if available (overlay approach)
+            legal_shirt = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
+            if os.path.exists(legal_shirt):
+                tmp = _tmp_path_for(gym_highlights_path)
+                generate_gym_highlights_from_pdf(legal_shirt, db_path,
+                                                 config.meet_name, tmp)
+                actual = _safe_move(tmp, gym_highlights_path)
+                print(f"Generated {actual} (from 8.5x14)")
+            else:
+                tmp = _tmp_path_for(gym_highlights_path)
+                generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
+                                            year=args.year, state=args.state,
+                                            line_spacing=args.line_spacing,
+                                            level_gap=args.level_gap,
+                                            max_fill=args.max_fill,
+                                            min_font_size=args.min_font_size,
+                                            max_font_size=args.max_font_size,
+                                            name_sort=args.name_sort,
+                                            max_shirt_pages=args.max_shirt_pages,
+                                            title1_size=args.title1_size,
+                                            title2_size=args.title2_size,
+                                            level_groups=args.level_groups,
+                                            exclude_levels=args.exclude_levels,
+                                            copyright=args.copyright,
+                                            accent_color=args.accent_color,
+                                            font_family=args.font_family,
+                                            sport=args.sport,
+                                            title_prefix=args.title_prefix,
+                                            header_size=args.header_size,
+                                            divider_size=args.divider_size)
+                actual = _safe_move(tmp, gym_highlights_path)
+                print(f"Generated {actual}")
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
             errors.append(('gym_highlights', str(e)))
