@@ -197,9 +197,13 @@ def main():
                              'E.g. --regenerate shirt  or  --regenerate all')
     parser.add_argument('--page-size', default='letter',
                         choices=['letter', 'legal'],
-                        help='Page size: "letter" (8.5x11) or "legal" (8.5x14). '
-                             'When "legal", generates both sizes: 8.5x11 for order forms '
-                             'and 8.5x14 for gym highlights.')
+                        help='Default page size for all page groups: "letter" or "legal".')
+    parser.add_argument('--page-size-legal', nargs='*', default=None,
+                        help='Page groups to generate at 8.5x14 IN ADDITION to 8.5x11. '
+                             'E.g. --page-size-legal "XCEL" or --page-size-legal "LEVELS 3-10". '
+                             'Matches against the oval label text on each page group. '
+                             'Always generates 8.5x11 for all groups; this adds 8.5x14 '
+                             'for the specified groups only.')
     parser.add_argument('--import-idml', default=None,
                         help='Import a finalized IDML file (edited in InDesign) and convert it to '
                              'the definitive back_of_shirt.pdf. Regenerates order forms and gym '
@@ -580,9 +584,13 @@ def main():
             print(f"ERROR generating back_of_shirt.pdf: {e}")
             errors.append(('shirt', str(e)))
 
-        # When --page-size legal, also generate 8.5x14 versions
-        if args.page_size == 'legal':
+        # Generate 8.5x14 versions for specified page groups
+        _legal_groups = args.page_size_legal
+        if args.page_size == 'legal' and not _legal_groups:
+            _legal_groups = ['']  # empty string matches all groups
+        if _legal_groups:
             from python.core.pdf_generator import PAGE_H_LEGAL
+            _filter = _legal_groups if any(_legal_groups) else None
             try:
                 legal_pdf = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
                 tmp = _tmp_path_for(legal_pdf)
@@ -606,7 +614,8 @@ def main():
                                    title_prefix=args.title_prefix,
                                    header_size=args.header_size,
                                    divider_size=args.divider_size,
-                                   page_h=PAGE_H_LEGAL)
+                                   page_h=PAGE_H_LEGAL,
+                                   page_group_filter=_filter)
                 actual = _safe_move(tmp, legal_pdf)
                 print(f"Generated {actual} (8.5x14)")
             except Exception as e:
@@ -670,9 +679,10 @@ def main():
             print(f"ERROR generating back_of_shirt.idml: {e}")
             errors.append(('idml', str(e)))
 
-        # When --page-size legal, also generate 8.5x14 IDML
-        if args.page_size == 'legal':
+        # Generate 8.5x14 IDML for specified page groups
+        if _legal_groups:
             from python.core.pdf_generator import PAGE_H_LEGAL
+            _filter = _legal_groups if any(_legal_groups) else None
             try:
                 legal_idml = os.path.join(args.output, 'back_of_shirt_8.5x14.idml')
                 generate_shirt_idml(db_path, config.meet_name, legal_idml,
@@ -695,7 +705,8 @@ def main():
                                     font_family=args.font_family,
                                     header_size=args.header_size,
                                     divider_size=args.divider_size,
-                                    page_h=PAGE_H_LEGAL)
+                                    page_h=PAGE_H_LEGAL,
+                                    page_group_filter=_filter)
                 print(f"Generated {legal_idml} (8.5x14)")
             except Exception as e:
                 print(f"ERROR generating back_of_shirt_8.5x14.idml: {e}")
@@ -740,16 +751,18 @@ def main():
             errors.append(('order_forms', str(e)))
 
     if do_all or 'gym_highlights' in regen_set:
+        # Always generate gym highlights from the 8.5x11 back_of_shirt
+        letter_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
+        legal_shirt = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
+
         try:
             gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-            # Use 8.5x14 back_of_shirt if available (overlay approach)
-            legal_shirt = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
-            if os.path.exists(legal_shirt):
+            if os.path.exists(letter_shirt):
                 tmp = _tmp_path_for(gym_highlights_path)
-                generate_gym_highlights_from_pdf(legal_shirt, db_path,
+                generate_gym_highlights_from_pdf(letter_shirt, db_path,
                                                  config.meet_name, tmp)
                 actual = _safe_move(tmp, gym_highlights_path)
-                print(f"Generated {actual} (from 8.5x14)")
+                print(f"Generated {actual}")
             else:
                 tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
@@ -777,6 +790,19 @@ def main():
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
             errors.append(('gym_highlights', str(e)))
+
+        # Also generate 8.5x14 gym highlights if legal back exists
+        if os.path.exists(legal_shirt):
+            try:
+                gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
+                tmp = _tmp_path_for(gh_legal_path)
+                generate_gym_highlights_from_pdf(legal_shirt, db_path,
+                                                 config.meet_name, tmp)
+                actual = _safe_move(tmp, gh_legal_path)
+                print(f"Generated {actual} (8.5x14)")
+            except Exception as e:
+                print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
+                errors.append(('gym_highlights_legal', str(e)))
 
     if do_all or 'summary' in regen_set:
         try:

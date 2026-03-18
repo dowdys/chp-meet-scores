@@ -638,10 +638,17 @@ def _draw_line(page, element, colors, page_offset):
     stroke_type = element.get('StrokeType', '')
 
     if 'Dashed' in stroke_type:
+        # Read actual dash pattern from IDML (e.g. "10 4" or "2 3")
+        dash_gap = element.get('StrokeDashAndGap', '6 4')
+        parts = dash_gap.split()
+        if len(parts) >= 2:
+            dash_str = f'[{parts[0]} {parts[1]}]'
+        else:
+            dash_str = '[6 4]'
         shape = page.new_shape()
         for i in range(len(anchors) - 1):
             shape.draw_line(fitz.Point(anchors[i]), fitz.Point(anchors[i + 1]))
-        shape.finish(color=stroke, width=stroke_w, dashes="[6 4]")
+        shape.finish(color=stroke, width=stroke_w, dashes=dash_str)
         shape.commit()
     else:
         for i in range(len(anchors) - 1):
@@ -720,6 +727,10 @@ def _draw_placed_image(page, container_el, image_el, page_offset, zf):
         return
     rect = fitz.Rect(*bounds)
 
+    # Detect 180° flip from container transform (negative scale on both axes)
+    tf = _parse_transform(container_el.get('ItemTransform', '1 0 0 1 0 0'))
+    rotate = 180 if (tf[0] < 0 and tf[3] < 0) else 0
+
     link_el = image_el.find('.//Link')
     if link_el is None:
         return
@@ -741,7 +752,7 @@ def _draw_placed_image(page, container_el, image_el, page_offset, zf):
             return
         try:
             image_data = base64.b64decode(contents_el.text)
-            page.insert_image(rect, stream=image_data)
+            page.insert_image(rect, stream=image_data, rotate=rotate)
         except Exception:
             pass
     else:
@@ -752,7 +763,7 @@ def _draw_placed_image(page, container_el, image_el, page_offset, zf):
             candidate = os.path.join(search_dir, filename)
             if os.path.exists(candidate):
                 try:
-                    page.insert_image(rect, filename=candidate)
+                    page.insert_image(rect, filename=candidate, rotate=rotate)
                 except Exception:
                     pass
                 return

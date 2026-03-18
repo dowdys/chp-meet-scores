@@ -83,7 +83,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                         font_family: str = None,
                         header_size: float = None,
                         divider_size: float = None,
-                        page_h: int = None):
+                        page_h: int = None,
+                        page_group_filter: list = None):
     """Generate back-of-shirt IDML file for InDesign.
 
     Uses the same data query, level grouping, and style params as the PDF
@@ -130,7 +131,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     }
 
     _write_idml(output_path, year, state,
-                meet_name=meet_name, db_path=db_path, page_h=_page_h, **style)
+                meet_name=meet_name, db_path=db_path, page_h=_page_h,
+                page_group_filter=page_group_filter, **style)
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +152,7 @@ def _write_idml(output_path, year, state,
                 sport=None, prefix=None, copyright=None,
                 accent=RED,
                 font_bold=FONT_BOLD, font_regular=FONT_REGULAR,
-                page_h=None):
+                page_h=None, page_group_filter=None):
     """Build and write the IDML ZIP package."""
     from functools import partial
     _ph = page_h or PAGE_H
@@ -198,6 +200,10 @@ def _write_idml(output_path, year, state,
         spreads.append(spread_xml)
     else:
         for label, group_levels in page_groups:
+            # Filter page groups when generating legal-size subset
+            if page_group_filter is not None:
+                if not any(f.upper() in label.upper() for f in page_group_filter):
+                    continue
             page_stories = []
             page_items = []
 

@@ -463,7 +463,8 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        copyright: str = None, accent_color: str = None,
                        font_family: str = None, sport: str = None,
                        title_prefix: str = None, header_size: float = None,
-                       divider_size: float = None, page_h: int = None):
+                       divider_size: float = None, page_h: int = None,
+                       page_group_filter: list = None):
     """Generate enhanced back-of-shirt PDF."""
     _page_h = page_h or PAGE_H
     # Use precompute to get shared data
@@ -521,6 +522,10 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     doc = fitz.open()
 
     for label, group_levels in page_groups:
+        # Filter page groups when generating legal-size subset
+        if page_group_filter is not None:
+            if not any(f.upper() in label.upper() for f in page_group_filter):
+                continue
         page = doc.new_page(width=PAGE_W, height=_page_h)
 
         # Title lines (small caps)
@@ -604,25 +609,33 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
     # Get division ordering for age-based sort
     div_order = detect_division_order(db_path, meet_name)
 
-    # Build AA score lookup for tie-breaking (higher AA = listed first)
+    # Build AA score lookup keyed by (name, level, session) for tie-breaking.
+    # AA tie-breaking only applies within the same division+session.
     aa_scores = {}
     try:
-        cur.execute('''SELECT name, level, aa FROM results
+        cur.execute('''SELECT name, level, session, aa FROM results
                        WHERE meet_name = ? AND aa IS NOT NULL AND aa > 0''',
                     (meet_name,))
-        for name, level, aa in cur.fetchall():
-            key = (name, level)
+        for name, level, session, aa in cur.fetchall():
+            key = (name, level, session)
             if key not in aa_scores or aa > aa_scores[key]:
                 aa_scores[key] = aa
     except Exception:
         pass  # results table may not exist or have different schema
 
+    # Helper to parse session as int for sorting (fall back to string)
+    def _session_sort_key(s):
+        try:
+            return (0, int(s))
+        except (ValueError, TypeError):
+            return (1, s or '')
+
     data = {}
     for event in EVENT_KEYS:
         data[event] = {}
         for level in levels:
-            # Get names with their division for sorting
-            cur.execute('''SELECT DISTINCT name, division FROM winners
+            # Get names with their division AND session for sorting
+            cur.execute('''SELECT DISTINCT name, division, session FROM winners
                           WHERE meet_name = ? AND event = ? AND level = ?''',
                         (meet_name, event, level))
             rows = cur.fetchall()
@@ -631,11 +644,14 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                     rows.sort(key=lambda r: r[0])
                 else:
                     # Sort by: 1) division age (youngest first),
-                    #          2) AA score descending (highest first, no-AA last),
-                    #          3) name alphabetically
+                    #          2) session ascending,
+                    #          3) AA score descending (only meaningful within
+                    #             same division+session for tie-breaking),
+                    #          4) name alphabetically
                     rows.sort(key=lambda r: (
                         div_order.get(r[1], 99),
-                        -(aa_scores.get((r[0], level), -1)),
+                        _session_sort_key(r[2]),
+                        -(aa_scores.get((r[0], level, r[2]), -1)),
                         r[0]
                     ))
                 data[event][level] = [r[0] for r in rows]
