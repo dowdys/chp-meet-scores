@@ -15,12 +15,16 @@ def _score_division(name: str) -> int:
     """Assign a numeric sort score to a division name.
 
     Age-group pattern scoring (youngest → oldest):
-        Child/CH*       -> 100 range
+        Younger/Young   -> 100 range
+        Child/CH*       -> 150 range
         Youth/YTH*      -> 200 range
+        Middle          -> 250 range
         Junior/JR*      -> 300 range
         Senior/SR*      -> 400 range
+        Older/Old       -> 450 range
+        ALL             -> 900 (catch-all, sorts last)
 
-    Sub-letter A-D adds 1-4 within each group (e.g. "Child A" = 101).
+    Sub-letter A-D adds 1-4 within each group (e.g. "Child A" = 151).
     Bare full names without a letter get offset 5 (after lettered).
     Bare abbreviations without a letter get offset 0 (before lettered).
 
@@ -36,6 +40,10 @@ def _score_division(name: str) -> int:
     if not upper:
         return 999
 
+    # "ALL" — everyone competed together, sorts last
+    if upper == 'ALL':
+        return 900
+
     # Pure numeric division (e.g. "1", "2", "3")
     if re.match(r'^\d+$', upper):
         return 50 + int(upper)
@@ -44,25 +52,34 @@ def _score_division(name: str) -> int:
     if re.match(r'^[A-Z]$', upper):
         return 10 + (ord(upper) - ord('A') + 1)
 
-    # Try to extract a trailing letter (A-D)
-    letter_match = re.search(r'[.\s]([A-D])$', upper)
+    # Try to extract a trailing letter (A-E)
+    letter_match = re.search(r'[.\s]([A-E])$', upper)
     letter_offset = 0
     if letter_match:
-        letter_offset = ord(letter_match.group(1)) - ord('A') + 1  # A=1, B=2, C=3, D=4
+        letter_offset = ord(letter_match.group(1)) - ord('A') + 1  # A=1, B=2, ...
 
     # Determine the age group and base score
-    # Child / CH patterns (100 range)
-    if upper.startswith('CHILD') or re.match(r'^CH\b', upper) or re.match(r'^CHA?$', upper):
+    # Younger / Young (100 range — youngest named group)
+    if upper.startswith('YOUNGER') or upper == 'YOUNG':
         base = 100
+    # Child / CH patterns (150 range)
+    elif upper.startswith('CHILD') or re.match(r'^CH\b', upper) or re.match(r'^CHA?$', upper):
+        base = 150
     # Youth / YTH patterns (200 range)
     elif upper.startswith('YOUTH') or re.match(r'^YTH\.?\b', upper):
         base = 200
+    # Middle (250 range)
+    elif upper.startswith('MIDDLE') or upper == 'MID':
+        base = 250
     # Junior / JR patterns (300 range)
     elif upper.startswith('JUNIOR') or re.match(r'^JR\.?\b', upper):
         base = 300
     # Senior / SR patterns (400 range)
     elif upper.startswith('SENIOR') or re.match(r'^SR\.?\b', upper):
         base = 400
+    # Older / Old (450 range — oldest named group)
+    elif upper.startswith('OLDER') or upper == 'OLD':
+        base = 450
     else:
         return 500  # Unknown — sorts after all known patterns
 
@@ -70,7 +87,7 @@ def _score_division(name: str) -> int:
     # Bare abbreviation (no letter, e.g. "SR") → offset 0 (before lettered)
     if letter_offset == 0:
         if len(upper) > 3:
-            # Full-name form like "CHILD", "JUNIOR", "SENIOR", "YOUTH"
+            # Full-name form like "CHILD", "JUNIOR", "SENIOR", "YOUNGER"
             return base + 5
         else:
             # Short abbreviation like "SR", "CH", "JR"
@@ -78,11 +95,17 @@ def _score_division(name: str) -> int:
     return base + letter_offset
 
 
-def detect_division_order(db_path: str, meet_name: str) -> dict:
+def detect_division_order(db_path: str, meet_name: str,
+                          explicit_order: list = None) -> dict:
     """Query DB for distinct divisions and return {name: sort_position} dict.
 
+    Args:
+        explicit_order: Optional list of division names in youngest-to-oldest
+            order. When provided, these override auto-scoring for any matching
+            divisions. Unmatched divisions still use auto-scoring.
+
     Sort positions are sequential integers starting from 1, assigned
-    by the auto-detected scoring.
+    by the auto-detected scoring (or explicit ordering when provided).
     """
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -91,15 +114,30 @@ def detect_division_order(db_path: str, meet_name: str) -> dict:
     divisions = [row[0] for row in cur.fetchall() if row[0]]
     conn.close()
 
-    # Score each division, then assign sequential positions
-    scored = sorted(divisions, key=_score_division)
+    # Build explicit ordering map (case-insensitive matching)
+    explicit_map = {}
+    if explicit_order:
+        for i, name in enumerate(explicit_order):
+            explicit_map[name.strip().upper()] = i
+
+    def _sort_key(div):
+        upper = div.strip().upper()
+        if upper in explicit_map:
+            return explicit_map[upper]
+        return _score_division(div)
+
+    # Identify unknowns (score exactly 500) for reporting
+    unknowns = [d for d in divisions
+                 if _score_division(d) == 500 and d.strip().upper() not in explicit_map]
+
+    scored = sorted(divisions, key=_sort_key)
     order = {}
     pos = 1
     for div in scored:
         if div not in order:
             order[div] = pos
             pos += 1
-    return order
+    return order, unknowns
 
 
 def get_division_order(db_path: str, meet_name: str, state: str,
@@ -121,7 +159,7 @@ def get_division_order(db_path: str, meet_name: str, state: str,
         all_orders = {}
 
     # Detect from data
-    order = detect_division_order(db_path, meet_name)
+    order, _unknowns = detect_division_order(db_path, meet_name)
 
     # Save to cache
     all_orders[state] = order

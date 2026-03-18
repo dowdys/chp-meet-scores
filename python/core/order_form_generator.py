@@ -232,7 +232,7 @@ def _get_gym_athletes(db_path: str, meet_name: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    div_order = detect_division_order(db_path, meet_name)
+    div_order, _unknowns = detect_division_order(db_path, meet_name)
 
     cur.execute('''
         SELECT gym, name, level, division, event

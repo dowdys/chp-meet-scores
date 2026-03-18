@@ -204,6 +204,10 @@ def main():
                              'Matches against the oval label text on each page group. '
                              'Always generates 8.5x11 for all groups; this adds 8.5x14 '
                              'for the specified groups only.')
+    parser.add_argument('--division-order', default=None,
+                        help='Explicit division ordering, youngest to oldest, comma-separated. '
+                             'E.g. "Petite,Cadet,Junior,Senior". Overrides auto-detection '
+                             'for any divisions that match (case-insensitive).')
     parser.add_argument('--import-idml', default=None,
                         help='Import a finalized IDML file (edited in InDesign) and convert it to '
                              'the definitive back_of_shirt.pdf. Regenerates order forms and gym '
@@ -489,11 +493,23 @@ def main():
         print(f"Building database at {db_path}...")
         build_database(db_path, config, athletes)
 
-    # Auto-detect division ordering (uses DB data, caches to JSON)
-    config_dir = os.path.dirname(os.path.abspath(db_path))
-    division_order = get_division_order(db_path, config.meet_name,
-                                        config.state, config_dir)
+    # Auto-detect division ordering with explicit override support
+    from python.core.division_detector import detect_division_order
+    _explicit = None
+    if args.division_order:
+        _explicit = [s.strip() for s in args.division_order.split(',') if s.strip()]
+    division_order, unknown_divs = detect_division_order(
+        db_path, config.meet_name, explicit_order=_explicit)
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
+    if unknown_divs:
+        print(f"UNKNOWN_DIVISIONS: {', '.join(unknown_divs)}")
+        print("The ordering of these divisions could not be auto-detected. "
+              "They are currently sorted after all known divisions. "
+              "To fix: re-run with --division-order specifying all divisions "
+              "in youngest-to-oldest order, e.g. --division-order \"Petite,Cadet,Junior,Senior\"")
+
+    # Also cache for get_division_order consumers
+    config_dir = os.path.dirname(os.path.abspath(db_path))
 
     # --- Sticky shirt layout params ---
     # After a user adjusts layout (e.g. --max-shirt-pages 2), those params

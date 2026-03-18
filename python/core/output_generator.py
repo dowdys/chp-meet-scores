@@ -32,7 +32,7 @@ def generate_back_of_shirt(db_path: str, meet_name: str, output_path: str,
     cur = conn.cursor()
 
     # Get division ordering for age-based sort (youngest first)
-    div_order = detect_division_order(db_path, meet_name)
+    div_order, _unknowns = detect_division_order(db_path, meet_name)
 
     # Get all levels present in winners, sorted numerically ascending
     cur.execute('''SELECT DISTINCT level FROM winners

@@ -13,6 +13,7 @@ Generates championship-style PDFs with:
 - Copyright footer
 """
 
+import re
 import sqlite3
 import math
 import fitz  # PyMuPDF
@@ -588,6 +589,26 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
 
 # --- Data query ---
 
+def _clean_name_for_shirt(name: str) -> str:
+    """Strip parenthetical annotations, pronunciation guides, and event
+    suffixes from an athlete name before putting it on the shirt.
+
+    Handles: "(Ah-nee-uh)", "(VT UB BB FX)", "(specialist)", etc.
+    """
+    # Remove trailing asterisk + parens first: "Name*(V,BB)" → "Name"
+    cleaned = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', name)
+    # Remove any remaining parenthetical content: "Name (anything)" → "Name"
+    cleaned = re.sub(r'\s*\([^)]*\)\s*', '', cleaned)
+    # Remove curly-quote pronunciation: "Name\u201cpronunciation\u201d" → "Name"
+    cleaned = re.sub(r'\s*[\u201c][^\u201d]*[\u201d]', '', cleaned)
+    # Remove trailing standalone asterisk
+    cleaned = re.sub(r'\s*\*\s*$', '', cleaned)
+    # Remove trailing event codes: "Name - VT, FX" → "Name"
+    cleaned = re.sub(r'\s*-\s*(?:VT|UB|BB|FX|V|Be|Fl|AA)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|AA))*\s*$',
+                     '', cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                                     name_sort: str = 'age'):
     """Get winner names organized by event and level.
@@ -607,7 +628,7 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
     levels = [row[0] for row in cur.fetchall()]
 
     # Get division ordering for age-based sort
-    div_order = detect_division_order(db_path, meet_name)
+    div_order, _unknowns = detect_division_order(db_path, meet_name)
 
     # Build AA score lookup keyed by (name, level, session) for tie-breaking.
     # AA tie-breaking only applies within the same division+session.
@@ -654,7 +675,15 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                         -(aa_scores.get((r[0], level, r[2]), -1)),
                         r[0]
                     ))
-                data[event][level] = [r[0] for r in rows]
+                # Clean names for shirt display (strip parenthetical annotations)
+                seen = set()
+                clean_names = []
+                for r in rows:
+                    cleaned = _clean_name_for_shirt(r[0])
+                    if cleaned and cleaned not in seen:
+                        seen.add(cleaned)
+                        clean_names.append(cleaned)
+                data[event][level] = clean_names
 
     conn.close()
     return levels, data
