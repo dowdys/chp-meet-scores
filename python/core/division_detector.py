@@ -76,8 +76,18 @@ def _score_division(name: str) -> int:
             remainder = upper[m.end():].strip(' .')
             break
 
+    # Fallback for MSO-style concatenated abbreviations without spaces
+    # (e.g., "CHA", "JRA1", "SRB2") where the \b anchor fails because
+    # the next character is a word character.
     if base is None:
-        return 8000  # Unknown — sorts after all known patterns
+        concat = re.match(r'^(CH|JR|SR|YTH)([A-Z]\d*|\d+)$', upper)
+        if concat:
+            prefix = concat.group(1)
+            tier_map = {'CH': 2000, 'YTH': 3000, 'JR': 5000, 'SR': 6000}
+            base = tier_map.get(prefix, 8000)
+            remainder = concat.group(2)
+        else:
+            return 8000  # Unknown — sorts after all known patterns
 
     # ── Parse the remainder after the tier prefix ───────────────────
     # Possible forms:
@@ -85,6 +95,7 @@ def _score_division(name: str) -> int:
     #   "A"      → group letter only ("JR A")
     #   "A1"     → group letter + sub-number ("JR A1")
     #   "A 1"    → group letter + space + sub-number ("JR A 1")
+    #   "1"      → bare number ("JR 1")
 
     # Compound: group letter + optional number (e.g. "A1", "B3", "C 2")
     compound = re.match(r'^([A-Z])\s*(\d+)$', remainder)
@@ -94,12 +105,16 @@ def _score_division(name: str) -> int:
         return base + group_offset + number_offset
 
     # Simple group letter only (e.g. "A", "B", "C")
-    # Uses same *10 scale as compounds so JR D (340) > JR C3 (333).
+    # Uses same *10 scale as compounds so JR D (5040) > JR C3 (5033).
     # Sub-number 0 means the bare letter sorts before its numbered variants
-    # (JR A=310 < JR A1=311).
+    # (JR A=5010 < JR A1=5011).
     if re.match(r'^[A-Z]$', remainder):
         group_offset = (ord(remainder) - ord('A') + 1) * 10
         return base + group_offset
+
+    # Bare number only (e.g. "1", "2") — "JR 1", "SR 2"
+    if re.match(r'^\d+$', remainder):
+        return base + int(remainder)
 
     # Bare tier — no group/number
     if remainder == '':
