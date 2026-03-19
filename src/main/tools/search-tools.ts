@@ -3,12 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
 
-async function ensureConnected(): Promise<void> {
-  if (!chromeController.isConnected()) {
-    await chromeController.ensureConnected();
-  }
-}
-
 export const searchToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   http_fetch: async (args) => {
     try {
@@ -64,7 +58,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
         return 'Error: query parameter is required';
       }
 
-      await ensureConnected();
+      await chromeController.ensureConnected();
 
       // Use Google search in a real Chrome window
       const encodedQuery = encodeURIComponent(query);

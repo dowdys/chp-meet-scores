@@ -108,11 +108,13 @@ def detect_division_order(db_path: str, meet_name: str,
     by the auto-detected scoring (or explicit ordering when provided).
     """
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
-                (meet_name,))
-    divisions = [row[0] for row in cur.fetchall() if row[0]]
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
+                    (meet_name,))
+        divisions = [row[0] for row in cur.fetchall() if row[0]]
+    finally:
+        conn.close()
 
     # Build explicit ordering map (case-insensitive matching)
     explicit_map = {}

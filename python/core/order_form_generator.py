@@ -17,7 +17,8 @@ from python.core.constants import EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to
 from python.core.pdf_generator import (
     _draw_small_caps, _measure_small_caps_width,
     precompute_shirt_data, add_shirt_back_pages,
-    add_shirt_back_pages_from_pdf
+    add_shirt_back_pages_from_pdf,
+    _draw_star_polygon as _draw_star
 )
 from python.core.order_form_idml import get_state_template
 
@@ -172,21 +173,6 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     template_doc.close()
     doc.save(output_path)
     doc.close()
-
-
-def _draw_star(page, cx, cy, outer_r, inner_r, color=RED):
-    """Draw a filled 5-pointed star polygon."""
-    points = []
-    for i in range(10):
-        angle = math.radians(90 + i * 36)
-        r = outer_r if i % 2 == 0 else inner_r
-        x = cx + r * math.cos(angle)
-        y = cy - r * math.sin(angle)
-        points.append(fitz.Point(x, y))
-    shape = page.new_shape()
-    shape.draw_polyline(points + [points[0]])
-    shape.finish(fill=color, color=color)
-    shape.commit()
 
 
 def _add_athlete_label(page, athlete_name, gym, level_events):

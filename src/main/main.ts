@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execFileSync } from 'child_process';
 import { chromeController } from './chrome-controller';
 import { configStore } from './config-store';
 import { LLMClient } from './llm-client';
@@ -256,7 +257,6 @@ function setupIPC(): void {
     try {
       const outputDir = configStore.get('outputDir');
       const meetDir = path.join(outputDir, meetName);
-      const fs = await import('fs');
 
       if (!fs.existsSync(meetDir)) {
         return { success: true, files: [] };
@@ -284,7 +284,6 @@ function setupIPC(): void {
   ipcMain.handle('open-output-folder', async (_event, meetName: string) => {
     const outputDir = configStore.get('outputDir');
     const meetDir = path.join(outputDir, meetName);
-    const fs = await import('fs');
 
     if (!fs.existsSync(meetDir)) {
       fs.mkdirSync(meetDir, { recursive: true });
@@ -292,10 +291,9 @@ function setupIPC(): void {
 
     // On WSL, convert Linux path to Windows UNC path for Explorer
     if (process.platform === 'linux' && meetDir.startsWith('/')) {
-      const { execSync } = await import('child_process');
       try {
-        const winPath = execSync(`wslpath -w "${meetDir}"`).toString().trim();
-        execSync(`explorer.exe "${winPath}"`);
+        const winPath = execFileSync('wslpath', ['-w', meetDir], { encoding: 'utf-8' }).trim();
+        execFileSync('explorer.exe', [winPath]);
       } catch {
         shell.openPath(meetDir);
       }
@@ -313,10 +311,9 @@ function setupIPC(): void {
     }
 
     if (process.platform === 'linux' && logsDir.startsWith('/')) {
-      const { execSync } = await import('child_process');
       try {
-        const winPath = execSync(`wslpath -w "${logsDir}"`).toString().trim();
-        execSync(`explorer.exe "${winPath}"`);
+        const winPath = execFileSync('wslpath', ['-w', logsDir], { encoding: 'utf-8' }).trim();
+        execFileSync('explorer.exe', [winPath]);
       } catch {
         shell.openPath(logsDir);
       }

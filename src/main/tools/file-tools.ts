@@ -1,15 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import { getDataDir as sharedGetDataDir, getProjectRoot as sharedGetProjectRoot } from '../paths';
-
-function getProjectRoot(): string {
-  return sharedGetProjectRoot();
-}
-
-function getDataDir(): string {
-  return sharedGetDataDir();
-}
+import { getDataDir, getProjectRoot } from '../paths';
 
 export const fileToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   read_file: async (args) => {

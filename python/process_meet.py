@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
@@ -35,14 +36,16 @@ if len(sys.argv) >= 3 and sys.argv[1] == '--render-pdf':
     _pdf_path = sys.argv[2]
     _page_num = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     _doc = fitz.open(_pdf_path)
-    if _page_num < 1 or _page_num > len(_doc):
-        print(f"Error: Page {_page_num} out of range (PDF has {len(_doc)} pages)")
-        sys.exit(1)
-    _page = _doc[_page_num - 1]
-    _pix = _page.get_pixmap(dpi=200)
-    _png_bytes = _pix.tobytes("png")
-    print(base64.b64encode(_png_bytes).decode('ascii'))
-    _doc.close()
+    try:
+        if _page_num < 1 or _page_num > len(_doc):
+            print(f"Error: Page {_page_num} out of range (PDF has {len(_doc)} pages)")
+            sys.exit(1)
+        _page = _doc[_page_num - 1]
+        _pix = _page.get_pixmap(dpi=200)
+        _png_bytes = _pix.tobytes("png")
+        print(base64.b64encode(_png_bytes).decode('ascii'))
+    finally:
+        _doc.close()
     sys.exit(0)
 
 # Add parent directory to path for imports (skip when frozen by PyInstaller)
@@ -51,14 +54,11 @@ if not getattr(sys, 'frozen', False):
 
 from python.core.models import MeetConfig
 from python.core.db_builder import build_database
-from python.core.output_generator import (
-    generate_order_forms, generate_winners_csv  # kept for --regenerate backward compat
-)
+from python.core.output_generator import generate_order_forms
 from python.core.pdf_generator import (
     generate_shirt_pdf, generate_gym_highlights_pdf,
     generate_gym_highlights_from_pdf
 )
-from python.core.icml_generator import generate_shirt_icml
 from python.core.idml_generator import generate_shirt_idml
 from python.core.idml_parser import idml_to_pdf
 from python.core.meet_summary import generate_meet_summary
@@ -407,7 +407,6 @@ def main():
 
             # Copy the imported IDML to the output folder for round-tripping
             try:
-                import shutil
                 idml_dest = os.path.join(args.output, 'back_of_shirt.idml')
                 shutil.copy2(args.import_idml, idml_dest)
                 print(f"Copied {idml_dest}")
@@ -557,15 +556,6 @@ def main():
             print(f"ERROR generating order_forms_by_gym.txt: {e}")
             errors.append(('order_txt', str(e)))
 
-    if 'csv' in regen_set:
-        try:
-            csv_path = os.path.join(args.output, 'winners_sheet.csv')
-            generate_winners_csv(db_path, config.meet_name, csv_path, division_order)
-            print(f"Generated {csv_path}")
-        except Exception as e:
-            print(f"ERROR generating winners_sheet.csv: {e}")
-            errors.append(('csv', str(e)))
-
     # Determine which page groups need legal-size output
     _legal_groups = args.page_size_legal
     if args.page_size == 'legal' and not _legal_groups:
@@ -662,35 +652,6 @@ def main():
             except Exception as e:
                 print(f"ERROR generating back_of_shirt_8.5x14.pdf: {e}")
                 errors.append(('shirt_legal', str(e)))
-
-    # ICML generation removed -only generated on explicit --regenerate icml request
-    if 'icml' in regen_set:
-        try:
-            icml_path = os.path.join(args.output, 'back_of_shirt.icml')
-            generate_shirt_icml(db_path, config.meet_name, icml_path,
-                                year=args.year, state=args.state,
-                                line_spacing=args.line_spacing,
-                                level_gap=args.level_gap,
-                                max_fill=args.max_fill,
-                                min_font_size=args.min_font_size,
-                                max_font_size=args.max_font_size,
-                                name_sort=args.name_sort,
-                                max_shirt_pages=args.max_shirt_pages,
-                                title1_size=args.title1_size,
-                                title2_size=args.title2_size,
-                                level_groups=args.level_groups,
-                                exclude_levels=args.exclude_levels,
-                                copyright=args.copyright,
-                                sport=args.sport,
-                                title_prefix=args.title_prefix,
-                                accent_color=args.accent_color,
-                                font_family=args.font_family,
-                                header_size=args.header_size,
-                                divider_size=args.divider_size)
-            print(f"Generated {icml_path}")
-        except Exception as e:
-            print(f"ERROR generating back_of_shirt.icml: {e}")
-            errors.append(('icml', str(e)))
 
     if do_all or 'idml' in regen_set:
         try:
@@ -858,7 +819,6 @@ def main():
             errors.append(('summary', str(e)))
 
     # Clean up any leftover temp files in the output directory
-    import glob
     for tmp_file in glob.glob(os.path.join(args.output, 'tmp*.pdf')):
         try:
             os.remove(tmp_file)

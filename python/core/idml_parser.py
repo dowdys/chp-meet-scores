@@ -797,27 +797,29 @@ def _draw_placed_pdf(page, container_el, pdf_el, page_offset):
         if os.path.exists(candidate):
             try:
                 logo_doc = fitz.open(candidate)
-                target = fitz.Rect(*bounds)
+                try:
+                    target = fitz.Rect(*bounds)
 
-                # Compute clip if we have transform data and local bounds
-                if local_bounds and child_tf[0] != 0 and child_tf[3] != 0:
-                    scale_x, scale_y = child_tf[0], child_tf[3]
-                    off_x, off_y = child_tf[4], child_tf[5]
-                    src_page = logo_doc[0].rect
-                    # Map container local bounds back to source PDF coords
-                    clip_x1 = max(0, (local_bounds[0] - off_x) / scale_x)
-                    clip_y1 = max(0, (local_bounds[1] - off_y) / scale_y)
-                    clip_x2 = min(src_page.width,
-                                  (local_bounds[2] - off_x) / scale_x)
-                    clip_y2 = min(src_page.height,
-                                  (local_bounds[3] - off_y) / scale_y)
-                    clip_rect = fitz.Rect(clip_x1, clip_y1, clip_x2, clip_y2)
+                    # Compute clip if we have transform data and local bounds
+                    if local_bounds and child_tf[0] != 0 and child_tf[3] != 0:
+                        scale_x, scale_y = child_tf[0], child_tf[3]
+                        off_x, off_y = child_tf[4], child_tf[5]
+                        src_page = logo_doc[0].rect
+                        # Map container local bounds back to source PDF coords
+                        clip_x1 = max(0, (local_bounds[0] - off_x) / scale_x)
+                        clip_y1 = max(0, (local_bounds[1] - off_y) / scale_y)
+                        clip_x2 = min(src_page.width,
+                                      (local_bounds[2] - off_x) / scale_x)
+                        clip_y2 = min(src_page.height,
+                                      (local_bounds[3] - off_y) / scale_y)
+                        clip_rect = fitz.Rect(clip_x1, clip_y1, clip_x2, clip_y2)
 
-                if clip_rect and not clip_rect.is_empty:
-                    page.show_pdf_page(target, logo_doc, 0, clip=clip_rect)
-                else:
-                    page.show_pdf_page(target, logo_doc, 0)
-                logo_doc.close()
+                    if clip_rect and not clip_rect.is_empty:
+                        page.show_pdf_page(target, logo_doc, 0, clip=clip_rect)
+                    else:
+                        page.show_pdf_page(target, logo_doc, 0)
+                finally:
+                    logo_doc.close()
             except Exception:
                 pass
             return
@@ -1500,17 +1502,19 @@ def idml_to_pdf(idml_path: str, output_pdf_path: str) -> dict:
         obj_styles = _load_object_styles(zf)
 
         doc = fitz.open()
-        for spread_file in spread_files:
-            spread_xml = zf.read(spread_file).decode('utf-8')
-            _render_spread(doc, spread_xml, stories, colors, zf, para_styles,
-                           obj_styles)
+        try:
+            for spread_file in spread_files:
+                spread_xml = zf.read(spread_file).decode('utf-8')
+                _render_spread(doc, spread_xml, stories, colors, zf, para_styles,
+                               obj_styles)
 
-        # Capture page dimensions from the first rendered page
-        if len(doc) > 0:
-            metadata['page_w'] = doc[0].rect.width
-            metadata['page_h'] = doc[0].rect.height
+            # Capture page dimensions from the first rendered page
+            if len(doc) > 0:
+                metadata['page_w'] = doc[0].rect.width
+                metadata['page_h'] = doc[0].rect.height
 
-        doc.save(output_pdf_path)
-        doc.close()
+            doc.save(output_pdf_path)
+        finally:
+            doc.close()
 
     return metadata

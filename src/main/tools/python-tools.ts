@@ -48,6 +48,11 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       const dataDir = getDataDir();
       const filepath = path.join(dataDir, filename);
 
+      const resolved = path.resolve(filepath);
+      if (!resolved.startsWith(path.resolve(dataDir))) {
+        return 'Error: filename must not escape the data directory.';
+      }
+
       // Create directories if needed
       const dir = path.dirname(filepath);
       if (!fs.existsSync(dir)) {

@@ -224,13 +224,13 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
         page_groups = []
         if xcel_levels:
             xcel_groups = _bin_pack_levels(xcel_levels, data, available,
-                                           lhr, lgap, mxfs)
+                                           lhr, lgap, mxfs, divider_size=ds)
             for group in xcel_groups:
                 page_groups.append(('XCEL', group))
 
         if numbered_levels:
             groups = _bin_pack_levels(numbered_levels, data, available,
-                                      lhr, lgap, mxfs)
+                                      lhr, lgap, mxfs, divider_size=ds)
             for group in groups:
                 page_groups.append(_label_numbered_group(group))
 
@@ -242,11 +242,13 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                 new_groups = []
                 if xcel_levels:
                     for g in _bin_pack_levels(xcel_levels, data, available,
-                                              lhr, lgap, try_size):
+                                              lhr, lgap, try_size,
+                                              divider_size=ds):
                         new_groups.append(('XCEL', g))
                 if numbered_levels:
                     for g in _bin_pack_levels(numbered_levels, data, available,
-                                              lhr, lgap, try_size):
+                                              lhr, lgap, try_size,
+                                              divider_size=ds):
                         new_groups.append(_label_numbered_group(g))
                 return new_groups
 
@@ -756,16 +758,18 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
 
 # --- Layout helpers ---
 
-def _level_height(level, data, line_height, level_gap):
+def _level_height(level, data, line_height, level_gap, divider_size=None):
     """Calculate the vertical space one level needs."""
+    ds = divider_size if divider_size is not None else LEVEL_DIVIDER_SIZE
     max_names = max(len(data[event].get(level, [])) for event in EVENT_KEYS)
-    return level_gap + LEVEL_DIVIDER_SIZE * 1.3 + max_names * line_height + 1
+    return level_gap + ds * 1.3 + max_names * line_height + 1
 
 
 def _bin_pack_levels(levels, data, available_height,
                      line_height_ratio=LINE_HEIGHT_RATIO,
                      level_gap=LEVEL_GAP,
-                     max_font_size=DEFAULT_NAME_SIZE):
+                     max_font_size=DEFAULT_NAME_SIZE,
+                     divider_size=None):
     """Bin-pack levels into page-sized groups with balanced distribution.
 
     Two-pass approach:
@@ -779,7 +783,7 @@ def _bin_pack_levels(levels, data, available_height,
     # Calculate height for each level
     heights = []
     for level in levels:
-        h = _level_height(level, data, line_height, level_gap)
+        h = _level_height(level, data, line_height, level_gap, divider_size=divider_size)
         heights.append(h)
 
     total = sum(heights)
@@ -1444,10 +1448,14 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             page.draw_rect(bg_rect, fill=WHITE, color=WHITE, width=0)
 
             # Center gym name in the gap
+            # Use TextWriter with explicit Font — insert_text() loses font
+            # identity after show_pdf_page() overlay (PyMuPDF known issue).
             gym_name_y = gap_top + (gap_bottom - gap_top) / 2 + gym_fs * 0.35
-            page.insert_text(fitz.Point(pw / 2 - tw / 2, gym_name_y),
-                             gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
-                             color=RED)
+            gym_tw = fitz.TextWriter(page.rect)
+            gym_font = fitz.Font('tibo')  # Times Bold
+            gym_tw.append(fitz.Point(pw / 2 - tw / 2, gym_name_y),
+                          gym_display, font=gym_font, fontsize=gym_fs)
+            gym_tw.write_text(page, color=RED)
 
     shirt_doc.close()
     doc.save(output_path)

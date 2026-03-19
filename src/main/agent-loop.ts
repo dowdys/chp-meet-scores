@@ -5,13 +5,14 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { app, shell } from 'electron';
 import Database from 'better-sqlite3';
 import { LLMClient, LLMMessage, ContentBlock, ToolDefinition, LLMResponse, ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import { configStore } from './config-store';
 import { getStagingDbPath, resetStagingDb } from './tools/python-tools';
-import { getProjectRoot as sharedGetProjectRoot, getDataDir as sharedGetDataDir, getOutputDir as sharedGetOutputDir } from './paths';
+import { getProjectRoot, getDataDir, getOutputDir } from './paths';
 
 /** Extract the text portion of a tool result content (ignoring images). */
 function toolResultText(content: ToolResultContent | undefined): string {
@@ -400,18 +401,6 @@ function getToolDefinitions(): ToolDefinition[] {
 
 // --- Helper: resolve directories ---
 
-function getProjectRoot(): string {
-  return sharedGetProjectRoot();
-}
-
-function getOutputDir(meetName: string, createIfMissing = true): string {
-  return sharedGetOutputDir(meetName, createIfMissing);
-}
-
-function getDataDir(): string {
-  return sharedGetDataDir();
-}
-
 function getDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
 }
@@ -542,9 +531,6 @@ export class AgentLoop {
         });
       }
 
-      // Build tool executors with context bound to this meet
-      this.buildToolExecutors(context);
-
       // Run the agent loop
       const result = await this.runLoop(context);
 
@@ -637,7 +623,6 @@ export class AgentLoop {
         abortRequested: false,
         iterationCount: 0,
       };
-      this.buildToolExecutors(dummyContext);
 
       // Single LLM call (possibly with tool use)
       let answer = '';
@@ -1299,8 +1284,7 @@ export class AgentLoop {
     let openPath = resolvedPath;
     if (process.platform === 'linux' && resolvedPath.startsWith('/')) {
       try {
-        const { execSync } = require('child_process') as typeof import('child_process');
-        const winPath = execSync(`wslpath -w "${resolvedPath}"`, { encoding: 'utf-8' }).trim();
+        const winPath = execFileSync('wslpath', ['-w', resolvedPath], { encoding: 'utf-8' }).trim();
         if (winPath) openPath = winPath;
       } catch {
         // Fall through with Linux path
@@ -1352,6 +1336,9 @@ export class AgentLoop {
   }
 
   private async toolLoadSkill(skillName: string, context: AgentContext): Promise<string> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(skillName)) {
+      return 'Error: invalid skill name.';
+    }
     if (context.loadedSkills.includes(skillName)) {
       return `Skill "${skillName}" is already loaded.`;
     }
@@ -1369,6 +1356,9 @@ export class AgentLoop {
   }
 
   private async toolLoadSkillDetail(detailName: string, context: AgentContext): Promise<string> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(detailName)) {
+      return 'Error: invalid skill name.';
+    }
     const detailKey = `details/${detailName}`;
     if (context.loadedSkills.includes(detailKey)) {
       return `Detail skill "${detailName}" is already loaded.`;
@@ -1392,6 +1382,10 @@ export class AgentLoop {
     }
 
     const filePath = path.join(draftsDir, `${platformName}.md`);
+    const resolvedDraft = path.resolve(filePath);
+    if (!resolvedDraft.startsWith(path.resolve(draftsDir))) {
+      return 'Error: platform name must not escape the drafts directory.';
+    }
     fs.writeFileSync(filePath, content, 'utf-8');
     return `Draft skill saved to ${filePath}`;
   }
@@ -1525,15 +1519,6 @@ export class AgentLoop {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Build tool executors with meet-specific context.
-   * External executors (passed via constructor) take precedence.
-   */
-  private buildToolExecutors(_context: AgentContext): void {
-    // Tool executors are handled via the executeTool switch + this.toolExecutors.
-    // No extra setup needed here; the constructor-provided executors are already stored.
   }
 
   /**
