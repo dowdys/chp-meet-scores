@@ -59,9 +59,10 @@ from python.core.db_builder import build_database
 from python.core.output_generator import generate_order_forms
 from python.core.pdf_generator import (
     generate_shirt_pdf, generate_gym_highlights_pdf,
-    generate_gym_highlights_from_pdf, precompute_shirt_data,
-    PAGE_H_LEGAL,
+    generate_gym_highlights_from_pdf,
 )
+from python.core.layout_engine import precompute_shirt_data
+from python.core.constants import PAGE_H_LEGAL
 from python.core.idml_generator import generate_shirt_idml
 from python.core.idml_parser import idml_to_pdf, _load_metadata as _peek_metadata
 from python.core.meet_summary import generate_meet_summary

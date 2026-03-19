@@ -12,8 +12,9 @@ from python.core.constants import (
 )
 
 
-def _draw_small_caps(page, center_x, y, text, large_size, small_size,
-                     color=None, font=None):
+def draw_small_caps(page, center_x: float, y: float, text: str,
+                    large_size: float, small_size: float,
+                    color: tuple = None, font: str = None) -> float:
     """Draw text in small caps, centered horizontally.
 
     First letter of each word at large_size, rest at small_size.
@@ -23,7 +24,7 @@ def _draw_small_caps(page, center_x, y, text, large_size, small_size,
         color = BLACK
     if font is None:
         font = FONT_BOLD
-    total_width = _measure_small_caps_width(text, large_size, small_size, font=font)
+    total_width = measure_small_caps_width(text, large_size, small_size, font=font)
     x = center_x - total_width / 2
 
     words = text.split()
@@ -40,7 +41,8 @@ def _draw_small_caps(page, center_x, y, text, large_size, small_size,
             x += fitz.get_text_length(ch_upper, fontname=font, fontsize=fs)
 
 
-def _measure_small_caps_width(text, large_size, small_size, font=None):
+def measure_small_caps_width(text: str, large_size: float,
+                             small_size: float, font: str = None) -> float:
     """Measure total width of small-caps text."""
     if font is None:
         font = FONT_BOLD
@@ -56,7 +58,8 @@ def _measure_small_caps_width(text, large_size, small_size, font=None):
     return total
 
 
-def _draw_oval(page, label, y_center, color=None, font=None):
+def draw_oval(page, label: str, y_center: float, color: tuple = None,
+              font: str = None) -> None:
     """Draw a filled oval with white text label."""
     if color is None:
         color = RED
@@ -84,7 +87,8 @@ def _draw_oval(page, label, y_center, color=None, font=None):
                      fontname=font, fontsize=OVAL_LABEL_SIZE, color=WHITE)
 
 
-def _draw_star_polygon(page, cx, cy, outer_r, inner_r, color=RED):
+def draw_star_polygon(page, cx: float, cy: float, outer_r: float,
+                      inner_r: float, color: tuple = RED) -> None:
     """Draw a filled 5-pointed star as a polygon."""
     points = []
     for i in range(10):

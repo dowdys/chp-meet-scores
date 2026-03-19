@@ -24,9 +24,6 @@ class LayoutParams:
     title2_size: float | None = None
     header_size: float | None = None
     divider_size: float | None = None
-    oval_label_size: float | None = None
-    name_size: float | None = None
-    copyright_size: float | None = None
 
     # Content
     sport: str | None = None
@@ -43,7 +40,6 @@ class LayoutParams:
     STICKY_FIELDS: ClassVar[frozenset] = frozenset({
         'line_spacing', 'level_gap', 'max_fill', 'min_font_size', 'max_font_size',
         'max_shirt_pages', 'title1_size', 'title2_size', 'header_size', 'divider_size',
-        'oval_label_size', 'name_size', 'copyright_size',
         'sport', 'title_prefix', 'copyright', 'accent_color', 'font_family',
     })
 

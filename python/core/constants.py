@@ -18,8 +18,6 @@ EVENT_DISPLAY_SHORT = {
 
 # Column headers for PDF shirt back (uppercase)
 EVENT_HEADERS = ['VAULT', 'BARS', 'BEAM', 'FLOOR', 'ALL AROUND']
-# Alias used by layout_engine and renderers
-COL_HEADERS = EVENT_HEADERS
 
 # Xcel level ordering (Bronze → Sapphire)
 XCEL_ORDER = {
@@ -66,7 +64,7 @@ OVAL_LABEL_SIZE = 12
 # Layout Y positions (derived from page height and default title sizes)
 COPYRIGHT_Y = PAGE_H - 8
 NAMES_BOTTOM_Y = PAGE_H - 18
-# Default NAMES_START_Y computed from _compute_layout(TITLE1_LARGE, TITLE2_LARGE)
+# Default NAMES_START_Y computed from compute_layout(TITLE1_LARGE, TITLE2_LARGE)
 NAMES_START_Y = 121
 
 # Tight spacing: 1.15 ratio keeps names close together, maximizing font size

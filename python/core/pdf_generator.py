@@ -19,33 +19,32 @@ import fitz  # PyMuPDF
 
 # Import constants from centralized location
 from python.core.constants import (
-    EVENTS as EVENT_KEYS, COL_HEADERS, COL_CENTERS,
-    PAGE_W, PAGE_H, PAGE_H_LEGAL,
+    EVENTS as EVENT_KEYS, EVENT_HEADERS, COL_CENTERS,
+    PAGE_W, PAGE_H,
     RED, WHITE, BLACK, YELLOW_HL,
     DEFAULT_SPORT, DEFAULT_TITLE_PREFIX, DEFAULT_COPYRIGHT,
     FONT_REGULAR, FONT_BOLD,
-    TITLE1_LARGE, TITLE1_SMALL, TITLE2_LARGE, TITLE2_SMALL,
-    HEADER_LARGE, HEADER_SMALL, LEVEL_DIVIDER_SIZE, OVAL_LABEL_SIZE,
-    DEFAULT_NAME_SIZE, MIN_NAME_SIZE, COPYRIGHT_SIZE, COPYRIGHT_Y,
-    NAMES_BOTTOM_Y, NAMES_START_Y,
-    LINE_HEIGHT_RATIO, LEVEL_GAP, MAX_PAGE_FILL,
-    XCEL_MAP, XCEL_PRESTIGE_ORDER as XCEL_ORDER,
+    HEADER_LARGE, HEADER_SMALL, LEVEL_DIVIDER_SIZE,
+    COPYRIGHT_SIZE,
+    XCEL_MAP,
 )
 
-# Import layout/data functions from layout_engine
+# Import layout/data functions from layout_engine (only what pdf_generator uses)
 from python.core.layout_engine import (
-    precompute_shirt_data, _compute_layout, _fit_font_size,
-    _bin_pack_levels, _level_height, _space_text,
-    _clean_name_for_shirt, _flag_suspicious_name,
-    _get_winners_by_event_and_level,
-    _get_winners_with_gym, _get_all_winner_gyms,
-    _parse_hex_color, _label_numbered_group, _parse_level_groups, _label_group,
+    precompute_shirt_data, fit_font_size as _fit_font_size,
+    space_text as _space_text,
+    clean_name_for_shirt as _clean_name_for_shirt,
+    get_winners_with_gym as _get_winners_with_gym,
+    get_all_winner_gyms as _get_all_winner_gyms,
+    parse_hex_color as _parse_hex_color,
 )
 
 # Import rendering primitives from rendering_utils
 from python.core.rendering_utils import (
-    _draw_small_caps, _measure_small_caps_width,
-    _draw_oval, _draw_star_polygon,
+    draw_small_caps as _draw_small_caps,
+    measure_small_caps_width as _measure_small_caps_width,
+    draw_oval as _draw_oval,
+    draw_star_polygon as _draw_star_polygon,
 )
 
 
@@ -112,7 +111,7 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
         _draw_oval(page, label, p_oval_y, color=s_accent, font=s_fbold)
 
         # Column headers with underlines
-        for i, header in enumerate(COL_HEADERS):
+        for i, header in enumerate(EVENT_HEADERS):
             _draw_small_caps(page, COL_CENTERS[i], p_headers_y,
                              header, s_hl, s_hs, font=s_fbold)
             hw = _measure_small_caps_width(header, s_hl, s_hs, font=s_fbold)
@@ -155,20 +154,11 @@ def add_shirt_back_pages(doc, precomputed, athlete_name, year, state):
 
 def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
                        year: str = '2026', state: str = 'Maryland',
-                       layout=None,  # LayoutParams object
-                       line_spacing: float = None, level_gap: float = None,
-                       max_fill: float = None, min_font_size: float = None,
-                       max_font_size: float = None,
+                       layout=None,
                        name_sort: str = 'age',
-                       max_shirt_pages: int = None,
-                       title1_size: float = None,
-                       title2_size: float = None,
                        level_groups: str = None,
                        exclude_levels: str = None,
-                       copyright: str = None, accent_color: str = None,
-                       font_family: str = None, sport: str = None,
-                       title_prefix: str = None, header_size: float = None,
-                       divider_size: float = None, page_h: int = None,
+                       page_h: int = None,
                        page_group_filter: list = None,
                        precomputed: dict = None):
     """Generate enhanced back-of-shirt PDF."""
@@ -179,19 +169,8 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     else:
         pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                     layout=layout,
-                                    line_spacing=line_spacing, level_gap=level_gap,
-                                    max_fill=max_fill, min_font_size=min_font_size,
-                                    max_font_size=max_font_size,
-                                    max_shirt_pages=max_shirt_pages,
-                                    title1_size=title1_size,
-                                    title2_size=title2_size,
                                     level_groups=level_groups,
                                     exclude_levels=exclude_levels,
-                                    copyright=copyright, accent_color=accent_color,
-                                    font_family=font_family, sport=sport,
-                                    title_prefix=title_prefix,
-                                    header_size=header_size,
-                                    divider_size=divider_size,
                                     page_h=_page_h)
     levels = pre['levels']
     data = pre['data']
@@ -249,7 +228,7 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         _draw_oval(page, label, p_oval_y, color=s_accent, font=s_fbold)
 
         # Column headers (small caps) with underlines
-        for i, header in enumerate(COL_HEADERS):
+        for i, header in enumerate(EVENT_HEADERS):
             _draw_small_caps(page, COL_CENTERS[i], p_headers_y,
                              header, s_hl, s_hs, font=s_fbold)
             hw = _measure_small_caps_width(header, s_hl, s_hs, font=s_fbold)
@@ -441,17 +420,10 @@ def _draw_arched_text(page, center_x, center_y, text, font_size, radius,
 
 def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 year='2026', state='Maryland',
-                                layout=None,  # LayoutParams object
-                                line_spacing=None, level_gap=None,
-                                max_fill=None, min_font_size=None,
-                                max_font_size=None, name_sort='age',
-                                max_shirt_pages=None,
-                                title1_size=None, title2_size=None,
+                                layout=None,
+                                name_sort='age',
                                 level_groups=None, exclude_levels=None,
-                                copyright=None, accent_color=None,
-                                font_family=None, sport=None,
-                                title_prefix=None, header_size=None,
-                                divider_size=None, page_h=None,
+                                page_h=None,
                                 precomputed: dict = None):
     """Generate a gym highlights version of the back-of-shirt PDF.
 
@@ -468,19 +440,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     else:
         pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                     layout=layout,
-                                    line_spacing=line_spacing, level_gap=level_gap,
-                                    max_fill=max_fill, min_font_size=min_font_size,
-                                    max_font_size=max_font_size,
-                                    max_shirt_pages=max_shirt_pages,
-                                    title1_size=title1_size,
-                                    title2_size=title2_size,
                                     level_groups=level_groups,
                                     exclude_levels=exclude_levels,
-                                    copyright=copyright, accent_color=accent_color,
-                                    font_family=font_family, sport=sport,
-                                    title_prefix=title_prefix,
-                                    header_size=header_size,
-                                    divider_size=divider_size,
                                     page_h=_page_h)
     levels = pre['levels']
     data = pre['data']
@@ -572,7 +533,7 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
             _draw_oval(page, label, gh_oval_y, color=s_accent, font=s_fbold)
 
             # Column headers with underlines (shifted down)
-            for i, header in enumerate(COL_HEADERS):
+            for i, header in enumerate(EVENT_HEADERS):
                 _draw_small_caps(page, COL_CENTERS[i], gh_headers_y,
                                  header, s_hl, s_hs, font=s_fbold)
                 hw = _measure_small_caps_width(header, s_hl, s_hs, font=s_fbold)

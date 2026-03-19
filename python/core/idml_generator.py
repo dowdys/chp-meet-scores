@@ -26,7 +26,7 @@ from xml.sax.saxutils import escape as xml_escape
 from python.core.constants import (
     PAGE_W, PAGE_H,
     XCEL_MAP, XCEL_PRESTIGE_ORDER as XCEL_ORDER,
-    EVENTS as EVENT_KEYS, COL_HEADERS, COL_CENTERS,
+    EVENTS as EVENT_KEYS, EVENT_HEADERS, COL_CENTERS,
     TITLE1_LARGE, TITLE1_SMALL, TITLE2_LARGE, TITLE2_SMALL,
     HEADER_LARGE, HEADER_SMALL, LEVEL_DIVIDER_SIZE, OVAL_LABEL_SIZE,
     DEFAULT_NAME_SIZE, COPYRIGHT_SIZE, COPYRIGHT_Y,
@@ -35,10 +35,10 @@ from python.core.constants import (
     RED, BLACK, WHITE,
 )
 from python.core.layout_engine import (
-    _compute_layout, _fit_font_size, _space_text,
+    compute_layout, fit_font_size, space_text,
     precompute_shirt_data,
 )
-from python.core.rendering_utils import _measure_small_caps_width
+from python.core.rendering_utils import measure_small_caps_width
 
 # Map PDF font names to InDesign font family / style / PostScript names
 _FONT_MAP = {
@@ -78,22 +78,10 @@ _uid = _UidCounter()
 
 def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                         year: str = '2026', state: str = 'Maryland',
-                        layout=None,  # LayoutParams object
-                        line_spacing: float = None, level_gap: float = None,
-                        max_fill: float = None, min_font_size: float = None,
-                        max_font_size: float = None,
+                        layout=None,
                         name_sort: str = 'age',
-                        max_shirt_pages: int = None,
-                        title1_size: float = None,
-                        title2_size: float = None,
                         level_groups: str = None,
                         exclude_levels: str = None,
-                        copyright: str = None, sport: str = None,
-                        title_prefix: str = None,
-                        accent_color: str = None,
-                        font_family: str = None,
-                        header_size: float = None,
-                        divider_size: float = None,
                         page_h: int = None,
                         page_group_filter: list = None,
                         precomputed: dict = None):
@@ -111,20 +99,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     else:
         pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
                                     layout=layout,
-                                    line_spacing=line_spacing, level_gap=level_gap,
-                                    max_fill=max_fill, min_font_size=min_font_size,
-                                    max_font_size=max_font_size,
-                                    max_shirt_pages=max_shirt_pages,
-                                    title1_size=title1_size,
-                                    title2_size=title2_size,
                                     level_groups=level_groups,
                                     exclude_levels=exclude_levels,
-                                    copyright=copyright, sport=sport,
-                                    title_prefix=title_prefix,
-                                    accent_color=accent_color,
-                                    font_family=font_family,
-                                    header_size=header_size,
-                                    divider_size=divider_size,
                                     page_h=_page_h)
 
     style = {
@@ -189,7 +165,7 @@ def _write_idml(output_path, year, state,
 
     # Resolve layout Y positions
     if title1_y is None:
-        title1_y, title2_y, oval_y, headers_y, names_start_y = _compute_layout(t1l, t2l)
+        title1_y, title2_y, oval_y, headers_y, names_start_y = compute_layout(t1l, t2l)
 
     # Accent color as RGB 0-255
     ar, ag, ab = (int(c * 255) for c in accent)
@@ -292,7 +268,7 @@ def _write_idml(output_path, year, state,
             underline_y = headers_y + 3
             col_frame_w = 100  # width of each column header text frame
 
-            for i, header in enumerate(COL_HEADERS):
+            for i, header in enumerate(EVENT_HEADERS):
                 cx = COL_CENTERS[i]
                 # Header text frame centered on column
                 s_id = _uid()
@@ -309,7 +285,7 @@ def _write_idml(output_path, year, state,
                 ))
 
                 # Header underline — use small-caps width for accurate measurement
-                approx_w = _measure_small_caps_width(header, hl, hs, font=font_bold)
+                approx_w = measure_small_caps_width(header, hl, hs, font=font_bold)
                 line_id = _uid()
                 page_items.append(_gl(
                     line_id, layer_id,
@@ -319,7 +295,7 @@ def _write_idml(output_path, year, state,
                 ))
 
             # --- Level sections with names ---
-            font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill,
+            font_size = fit_font_size(group_levels, data, lhr, lgap, mfill,
                                         mfs, mxfs,
                                         names_start_y=names_start_y,
                                         divider_size=ds,
@@ -341,7 +317,7 @@ def _write_idml(output_path, year, state,
                     divider_text = XCEL_MAP[level]
                 else:
                     divider_text = f'LEVEL {level}'
-                spaced = _space_text(divider_text)
+                spaced = space_text(divider_text)
 
                 # Divider text
                 s_id = _uid()
@@ -864,16 +840,6 @@ def _build_designmap(story_ids, layer_id, spreads, stories,
 
 def _build_fonts(fb_family, fb_style, fb_ps, fr_family, fr_style, fr_ps):
     """Build Resources/Fonts.xml with the needed font families."""
-    families = {}
-    # Group fonts by family
-    for family, style, ps in [(fb_family, fb_style, fb_ps),
-                               (fr_family, fr_style, fr_ps)]:
-        if family not in families:
-            families[family] = []
-        if (style, ps) not in [(s, p) for s, p in [(s, p) for s, p, in [(st, pn) for st, pn in families[family]]]]:
-            families[family].append((style, ps))
-
-    # Deduplicate properly
     families = {}
     for family, style, ps in [(fb_family, fb_style, fb_ps),
                                (fr_family, fr_style, fr_ps)]:

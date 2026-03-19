@@ -4,6 +4,7 @@ Handles all data queries, name cleaning, level grouping, bin-packing,
 and font sizing. Does NOT handle any rendering (no fitz/PyMuPDF imports).
 """
 
+import logging
 import re
 import sqlite3
 
@@ -19,8 +20,10 @@ from python.core.constants import (
     XCEL_MAP, XCEL_PRESTIGE_ORDER as XCEL_ORDER,
 )
 
+logger = logging.getLogger(__name__)
 
-def _parse_hex_color(hex_str):
+
+def parse_hex_color(hex_str: str) -> tuple:
     """Parse a hex color string (e.g. '#CC0000' or 'CC0000') to (r, g, b) tuple 0-1."""
     h = hex_str.lstrip('#')
     if len(h) != 6:
@@ -28,7 +31,7 @@ def _parse_hex_color(hex_str):
     return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
 
 
-def _compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE):
+def compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE) -> tuple[float, float, float, float, float]:
     """Compute Y positions for page elements based on title font sizes.
 
     Returns (title1_y, title2_y, oval_y, headers_y, names_start_y).
@@ -41,46 +44,57 @@ def _compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE):
     return t1_y, t2_y, ov_y, hd_y, ns_y
 
 
-def precompute_shirt_data(db_path, meet_name, name_sort=None,
-                          layout=None,  # LayoutParams object
-                          line_spacing=None, level_gap=None,
-                          max_fill=None, min_font_size=None,
-                          max_font_size=None, max_shirt_pages=None,
-                          title1_size=None, title2_size=None,
+def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
+                          layout=None,
                           level_groups=None, exclude_levels=None,
-                          copyright=None, accent_color=None,
-                          font_family=None, sport=None,
-                          title_prefix=None, header_size=None,
-                          divider_size=None, page_h=None):
+                          page_h: int = None) -> dict:
     """Pre-compute shirt layout data for reuse across multiple renders.
 
     Args:
-        layout: Optional LayoutParams object. When provided, its values are
-            used as defaults (individual kwargs still override).
+        layout: Optional LayoutParams object. When provided, its field values
+            supply all appearance parameters.
+        level_groups: Custom page grouping (run-time override, not a layout param).
         exclude_levels: Comma-separated levels to intentionally exclude
-            (e.g. "3,4" to drop levels with no real data). Without this,
-            all levels with winners are included.
+            (e.g. "3,4" to drop levels with no real data). Run-time override.
+        page_h: Page height override (e.g. legal size). Run-time override.
 
     Returns a dict with levels, data, page_groups, and resolved layout params.
     """
-    # If layout is provided, use its values as defaults (kwargs override)
+    # Extract values from layout object when provided, else use defaults
     if layout:
-        line_spacing = line_spacing if line_spacing is not None else layout.line_spacing
-        level_gap = level_gap if level_gap is not None else layout.level_gap
-        max_fill = max_fill if max_fill is not None else layout.max_fill
-        min_font_size = min_font_size if min_font_size is not None else layout.min_font_size
-        max_font_size = max_font_size if max_font_size is not None else layout.max_font_size
-        max_shirt_pages = max_shirt_pages if max_shirt_pages is not None else layout.max_shirt_pages
-        title1_size = title1_size if title1_size is not None else layout.title1_size
-        title2_size = title2_size if title2_size is not None else layout.title2_size
-        copyright = copyright if copyright is not None else layout.copyright
-        accent_color = accent_color if accent_color is not None else layout.accent_color
-        font_family = font_family if font_family is not None else layout.font_family
-        sport = sport if sport is not None else layout.sport
-        title_prefix = title_prefix if title_prefix is not None else layout.title_prefix
-        header_size = header_size if header_size is not None else layout.header_size
-        divider_size = divider_size if divider_size is not None else layout.divider_size
-        name_sort = name_sort if name_sort is not None else layout.name_sort
+        line_spacing = layout.line_spacing
+        level_gap = layout.level_gap
+        max_fill = layout.max_fill
+        min_font_size = layout.min_font_size
+        max_font_size = layout.max_font_size
+        max_shirt_pages = layout.max_shirt_pages
+        title1_size = layout.title1_size
+        title2_size = layout.title2_size
+        copyright = layout.copyright
+        accent_color = layout.accent_color
+        font_family = layout.font_family
+        sport = layout.sport
+        title_prefix = layout.title_prefix
+        header_size = layout.header_size
+        divider_size = layout.divider_size
+        if name_sort is None:
+            name_sort = layout.name_sort
+    else:
+        line_spacing = None
+        level_gap = None
+        max_fill = None
+        min_font_size = None
+        max_font_size = None
+        max_shirt_pages = None
+        title1_size = None
+        title2_size = None
+        copyright = None
+        accent_color = None
+        font_family = None
+        sport = None
+        title_prefix = None
+        header_size = None
+        divider_size = None
 
     # Default to 'age' if still None after merge
     if name_sort is None:
@@ -105,16 +119,16 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
     hl = header_size if header_size is not None else HEADER_LARGE
     hs = round(hl * 0.72)
     ds = divider_size if divider_size is not None else LEVEL_DIVIDER_SIZE
-    accent = _parse_hex_color(accent_color) if accent_color else RED
+    accent = parse_hex_color(accent_color) if accent_color else RED
     if font_family == 'sans-serif':
         f_reg, f_bold = 'Helvetica', 'Helvetica-Bold'
     else:
         f_reg, f_bold = FONT_REGULAR, FONT_BOLD
 
     # Compute Y positions from title sizes
-    title1_y, title2_y, oval_y, headers_y, names_start = _compute_layout(t1l, t2l)
+    title1_y, title2_y, oval_y, headers_y, names_start = compute_layout(t1l, t2l)
 
-    levels, data, _flagged, _modified = _get_winners_by_event_and_level(
+    levels, data, _flagged, _modified = get_winners_by_event_and_level(
         db_path, meet_name, name_sort=name_sort)
 
     # Diagnostic: log all levels found and their athlete counts
@@ -122,8 +136,8 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
     for lv in levels:
         _lv_total = sum(len(data[ev].get(lv, [])) for ev in EVENT_KEYS)
         _diag_counts[lv] = _lv_total
-    print(f"SHIRT_DIAG: {len(levels)} levels found: {levels}")
-    print(f"SHIRT_DIAG: athletes per level: {_diag_counts}")
+    logger.info("SHIRT_DIAG: %d levels found: %s", len(levels), levels)
+    logger.info("SHIRT_DIAG: athletes per level: %s", _diag_counts)
 
     # Intentionally exclude specific levels (e.g. levels with no real data)
     if exclude_levels:
@@ -135,7 +149,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
         for event in EVENT_KEYS:
             for lv in excl:
                 data[event].pop(lv, None)
-        print(f"SHIRT_DIAG: after exclusions: {len(levels)} levels: {levels}")
+        logger.info("SHIRT_DIAG: after exclusions: %d levels: %s", len(levels), levels)
 
     style = {
         'copyright': cr, 'sport': sp, 'title_prefix': tp,
@@ -169,7 +183,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
                      if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
     numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
 
-    print(f"SHIRT_DIAG: xcel_levels={xcel_levels}, numbered_levels={numbered_levels}")
+    logger.debug("SHIRT_DIAG: xcel_levels=%s, numbered_levels=%s", xcel_levels, numbered_levels)
 
     _page_h = page_h or PAGE_H
     _names_bottom = _page_h - 18
@@ -178,23 +192,23 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
     # Custom level groups override auto bin-packing
     if level_groups:
         level_set = set(levels)
-        print(f"SHIRT_DIAG: using custom level_groups={level_groups!r}, level_set={level_set}")
-        page_groups = _parse_level_groups(level_groups, level_set)
-        print(f"SHIRT_DIAG: parsed page_groups: {[(label, lvs) for label, lvs in page_groups]}")
+        logger.debug("SHIRT_DIAG: using custom level_groups=%r, level_set=%s", level_groups, level_set)
+        page_groups = parse_level_groups(level_groups, level_set)
+        logger.debug("SHIRT_DIAG: parsed page_groups: %s", [(label, lvs) for label, lvs in page_groups])
     else:
         # Auto bin-packing
         page_groups = []
         if xcel_levels:
-            xcel_groups = _bin_pack_levels(xcel_levels, data, available,
-                                           lhr, lgap, mxfs, divider_size=ds)
+            xcel_groups = bin_pack_levels(xcel_levels, data, available,
+                                          lhr, lgap, mxfs, divider_size=ds)
             for group in xcel_groups:
                 page_groups.append(('XCEL', group))
 
         if numbered_levels:
-            groups = _bin_pack_levels(numbered_levels, data, available,
-                                      lhr, lgap, mxfs, divider_size=ds)
+            groups = bin_pack_levels(numbered_levels, data, available,
+                                     lhr, lgap, mxfs, divider_size=ds)
             for group in groups:
-                page_groups.append(_label_numbered_group(group))
+                page_groups.append(label_numbered_group(group))
 
         # If max_shirt_pages is set and we have too many pages, try shrinking
         # the bin-pack font estimate to merge groups. Uses multi-resolution
@@ -203,15 +217,15 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
             def _groups_at_size(try_size):
                 new_groups = []
                 if xcel_levels:
-                    for g in _bin_pack_levels(xcel_levels, data, available,
-                                              lhr, lgap, try_size,
-                                              divider_size=ds):
+                    for g in bin_pack_levels(xcel_levels, data, available,
+                                             lhr, lgap, try_size,
+                                             divider_size=ds):
                         new_groups.append(('XCEL', g))
                 if numbered_levels:
-                    for g in _bin_pack_levels(numbered_levels, data, available,
-                                              lhr, lgap, try_size,
-                                              divider_size=ds):
-                        new_groups.append(_label_numbered_group(g))
+                    for g in bin_pack_levels(numbered_levels, data, available,
+                                             lhr, lgap, try_size,
+                                             divider_size=ds):
+                        new_groups.append(label_numbered_group(g))
                 return new_groups
 
             best_size = mfs
@@ -230,8 +244,8 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
 
             page_groups = best_groups
 
-    print(f"SHIRT_DIAG: final page_groups ({len(page_groups)} pages): "
-          f"{[(label, len(lvs)) for label, lvs in page_groups]}")
+    logger.info("SHIRT_DIAG: final page_groups (%d pages): %s",
+                len(page_groups), [(label, len(lvs)) for label, lvs in page_groups])
 
     return {'levels': levels, 'data': data, 'page_groups': page_groups,
             'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
@@ -246,7 +260,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort=None,
             **style}
 
 
-def _label_numbered_group(group):
+def label_numbered_group(group: list) -> tuple[str, list]:
     """Derive an oval label from a list of numbered levels."""
     nums = sorted([int(lv) for lv in group if lv.isdigit()])
     if len(nums) >= 2:
@@ -258,7 +272,7 @@ def _label_numbered_group(group):
     return (label, group)
 
 
-def _parse_level_groups(level_groups, level_set):
+def parse_level_groups(level_groups, level_set: set) -> list:
     """Parse custom level groups into page_groups list.
 
     level_groups: semicolon-separated groups, comma-separated levels.
@@ -286,7 +300,7 @@ def _parse_level_groups(level_groups, level_set):
         if not group_levels:
             continue
         included.update(group_levels)
-        page_groups.append((_label_group(group_levels), group_levels))
+        page_groups.append((label_group(group_levels), group_levels))
 
     # Auto-include any levels with winners that were not mentioned
     missing = level_set - included
@@ -301,12 +315,12 @@ def _parse_level_groups(level_groups, level_set):
         # Append to last group
         last_label, last_levels = page_groups[-1]
         last_levels.extend(missing_sorted)
-        page_groups[-1] = (_label_group(last_levels), last_levels)
+        page_groups[-1] = (label_group(last_levels), last_levels)
 
     return page_groups
 
 
-def _label_group(group_levels):
+def label_group(group_levels: list) -> str:
     """Derive a page label from a list of levels."""
     xcel_in = [lv for lv in group_levels if lv in XCEL_MAP]
     numbered_in = [lv for lv in group_levels if lv not in XCEL_MAP]
@@ -339,7 +353,7 @@ _DASH_EVENT_PATTERN = re.compile(
     rf'\s*-\s*{_EVENT_CODES}(?:[,\s]+{_EVENT_CODES})*\s*$', re.IGNORECASE)
 
 
-def _clean_name_for_shirt(name: str) -> str:
+def clean_name_for_shirt(name: str) -> str:
     """Strip parenthetical annotations, pronunciation guides, and event
     suffixes from an athlete name before putting it on the shirt.
 
@@ -360,7 +374,7 @@ def _clean_name_for_shirt(name: str) -> str:
     return cleaned.strip()
 
 
-def _flag_suspicious_name(name: str) -> str:
+def flag_suspicious_name(name: str) -> str:
     """Check if a cleaned name still looks suspicious. Returns a reason
     string if suspicious, or empty string if it looks normal.
     """
@@ -385,8 +399,8 @@ def _flag_suspicious_name(name: str) -> str:
     return ''
 
 
-def _get_winners_by_event_and_level(db_path: str, meet_name: str,
-                                    name_sort: str = 'age'):
+def get_winners_by_event_and_level(db_path: str, meet_name: str,
+                                   name_sort: str = 'age') -> tuple[list, dict, list, list]:
     """Get winner names organized by event and level.
 
     Args:
@@ -405,8 +419,8 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
         cur.execute('''SELECT DISTINCT level FROM winners
                        WHERE meet_name = ?''', (meet_name,))
         levels = [row[0] for row in cur.fetchall()]
-        print(f"WINNERS_DIAG: db={db_path}")
-        print(f"WINNERS_DIAG: meet_name={meet_name!r}, found {len(levels)} levels: {levels}")
+        logger.debug("WINNERS_DIAG: db=%s", db_path)
+        logger.debug("WINNERS_DIAG: meet_name=%r, found %d levels: %s", meet_name, len(levels), levels)
 
         # Get division ordering for age-based sort
         div_order, _unknowns = detect_division_order(db_path, meet_name)
@@ -461,12 +475,12 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
                     clean_names = []
                     for r in rows:
                         raw = r[0]
-                        cleaned = _clean_name_for_shirt(raw)
+                        cleaned = clean_name_for_shirt(raw)
                         if cleaned and cleaned not in seen:
                             seen.add(cleaned)
                             clean_names.append(cleaned)
                             # Flag suspicious names
-                            reason = _flag_suspicious_name(cleaned)
+                            reason = flag_suspicious_name(cleaned)
                             if reason:
                                 flagged.append((cleaned, raw, event, level, reason))
                             elif cleaned != raw.strip():
@@ -481,18 +495,19 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
 
 # --- Layout helpers ---
 
-def _level_height(level, data, line_height, level_gap, divider_size=None):
+def level_height(level: str, data: dict, line_height: float,
+                 level_gap: float, divider_size: float = None) -> float:
     """Calculate the vertical space one level needs."""
     ds = divider_size if divider_size is not None else LEVEL_DIVIDER_SIZE
     max_names = max(len(data[event].get(level, [])) for event in EVENT_KEYS)
     return level_gap + ds * 1.3 + max_names * line_height + 1
 
 
-def _bin_pack_levels(levels, data, available_height,
-                     line_height_ratio=LINE_HEIGHT_RATIO,
-                     level_gap=LEVEL_GAP,
-                     max_font_size=DEFAULT_NAME_SIZE,
-                     divider_size=None):
+def bin_pack_levels(levels: list, data: dict, available_height: float,
+                    line_height_ratio: float = LINE_HEIGHT_RATIO,
+                    level_gap: float = LEVEL_GAP,
+                    max_font_size: float = DEFAULT_NAME_SIZE,
+                    divider_size: float = None) -> list:
     """Bin-pack levels into page-sized groups with balanced distribution.
 
     Two-pass approach:
@@ -505,8 +520,8 @@ def _bin_pack_levels(levels, data, available_height,
 
     # Calculate height for each level
     heights = []
-    for level in levels:
-        h = _level_height(level, data, line_height, level_gap, divider_size=divider_size)
+    for lv in levels:
+        h = level_height(lv, data, line_height, level_gap, divider_size=divider_size)
         heights.append(h)
 
     total = sum(heights)
@@ -517,14 +532,14 @@ def _bin_pack_levels(levels, data, available_height,
     greedy_pages = []
     current = []
     current_h = 0
-    for i, level in enumerate(levels):
+    for i, lv in enumerate(levels):
         h = heights[i]
         if current and current_h + h > available_height:
             greedy_pages.append(current)
-            current = [level]
+            current = [lv]
             current_h = h
         else:
-            current.append(level)
+            current.append(lv)
             current_h += h
     if current:
         greedy_pages.append(current)
@@ -541,7 +556,7 @@ def _bin_pack_levels(levels, data, available_height,
     current_h = 0
     remaining_pages = num_pages
 
-    for i, level in enumerate(levels):
+    for i, lv in enumerate(levels):
         h = heights[i]
         remaining_levels = len(levels) - i
 
@@ -555,7 +570,7 @@ def _bin_pack_levels(levels, data, available_height,
                 current_h = 0
                 remaining_pages -= 1
 
-        current.append(level)
+        current.append(lv)
         current_h += h
 
     if current:
@@ -563,15 +578,15 @@ def _bin_pack_levels(levels, data, available_height,
     return balanced_pages
 
 
-def _fit_font_size(levels, data,
-                   line_height_ratio=LINE_HEIGHT_RATIO,
-                   level_gap=LEVEL_GAP,
-                   max_page_fill=MAX_PAGE_FILL,
-                   min_name_size=MIN_NAME_SIZE,
-                   max_font_size=DEFAULT_NAME_SIZE,
-                   names_start_y=None,
-                   divider_size=None,
-                   page_h=None):
+def fit_font_size(levels: list, data: dict,
+                  line_height_ratio: float = LINE_HEIGHT_RATIO,
+                  level_gap: float = LEVEL_GAP,
+                  max_page_fill: float = MAX_PAGE_FILL,
+                  min_name_size: float = MIN_NAME_SIZE,
+                  max_font_size: float = DEFAULT_NAME_SIZE,
+                  names_start_y: float = None,
+                  divider_size: float = None,
+                  page_h: int = None) -> float:
     """Find the largest font size that fits all levels on page.
 
     Uses multi-resolution search (like a B-tree index): tests at
@@ -579,7 +594,7 @@ def _fit_font_size(levels, data,
     of scanning every 0.1 increment linearly. Precise to 0.1pt.
     """
     if names_start_y is None:
-        names_start_y = 121  # default from _compute_layout()
+        names_start_y = 121  # default from compute_layout()
     ds = divider_size if divider_size is not None else LEVEL_DIVIDER_SIZE
     _names_bottom = (page_h or PAGE_H) - 18
     available = (_names_bottom - names_start_y) * max_page_fill
@@ -588,8 +603,8 @@ def _fit_font_size(levels, data,
         lh = size * line_height_ratio
         return sum(
             level_gap + ds * 1.3 +
-            max(len(data[event].get(level, [])) for event in EVENT_KEYS) * lh + 1
-            for level in levels
+            max(len(data[event].get(lv, [])) for event in EVENT_KEYS) * lh + 1
+            for lv in levels
         )
 
     # Quick check: if max fits, use it
@@ -615,14 +630,18 @@ def _fit_font_size(levels, data,
     return round(best, 1)
 
 
-def _space_text(text):
-    """Add letter spacing: 'LEVEL 10' -> 'L E V E L  1 0'."""
+def space_text(text: str, tracking: float = 0) -> str:
+    """Add letter spacing: 'LEVEL 10' -> 'L E V E L  1 0'.
+
+    The tracking parameter is accepted for API completeness but the
+    spacing is always one space per character, two spaces between words.
+    """
     words = text.split()
     spaced_words = [' '.join(list(word)) for word in words]
     return '  '.join(spaced_words)
 
 
-def _get_winners_with_gym(db_path, meet_name):
+def get_winners_with_gym(db_path: str, meet_name: str) -> dict:
     """Get a mapping of winner name -> gym (with cleaned names)."""
     conn = sqlite3.connect(db_path)
     try:
@@ -631,13 +650,13 @@ def _get_winners_with_gym(db_path, meet_name):
                     (meet_name,))
         result = {}
         for row in cur.fetchall():
-            cleaned = _clean_name_for_shirt(row[0])
+            cleaned = clean_name_for_shirt(row[0])
             if cleaned:
                 if cleaned in result and result[cleaned] != row[1]:
                     # Name collision: same cleaned name at different gyms.
                     # Keep the first gym but warn so the issue is visible.
-                    print(f"NAME_COLLISION: \"{cleaned}\" appears at both "
-                          f"\"{result[cleaned]}\" and \"{row[1]}\" - using first gym")
+                    logger.warning('NAME_COLLISION: "%s" appears at both "%s" and "%s" - using first gym',
+                                   cleaned, result[cleaned], row[1])
                 elif cleaned not in result:
                     result[cleaned] = row[1]
     finally:
@@ -645,7 +664,7 @@ def _get_winners_with_gym(db_path, meet_name):
     return result
 
 
-def _get_all_winner_gyms(db_path, meet_name):
+def get_all_winner_gyms(db_path: str, meet_name: str) -> list:
     """Get sorted list of all gyms that have winners."""
     conn = sqlite3.connect(db_path)
     try:
