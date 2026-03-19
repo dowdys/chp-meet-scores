@@ -338,10 +338,12 @@ def main():
                         saved_layout = json.load(f)
                 except (json.JSONDecodeError, OSError):
                     pass
+            # NOTE: level_groups, exclude_levels, page_size NOT included here
+            # (same as LAYOUT_PARAMS — they are per-run overrides, not sticky)
             LAYOUT_PARAMS_IMPORT = ['line_spacing', 'level_gap', 'max_fill',
                                     'min_font_size', 'max_font_size', 'max_shirt_pages',
-                                    'title1_size', 'title2_size', 'level_groups',
-                                    'exclude_levels', 'copyright', 'accent_color',
+                                    'title1_size', 'title2_size',
+                                    'copyright', 'accent_color',
                                     'font_family', 'sport', 'title_prefix',
                                     'header_size', 'divider_size']
             for param in LAYOUT_PARAMS_IMPORT:
@@ -351,12 +353,13 @@ def main():
 
             errors = []
 
-            # Gym highlights -overlay on the IDML-generated shirt PDF
+            # Gym highlights - always code-generated for proper gym name spacing
             try:
                 gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
                 tmp = _tmp_path_for(gym_highlights_path)
-                generate_gym_highlights_from_pdf(pdf_path, db_path,
-                                                 config.meet_name, tmp)
+                generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
+                                            year=args.year, state=args.state,
+                                            name_sort=args.name_sort)
                 actual = _safe_move(tmp, gym_highlights_path)
                 print(f"Generated {actual}")
             except Exception as e:
@@ -527,13 +530,14 @@ def main():
             pass
 
     # Merge: CLI (if explicitly set, i.e. not None) > saved > default (None)
+    # NOTE: level_groups, exclude_levels, and page_size are intentionally NOT
+    # persisted here — they are per-run overrides, not sticky layout settings.
+    # Persisting them caused bugs where subsequent runs applied stale exclusions.
     LAYOUT_PARAMS = ['line_spacing', 'level_gap', 'max_fill',
                      'min_font_size', 'max_font_size', 'max_shirt_pages',
-                     'title1_size', 'title2_size', 'level_groups',
-                     'exclude_levels',
+                     'title1_size', 'title2_size',
                      'copyright', 'accent_color', 'font_family',
-                     'sport', 'title_prefix', 'header_size', 'divider_size',
-                     'page_size']
+                     'sport', 'title_prefix', 'header_size', 'divider_size']
     for param in LAYOUT_PARAMS:
         cli_val = getattr(args, param)
         if cli_val is None and param in saved_layout:
@@ -793,54 +797,44 @@ def main():
         # Only use legal shirt for exclusion/generation when it was explicitly requested
         _has_legal = _legal_groups and os.path.exists(legal_shirt)
 
-        # Generate 8.5x14 gym highlights ONLY when legal was explicitly requested
+        # Always use code-generated gym highlights (not PDF overlay) because
+        # the overlay approach has no room for the gym name between title and oval.
+        # The code-generated version builds pages from scratch with proper spacing.
+        _gh_args = dict(
+            year=args.year, state=args.state,
+            line_spacing=args.line_spacing, level_gap=args.level_gap,
+            max_fill=args.max_fill, min_font_size=args.min_font_size,
+            max_font_size=args.max_font_size, name_sort=args.name_sort,
+            max_shirt_pages=args.max_shirt_pages,
+            title1_size=args.title1_size, title2_size=args.title2_size,
+            level_groups=args.level_groups, exclude_levels=args.exclude_levels,
+            copyright=args.copyright, accent_color=args.accent_color,
+            font_family=args.font_family, sport=args.sport,
+            title_prefix=args.title_prefix,
+            header_size=args.header_size, divider_size=args.divider_size,
+        )
+
+        # Generate 8.5x14 gym highlights when legal was explicitly requested
         if _has_legal:
             try:
+                from python.core.pdf_generator import PAGE_H_LEGAL
                 gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
                 tmp = _tmp_path_for(gh_legal_path)
-                generate_gym_highlights_from_pdf(legal_shirt, db_path,
-                                                 config.meet_name, tmp)
+                generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
+                                            page_h=PAGE_H_LEGAL, **_gh_args)
                 actual = _safe_move(tmp, gh_legal_path)
                 print(f"Generated {actual} (8.5x14)")
             except Exception as e:
                 print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
                 errors.append(('gym_highlights_legal', str(e)))
 
-        # Generate 8.5x11 gym highlights (excluding names on legal pages)
+        # Generate 8.5x11 gym highlights
         try:
             gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-            _exclude = legal_shirt if _has_legal else None
-            if os.path.exists(letter_shirt):
-                tmp = _tmp_path_for(gym_highlights_path)
-                generate_gym_highlights_from_pdf(letter_shirt, db_path,
-                                                 config.meet_name, tmp,
-                                                 exclude_shirt_path=_exclude)
-                actual = _safe_move(tmp, gym_highlights_path)
-                print(f"Generated {actual}")
-            else:
-                tmp = _tmp_path_for(gym_highlights_path)
-                generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                            year=args.year, state=args.state,
-                                            line_spacing=args.line_spacing,
-                                            level_gap=args.level_gap,
-                                            max_fill=args.max_fill,
-                                            min_font_size=args.min_font_size,
-                                            max_font_size=args.max_font_size,
-                                            name_sort=args.name_sort,
-                                            max_shirt_pages=args.max_shirt_pages,
-                                            title1_size=args.title1_size,
-                                            title2_size=args.title2_size,
-                                            level_groups=args.level_groups,
-                                            exclude_levels=args.exclude_levels,
-                                            copyright=args.copyright,
-                                            accent_color=args.accent_color,
-                                            font_family=args.font_family,
-                                            sport=args.sport,
-                                            title_prefix=args.title_prefix,
-                                            header_size=args.header_size,
-                                            divider_size=args.divider_size)
-                actual = _safe_move(tmp, gym_highlights_path)
-                print(f"Generated {actual}")
+            tmp = _tmp_path_for(gym_highlights_path)
+            generate_gym_highlights_pdf(db_path, config.meet_name, tmp, **_gh_args)
+            actual = _safe_move(tmp, gym_highlights_path)
+            print(f"Generated {actual}")
         except Exception as e:
             print(f"ERROR generating gym_highlights.pdf: {e}")
             errors.append(('gym_highlights', str(e)))
@@ -862,6 +856,14 @@ def main():
         except Exception as e:
             print(f"ERROR generating meet_summary.txt: {e}")
             errors.append(('summary', str(e)))
+
+    # Clean up any leftover temp files in the output directory
+    import glob
+    for tmp_file in glob.glob(os.path.join(args.output, 'tmp*.pdf')):
+        try:
+            os.remove(tmp_file)
+        except OSError:
+            pass
 
     if errors:
         print(f"\nDone with {len(errors)} error(s):")

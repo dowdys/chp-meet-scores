@@ -124,8 +124,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     # Diagnostic: report which path and source is used for order form backs
     total_athletes = sum(len(a) for a in gym_athletes.values())
     if use_pdf_overlay:
-        import fitz as _fitz_diag
-        _diag_doc = _fitz_diag.open(shirt_pdf_path)
+        _diag_doc = fitz.open(shirt_pdf_path)
         print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
               f"({len(_diag_doc)} pages, {_diag_doc[0].rect.width:.0f}x{_diag_doc[0].rect.height:.0f})")
         _diag_doc.close()

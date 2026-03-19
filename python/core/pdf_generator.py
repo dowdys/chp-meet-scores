@@ -155,6 +155,14 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
     levels, data, _flagged, _modified = _get_winners_by_event_and_level(
         db_path, meet_name, name_sort=name_sort)
 
+    # Diagnostic: log all levels found and their athlete counts
+    _diag_counts = {}
+    for lv in levels:
+        _lv_total = sum(len(data[ev].get(lv, [])) for ev in EVENT_KEYS)
+        _diag_counts[lv] = _lv_total
+    print(f"SHIRT_DIAG: {len(levels)} levels found: {levels}")
+    print(f"SHIRT_DIAG: athletes per level: {_diag_counts}")
+
     # Intentionally exclude specific levels (e.g. levels with no real data)
     if exclude_levels:
         if isinstance(exclude_levels, str):
@@ -165,6 +173,7 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
         for event in EVENT_KEYS:
             for lv in excl:
                 data[event].pop(lv, None)
+        print(f"SHIRT_DIAG: after exclusions: {len(levels)} levels: {levels}")
 
     style = {
         'copyright': cr, 'sport': sp, 'title_prefix': tp,
@@ -198,6 +207,8 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                      if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
     numbered_levels.sort(key=lambda lv: -int(lv) if lv.isdigit() else 0)
 
+    print(f"SHIRT_DIAG: xcel_levels={xcel_levels}, numbered_levels={numbered_levels}")
+
     _page_h = page_h or PAGE_H
     _names_bottom = _page_h - 18
     available = (_names_bottom - names_start) * mfill
@@ -205,7 +216,9 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
     # Custom level groups override auto bin-packing
     if level_groups:
         level_set = set(levels)
+        print(f"SHIRT_DIAG: using custom level_groups={level_groups!r}, level_set={level_set}")
         page_groups = _parse_level_groups(level_groups, level_set)
+        print(f"SHIRT_DIAG: parsed page_groups: {[(label, lvs) for label, lvs in page_groups]}")
     else:
         # Auto bin-packing
         page_groups = []
@@ -252,6 +265,9 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
                         break
 
             page_groups = best_groups
+
+    print(f"SHIRT_DIAG: final page_groups ({len(page_groups)} pages): "
+          f"{[(label, len(lvs)) for label, lvs in page_groups]}")
 
     return {'levels': levels, 'data': data, 'page_groups': page_groups,
             'lhr': lhr, 'lgap': lgap, 'mfill': mfill,
@@ -665,6 +681,8 @@ def _get_winners_by_event_and_level(db_path: str, meet_name: str,
     cur.execute('''SELECT DISTINCT level FROM winners
                    WHERE meet_name = ?''', (meet_name,))
     levels = [row[0] for row in cur.fetchall()]
+    print(f"WINNERS_DIAG: db={db_path}")
+    print(f"WINNERS_DIAG: meet_name={meet_name!r}, found {len(levels)} levels: {levels}")
 
     # Get division ordering for age-based sort
     div_order, _unknowns = detect_division_order(db_path, meet_name)
@@ -1061,7 +1079,13 @@ def _get_winners_with_gym(db_path, meet_name):
     for row in cur.fetchall():
         cleaned = _clean_name_for_shirt(row[0])
         if cleaned:
-            result[cleaned] = row[1]
+            if cleaned in result and result[cleaned] != row[1]:
+                # Name collision: same cleaned name at different gyms.
+                # Keep the first gym but warn so the issue is visible.
+                print(f"NAME_COLLISION: \"{cleaned}\" appears at both "
+                      f"\"{result[cleaned]}\" and \"{row[1]}\" - using first gym")
+            elif cleaned not in result:
+                result[cleaned] = row[1]
     conn.close()
     return result
 
@@ -1215,8 +1239,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     doc = fitz.open()
 
     # Gym highlights layout: shifted down to accommodate gym name below title
-    gh_gym_name_y = p_title2_y + round(t2l * 0.8)
-    gh_oval_y = gh_gym_name_y + 24
+    gh_gym_name_y = p_title2_y + round(t2l * 0.8) + 3
+    gh_oval_y = gh_gym_name_y + 21
     gh_headers_y = gh_oval_y + 24
     gh_names_start = gh_headers_y + 16
 
@@ -1381,17 +1405,46 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
                 annot.set_colors(stroke=(1, 1, 0))
                 annot.update()
 
-            # Draw gym name between title and oval (roughly y≈60 on the page)
-            # Search the page for the oval area to find the right Y position
+            # Draw gym name between title and oval with a white background
+            # for breathing room. Find the title bottom and oval top.
             gym_display = gym.upper()
             gym_fs = 10
             tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
             while tw > pw - 60 and gym_fs > 7:
                 gym_fs -= 0.5
                 tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
-            # Position: between the "STATE CHAMPIONS OF" title (~y=44) and the
-            # oval (~y=70). y=60 places it centered in that gap.
-            gym_name_y = 60
+
+            # Find the title bottom and oval top from page content
+            title_bottom_y = 57  # fallback
+            oval_top_y = 70      # fallback
+            for d in page.get_drawings():
+                if d.get('fill') and d['rect'].y0 > 30 and d['rect'].y0 < 150:
+                    fill = d['fill']
+                    if fill and len(fill) >= 3 and fill[0] > 0.5 and fill[1] < 0.3:
+                        oval_top_y = d['rect'].y0
+                        break
+            # Search for the title2 baseline (largest text near y=40-60)
+            for b in page.get_text('dict')['blocks']:
+                if 'lines' not in b:
+                    continue
+                for line in b['lines']:
+                    for span in line['spans']:
+                        sy = span['origin'][1]
+                        if 40 < sy < 65 and span['size'] >= 15:
+                            title_bottom_y = max(title_bottom_y, sy + span['size'] * 0.3)
+
+            # Draw white background rect to create space between title and oval
+            gap_top = title_bottom_y + 1
+            gap_bottom = oval_top_y
+            if gap_bottom - gap_top < gym_fs + 4:
+                # Not enough space — extend by blanking into the oval top
+                gap_bottom = gap_top + gym_fs + 6
+            bg_rect = fitz.Rect(pw / 2 - tw / 2 - 8, gap_top,
+                                pw / 2 + tw / 2 + 8, gap_bottom)
+            page.draw_rect(bg_rect, fill=WHITE, color=WHITE, width=0)
+
+            # Center gym name in the gap
+            gym_name_y = gap_top + (gap_bottom - gap_top) / 2 + gym_fs * 0.35
             page.insert_text(fitz.Point(pw / 2 - tw / 2, gym_name_y),
                              gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
                              color=RED)
