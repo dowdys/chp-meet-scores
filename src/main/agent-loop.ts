@@ -30,6 +30,7 @@ import {
   extractProgressSummary,
   extractNextSteps,
 } from './process-logger';
+import { requireString, optionalString } from './tools/validation';
 
 // Re-export AgentContext for consumers
 export type { AgentContext };
@@ -228,8 +229,6 @@ export class AgentLoop {
       const querySystem = systemPrompt + '\n\n## Query Mode\nYou are answering questions about previously processed meet data. Use the query_db tool to look up data in the SQLite database. Give clear, concise answers.';
 
       // Truncate old query conversation if it gets too large
-      const _contextLimit = this.llmClient.getContextLimit();
-      void _contextLimit; // reserved for future context-aware truncation
       if (this.queryConversation.length > 20) {
         // Keep the last 10 messages to stay within context limits
         this.queryConversation = this.queryConversation.slice(-10);
@@ -656,45 +655,45 @@ export class AgentLoop {
       case 'run_python':
         return toolRunPython(
           context.outputName || context.meetName,
-          args.args as string,
+          requireString(args, 'args'),
           context,
           this.onActivity
         );
 
       case 'set_output_name':
-        context.outputName = args.name as string;
+        context.outputName = requireString(args, 'name');
         return `Output folder name set to: "${context.outputName}"`;
 
       case 'render_pdf_page':
         return toolRenderPdfPage(
-          args.pdf_path as string | undefined,
+          optionalString(args, 'pdf_path'),
           args.page_number as number | undefined,
           context.outputName || context.meetName
         );
 
       case 'open_file':
         return toolOpenFile(
-          args.file_path as string,
+          requireString(args, 'file_path'),
           context.outputName || context.meetName
         );
 
       case 'list_output_files':
-        return toolListOutputFiles((args.meet_name as string) || context.outputName || context.meetName);
+        return toolListOutputFiles(optionalString(args, 'meet_name') || context.outputName || context.meetName);
 
       case 'list_skills':
         return toolListSkills();
 
       case 'load_skill':
-        return toolLoadSkill(args.skill_name as string, context);
+        return toolLoadSkill(requireString(args, 'skill_name'), context);
 
       case 'load_skill_detail':
-        return toolLoadSkillDetail(args.detail_name as string, context);
+        return toolLoadSkillDetail(requireString(args, 'detail_name'), context);
 
       case 'save_draft_skill':
-        return toolSaveDraftSkill(args.platform_name as string, args.content as string);
+        return toolSaveDraftSkill(requireString(args, 'platform_name'), requireString(args, 'content'));
 
       case 'save_progress':
-        return toolSaveProgress(context, args.summary as string, args.next_steps as string, args.data_files as string | undefined);
+        return toolSaveProgress(context, requireString(args, 'summary'), requireString(args, 'next_steps'), optionalString(args, 'data_files'));
 
       case 'load_progress':
         return toolLoadProgress();

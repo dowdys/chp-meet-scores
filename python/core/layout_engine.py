@@ -41,7 +41,7 @@ def _compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE):
     return t1_y, t2_y, ov_y, hd_y, ns_y
 
 
-def precompute_shirt_data(db_path, meet_name, name_sort='age',
+def precompute_shirt_data(db_path, meet_name, name_sort=None,
                           layout=None,  # LayoutParams object
                           line_spacing=None, level_gap=None,
                           max_fill=None, min_font_size=None,
@@ -80,7 +80,11 @@ def precompute_shirt_data(db_path, meet_name, name_sort='age',
         title_prefix = title_prefix if title_prefix is not None else layout.title_prefix
         header_size = header_size if header_size is not None else layout.header_size
         divider_size = divider_size if divider_size is not None else layout.divider_size
-        name_sort = name_sort if name_sort != 'age' else layout.name_sort
+        name_sort = name_sort if name_sort is not None else layout.name_sort
+
+    # Default to 'age' if still None after merge
+    if name_sort is None:
+        name_sort = 'age'
 
     lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
     lgap = level_gap if level_gap is not None else LEVEL_GAP

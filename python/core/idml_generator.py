@@ -38,6 +38,7 @@ from python.core.layout_engine import (
     _compute_layout, _fit_font_size, _space_text,
     precompute_shirt_data,
 )
+from python.core.rendering_utils import _measure_small_caps_width
 
 # Map PDF font names to InDesign font family / style / PostScript names
 _FONT_MAP = {
@@ -307,8 +308,8 @@ def _write_idml(output_path, year, state,
                     v_just='CenterAlign'
                 ))
 
-                # Header underline — use actual font metrics instead of approximation
-                approx_w = fitz.get_text_length(header, fontname=font_bold, fontsize=hl)
+                # Header underline — use small-caps width for accurate measurement
+                approx_w = _measure_small_caps_width(header, hl, hs, font=font_bold)
                 line_id = _uid()
                 page_items.append(_gl(
                     line_id, layer_id,
@@ -321,7 +322,8 @@ def _write_idml(output_path, year, state,
             font_size = _fit_font_size(group_levels, data, lhr, lgap, mfill,
                                         mfs, mxfs,
                                         names_start_y=names_start_y,
-                                        divider_size=ds)
+                                        divider_size=ds,
+                                        page_h=_ph)
             line_height = font_size * lhr
             y = names_start_y
 

@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { execSync, ChildProcess, spawn } from 'child_process';
+import { execFileSync, ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
@@ -54,17 +54,21 @@ class ChromeController {
     }
 
     // Try Linux Chrome
-    try {
-      const linuxChrome = execSync('which google-chrome || which google-chrome-stable || which chromium-browser', { encoding: 'utf8' }).trim();
-      if (linuxChrome) return linuxChrome;
-    } catch {
-      // Not found on Linux
+    const linuxCandidates = ['google-chrome', 'google-chrome-stable', 'chromium-browser'];
+    for (const candidate of linuxCandidates) {
+      try {
+        const result = execFileSync('which', [candidate], { encoding: 'utf8' }).trim();
+        if (result) return result;
+      } catch {
+        // Not found, try next
+      }
     }
 
     // Try Windows registry as fallback
     try {
-      const regResult = execSync(
-        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe" /ve',
+      const regResult = execFileSync(
+        'reg',
+        ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe', '/ve'],
         { encoding: 'utf8' }
       );
       const match = regResult.match(/REG_SZ\s+(.+)/);

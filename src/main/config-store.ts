@@ -48,20 +48,23 @@ class ConfigStore {
 
   private encryptValue(value: string): string {
     if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.encryptString(value).toString('base64');
+      return 'enc:' + safeStorage.encryptString(value).toString('base64');
     }
     return value; // Fallback to plaintext if encryption unavailable
   }
 
-  private decryptValue(encrypted: string): string {
+  private decryptValue(stored: string): string {
+    if (!stored.startsWith('enc:')) {
+      return stored; // Plaintext (pre-migration or encryption unavailable)
+    }
     if (safeStorage.isEncryptionAvailable()) {
       try {
-        return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+        return safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64'));
       } catch {
-        return encrypted; // Assume plaintext if decryption fails (migration)
+        return stored; // Return raw value if decryption fails
       }
     }
-    return encrypted;
+    return stored;
   }
 
   /**

@@ -144,6 +144,10 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         const meetName = optionalString(args, 'meet_name') ?? 'query-output';
         const outDir = getOutputDir(meetName);
         const filepath = path.join(outDir, filename);
+        const resolvedPath = path.resolve(filepath);
+        if (!resolvedPath.startsWith(path.resolve(outDir))) {
+          return 'Error: filename must not escape the output directory.';
+        }
         const dir = path.dirname(filepath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });

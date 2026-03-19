@@ -617,7 +617,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
 
 def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_path,
-                                     exclude_shirt_path=None):
+                                     exclude_shirt_path=None,
+                                     font_family=None, accent_color=None):
     """Generate gym highlights by overlaying on an existing shirt PDF.
 
     Uses the rendered back_of_shirt.pdf as the visual base, so any designer

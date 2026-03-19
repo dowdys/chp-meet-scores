@@ -128,90 +128,90 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     )
 
     doc = fitz.open()
-    gyms = sorted(gym_athletes.keys())
-
-    # Diagnostic: report which path and source is used for order form backs
-    total_athletes = sum(len(a) for a in gym_athletes.values())
-
-    # When using PDF overlay, open the shirt PDF ONCE and pre-scan all
-    # athlete names across all pages.  This avoids reopening the file for
-    # each of the potentially hundreds of athletes (O(1) opens instead of
-    # O(N)).
     shirt_doc = None
-    name_page_hits = {}  # cleaned_name -> [(page_idx, [Rect, ...])]
+    try:
+        gyms = sorted(gym_athletes.keys())
 
-    if use_pdf_overlay:
-        from python.core.layout_engine import _clean_name_for_shirt
+        # Diagnostic: report which path and source is used for order form backs
+        total_athletes = sum(len(a) for a in gym_athletes.values())
 
-        shirt_doc = fitz.open(shirt_pdf_path)
-        print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
-              f"({len(shirt_doc)} pages, {shirt_doc[0].rect.width:.0f}x{shirt_doc[0].rect.height:.0f})")
+        # When using PDF overlay, open the shirt PDF ONCE and pre-scan all
+        # athlete names across all pages.  This avoids reopening the file for
+        # each of the potentially hundreds of athletes (O(1) opens instead of
+        # O(N)).
+        name_page_hits = {}  # cleaned_name -> [(page_idx, [Rect, ...])]
 
-        # Collect every unique athlete name (cleaned) for the pre-scan
-        all_athlete_names = set()
+        if use_pdf_overlay:
+            from python.core.layout_engine import _clean_name_for_shirt
+
+            shirt_doc = fitz.open(shirt_pdf_path)
+            print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
+                  f"({len(shirt_doc)} pages, {shirt_doc[0].rect.width:.0f}x{shirt_doc[0].rect.height:.0f})")
+
+            # Collect every unique athlete name (cleaned) for the pre-scan
+            all_athlete_names = set()
+            for gym in gyms:
+                for athlete_name, _le in gym_athletes[gym]:
+                    all_athlete_names.add(_clean_name_for_shirt(athlete_name))
+
+            # Pre-scan: search each page for every athlete name
+            for page_idx in range(len(shirt_doc)):
+                src_page = shirt_doc[page_idx]
+                for name in all_athlete_names:
+                    hits = src_page.search_for(name)
+                    if hits:
+                        name_page_hits.setdefault(name, []).append((page_idx, hits))
+        else:
+            _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
+            print(f"Order form backs: using code-generated path ({_pg_count} page groups)")
+
+        print(f"Order forms: {total_athletes} athletes across {len(gyms)} gyms")
+
+        backs_found = 0
+        backs_missing = 0
+
         for gym in gyms:
-            for athlete_name, _le in gym_athletes[gym]:
-                all_athlete_names.add(_clean_name_for_shirt(athlete_name))
+            athletes = gym_athletes[gym]
+            for athlete_name, level_events in athletes:
+                pages_before = len(doc)
 
-        # Pre-scan: search each page for every athlete name
-        for page_idx in range(len(shirt_doc)):
-            src_page = shirt_doc[page_idx]
-            for name in all_athlete_names:
-                hits = src_page.search_for(name)
-                if hits:
-                    name_page_hits.setdefault(name, []).append((page_idx, hits))
-    else:
-        _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
-        print(f"Order form backs: using code-generated path ({_pg_count} page groups)")
+                # Copy state-specific template page
+                page = doc.new_page(width=PAGE_W, height=PAGE_H)
+                page.show_pdf_page(page.rect, template_doc, 0)
 
-    print(f"Order forms: {total_athletes} athletes across {len(gyms)} gyms")
+                # Add athlete-specific sticker label
+                _add_athlete_label(page, athlete_name, gym, level_events)
 
-    backs_found = 0
-    backs_missing = 0
+                # Append back-of-shirt page(s) with red star
+                if use_pdf_overlay:
+                    add_shirt_back_pages_from_pdf(
+                        doc, shirt_pdf_path, athlete_name,
+                        shirt_doc=shirt_doc, name_page_hits=name_page_hits,
+                    )
+                else:
+                    add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
 
-    for gym in gyms:
-        athletes = gym_athletes[gym]
-        for athlete_name, level_events in athletes:
-            pages_before = len(doc)
+                # Track if back pages were added (front page = 1, so >1 means backs exist)
+                pages_added = len(doc) - pages_before
+                if pages_added > 1:
+                    backs_found += 1
+                else:
+                    backs_missing += 1
+                    if backs_missing <= 5:  # Only print first 5 to avoid spam
+                        print(f"  WARNING: No back pages found for \"{athlete_name}\" ({gym})")
 
-            # Copy state-specific template page
-            page = doc.new_page(width=PAGE_W, height=PAGE_H)
-            page.show_pdf_page(page.rect, template_doc, 0)
+        if backs_missing > 0:
+            print(f"Order form backs: {backs_found} athletes have backs, "
+                  f"{backs_missing} athletes MISSING backs")
+        else:
+            print(f"Order form backs: all {backs_found} athletes have back pages")
 
-            # Add athlete-specific sticker label
-            _add_athlete_label(page, athlete_name, gym, level_events)
-
-            # Append back-of-shirt page(s) with red star
-            if use_pdf_overlay:
-                add_shirt_back_pages_from_pdf(
-                    doc, shirt_pdf_path, athlete_name,
-                    shirt_doc=shirt_doc, name_page_hits=name_page_hits,
-                )
-            else:
-                add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
-
-            # Track if back pages were added (front page = 1, so >1 means backs exist)
-            pages_added = len(doc) - pages_before
-            if pages_added > 1:
-                backs_found += 1
-            else:
-                backs_missing += 1
-                if backs_missing <= 5:  # Only print first 5 to avoid spam
-                    print(f"  WARNING: No back pages found for \"{athlete_name}\" ({gym})")
-
-    if backs_missing > 0:
-        print(f"Order form backs: {backs_found} athletes have backs, "
-              f"{backs_missing} athletes MISSING backs")
-    else:
-        print(f"Order form backs: all {backs_found} athletes have back pages")
-
-    # Close the shirt PDF if we opened it
-    if shirt_doc is not None:
-        shirt_doc.close()
-
-    template_doc.close()
-    doc.save(output_path)
-    doc.close()
+        doc.save(output_path)
+    finally:
+        if shirt_doc is not None:
+            shirt_doc.close()
+        template_doc.close()
+        doc.close()
 
 
 def _add_athlete_label(page, athlete_name, gym, level_events):
@@ -287,39 +287,40 @@ def _get_gym_athletes(db_path: str, meet_name: str):
     from python.core.division_detector import detect_division_order
 
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    div_order, _unknowns = detect_division_order(db_path, meet_name)
+        div_order, _unknowns = detect_division_order(db_path, meet_name)
 
-    cur.execute('''
-        SELECT gym, name, level, division, event
-        FROM winners
-        WHERE meet_name = ?
-        ORDER BY gym, name,
-                 CAST(level AS INTEGER),
-                 CASE event
-                     WHEN 'vault' THEN 1 WHEN 'bars' THEN 2
-                     WHEN 'beam' THEN 3 WHEN 'floor' THEN 4
-                     WHEN 'aa' THEN 5
-                 END
-    ''', (meet_name,))
+        cur.execute('''
+            SELECT gym, name, level, division, event
+            FROM winners
+            WHERE meet_name = ?
+            ORDER BY gym, name,
+                     CAST(level AS INTEGER),
+                     CASE event
+                         WHEN 'vault' THEN 1 WHEN 'bars' THEN 2
+                         WHEN 'beam' THEN 3 WHEN 'floor' THEN 4
+                         WHEN 'aa' THEN 5
+                     END
+        ''', (meet_name,))
 
-    from python.core.layout_engine import _clean_name_for_shirt
-    gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    athlete_divisions = {}
-    for gym, raw_name, level, division, event in cur.fetchall():
-        name = _clean_name_for_shirt(raw_name)
-        if not name:
-            continue
-        display = EVENT_DISPLAY.get(event, event)
-        if display not in gym_data[gym][name][level]:
-            gym_data[gym][name][level].append(display)
-        key = (gym, name)
-        div_sort = div_order.get(division, 99)
-        if key not in athlete_divisions or div_sort < athlete_divisions[key]:
-            athlete_divisions[key] = div_sort
-
-    conn.close()
+        from python.core.layout_engine import _clean_name_for_shirt
+        gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        athlete_divisions = {}
+        for gym, raw_name, level, division, event in cur.fetchall():
+            name = _clean_name_for_shirt(raw_name)
+            if not name:
+                continue
+            display = EVENT_DISPLAY.get(event, event)
+            if display not in gym_data[gym][name][level]:
+                gym_data[gym][name][level].append(display)
+            key = (gym, name)
+            div_sort = div_order.get(division, 99)
+            if key not in athlete_divisions or div_sort < athlete_divisions[key]:
+                athlete_divisions[key] = div_sort
+    finally:
+        conn.close()
 
     result = {}
     for gym in gym_data:
