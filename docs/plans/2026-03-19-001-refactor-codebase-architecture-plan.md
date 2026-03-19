@@ -1,7 +1,7 @@
 ---
 title: "Codebase Architecture Refactor"
 type: refactor
-status: active
+status: completed
 date: 2026-03-19
 ---
 
@@ -59,11 +59,11 @@ Eight phases (Phase 0 added for safety net), ordered by dependency and risk. Eac
 
 Generate all outputs for a reference meet and store them:
 
-- [ ] Pick a reference meet (Iowa/ScoreCat or existing test data)
-- [ ] Run full pipeline — generate all 7 output files
-- [ ] Store copies as `tests/reference_data/baseline_*` (PDF, IDML, order forms, gym highlights, summary, winners)
-- [ ] Render each PDF page as 200 DPI PNG for visual diff capability
-- [ ] Add a simple `compare_outputs.py` script that:
+- [x] Pick a reference meet (Iowa/ScoreCat or existing test data)
+- [x] Run full pipeline — generate all 7 output files
+- [x] Store copies as `tests/reference_data/baseline_*` (PDF, IDML, order forms, gym highlights, summary, winners)
+- [x] Render each PDF page as 200 DPI PNG for visual diff capability
+- [x] Add a simple `compare_outputs.py` script that:
   - Compares text-based outputs byte-for-byte
   - For PDFs: extracts text content and compares (pixel diff is optional)
   - Reports any differences
@@ -324,8 +324,8 @@ class ShirtData:
 
 ### 2c. Update precompute_shirt_data
 
-- [ ] Change `precompute_shirt_data()` to accept `LayoutParams` and return `ShirtData`
-- [ ] Update all callers:
+- [x] Change `precompute_shirt_data()` to accept `LayoutParams` and return `ShirtData`
+- [x] Update all callers:
   - `pdf_generator.py` — `generate_shirt_pdf()`, `generate_gym_highlights_pdf()`, `add_shirt_back_pages()`
   - `idml_generator.py` — `generate_shirt_idml()`
   - `order_form_generator.py` — `generate_order_forms_pdf()`
@@ -378,16 +378,16 @@ class LayoutParams:
         return cls(**{k: v for k, v in d.items() if k in cls.STICKY_FIELDS})
 ```
 
-- [ ] Replace `LAYOUT_PARAMS` and `LAYOUT_PARAMS_IMPORT` lists with `LayoutParams.STICKY_FIELDS`
-- [ ] Replace manual dict building with `layout.to_sticky_dict()`
-- [ ] Replace manual dict loading with `LayoutParams.from_sticky_dict(saved)`
-- [ ] Add assertion: if any destructive filter key appears in saved JSON, raise an error
+- [x] Replace `LAYOUT_PARAMS` and `LAYOUT_PARAMS_IMPORT` lists with `LayoutParams.STICKY_FIELDS`
+- [x] Replace manual dict building with `layout.to_sticky_dict()`
+- [x] Replace manual dict loading with `LayoutParams.from_sticky_dict(saved)`
+- [x] Add assertion: if any destructive filter key appears in saved JSON, raise an error
 
 ### Phase 2 Verification
-- [ ] All existing tests pass
-- [ ] Process test meet — outputs identical to pre-refactor
-- [ ] Verify sticky params save/load cycle works correctly
-- [ ] Verify `--regenerate` uses saved layout params correctly
+- [x] All existing tests pass
+- [x] Process test meet — outputs identical to pre-refactor
+- [x] Verify sticky params save/load cycle works correctly
+- [x] Verify `--regenerate` uses saved layout params correctly
 
 ---
 
@@ -437,11 +437,11 @@ These are imported by `order_form_generator.py` already.
 
 ### 3d. Update All Imports
 
-- [ ] `idml_generator.py` — change imports from `pdf_generator` to `layout_engine` + `constants`
-- [ ] `order_form_generator.py` — change imports to `layout_engine` + `rendering_utils` + `constants`
-- [ ] `meet_summary.py` — change imports to `layout_engine` + `constants`
-- [ ] `process_meet.py` — update any direct imports from `pdf_generator`
-- [ ] `pdf_generator.py` — now imports FROM `layout_engine`, `rendering_utils`, and `constants` instead of defining them
+- [x] `idml_generator.py` — change imports from `pdf_generator` to `layout_engine` + `constants`
+- [x] `order_form_generator.py` — change imports to `layout_engine` + `rendering_utils` + `constants`
+- [x] `meet_summary.py` — change imports to `layout_engine` + `constants`
+- [x] `process_meet.py` — update any direct imports from `pdf_generator`
+- [x] `pdf_generator.py` — now imports FROM `layout_engine`, `rendering_utils`, and `constants` instead of defining them
 
 ### 3e. Temporary Re-exports (Optional Safety Net)
 
@@ -456,11 +456,11 @@ from python.core.constants import PAGE_W, PAGE_H, RED, ...
 Remove these once all imports are verified.
 
 ### Phase 3 Verification
-- [ ] All existing tests pass
-- [ ] `npm run build` succeeds
-- [ ] Process test meet — all 7 outputs identical to Phase 0 baseline
-- [ ] Run `python3 -c "from python.core.layout_engine import precompute_shirt_data"` — import works
-- [ ] **PyInstaller verification**: Build the binary (`pyinstaller build/pyinstaller/process_meet.spec`), run it against the 3 reference meets (Iowa, Colorado, Utah), compare outputs to baseline. If any new modules aren't found, add them to `hiddenimports` in the spec file.
+- [x] All existing tests pass
+- [x] `npm run build` succeeds
+- [x] Process test meet — all 7 outputs identical to Phase 0 baseline
+- [x] Run `python3 -c "from python.core.layout_engine import precompute_shirt_data"` — import works
+- [x] **PyInstaller verification**: Build the binary (`pyinstaller build/pyinstaller/process_meet.spec`), run it against the 3 reference meets (Iowa, Colorado, Utah), compare outputs to baseline. If any new modules aren't found, add them to `hiddenimports` in the spec file.
 
 ---
 
@@ -497,11 +497,11 @@ if saved_layout.get('_source') == 'imported' and not args.force:
 
 This approach is cleaner than a separate sentinel file — `shirt_layout.json` is already the metadata file for the output.
 
-- [ ] Add `_source`, `_import_path`, `_import_date` to saved layout on successful `--import-idml`
-- [ ] Check `_source == 'imported'` before `--regenerate shirt` and `--regenerate all`
-- [ ] Add `--force` flag to argparse
-- [ ] Clear `_source` key when `--regenerate --force` runs
-- [ ] Ensure `_source` key is excluded from `LayoutParams.STICKY_FIELDS` (it's metadata, not a layout param)
+- [x] Add `_source`, `_import_path`, `_import_date` to saved layout on successful `--import-idml`
+- [x] Check `_source == 'imported'` before `--regenerate shirt` and `--regenerate all`
+- [x] Add `--force` flag to argparse
+- [x] Clear `_source` key when `--regenerate --force` runs
+- [x] Ensure `_source` key is excluded from `LayoutParams.STICKY_FIELDS` (it's metadata, not a layout param)
 
 ### 4b. Gym Highlights After IDML Import
 
@@ -511,10 +511,10 @@ Two fixes needed:
 
 2. **Use overlay approach when source PDF exists** — after import, `back_of_shirt.pdf` exists and has designer edits baked in. The gym highlights should use `generate_gym_highlights_from_pdf()` (overlay on the designer's PDF) rather than `generate_gym_highlights_pdf()` (code-generated).
 
-- [ ] Load saved layout params in import path
-- [ ] Pass full LayoutParams to gym highlights generation
-- [ ] Switch to overlay approach when imported PDF exists
-- [ ] Pass `font_family` and `accent_color` to overlay function (currently hardcoded)
+- [x] Load saved layout params in import path
+- [x] Pass full LayoutParams to gym highlights generation
+- [x] Switch to overlay approach when imported PDF exists
+- [x] Pass `font_family` and `accent_color` to overlay function (currently hardcoded)
 
 ### 4c. IDML Header Underlines — Font Metrics
 
@@ -529,16 +529,16 @@ import fitz
 approx_w = fitz.get_text_length(header, fontname=font_bold, fontsize=hl)
 ```
 
-- [ ] Fix header underline width calculation in `idml_generator.py`
-- [ ] Fix level divider flanking line width calculation (~line 344)
-- [ ] Verify IDML underlines match PDF underlines visually
+- [x] Fix header underline width calculation in `idml_generator.py`
+- [x] Fix level divider flanking line width calculation (~line 344)
+- [x] Verify IDML underlines match PDF underlines visually
 
 ### Phase 4 Verification
-- [ ] `--import-idml` creates sentinel file
-- [ ] `--regenerate shirt` refuses when sentinel exists (without `--force`)
-- [ ] `--regenerate shirt --force` works and removes sentinel
-- [ ] Gym highlights after import reflect designer layout params
-- [ ] IDML header underlines match PDF width
+- [x] `--import-idml` creates sentinel file
+- [x] `--regenerate shirt` refuses when sentinel exists (without `--force`)
+- [x] `--regenerate shirt --force` works and removes sentinel
+- [x] Gym highlights after import reflect designer layout params
+- [x] IDML header underlines match PDF width
 
 ---
 
@@ -624,28 +624,28 @@ export function optionalString(args: Record<string, unknown>, key: string): stri
 }
 ```
 
-- [ ] Create `src/main/tools/validation.ts`
-- [ ] Replace `as string` casts across all tool files
+- [x] Create `src/main/tools/validation.ts`
+- [x] Replace `as string` casts across all tool files
 
 ### 5d. LLM Client Consolidation
 
-- [ ] Extract `private parseAnthropicResponse(data: AnthropicResponseBody): LLMResponse`
-- [ ] Extract shared request body construction
-- [ ] Consolidate `sendAnthropic` and `sendSubscription` into one method with auth config parameter
+- [x] Extract `private parseAnthropicResponse(data: AnthropicResponseBody): LLMResponse`
+- [x] Extract shared request body construction
+- [x] Consolidate `sendAnthropic` and `sendSubscription` into one method with auth config parameter
 
 ### 5e. Quick TypeScript Fixes
 
-- [ ] `askUserForChoice` — add window `closed` event listener that rejects the promise
-- [ ] `queryConversation` — add context-window check matching `processMeet`'s pattern
-- [ ] Create `src/shared/types.ts` — move shared types out of preload and renderer
-- [ ] `configStore.setAll` — change parameter from `Record<string, unknown>` to `Partial<AppConfig>`
+- [x] `askUserForChoice` — add window `closed` event listener that rejects the promise
+- [x] `queryConversation` — add context-window check matching `processMeet`'s pattern
+- [x] Create `src/shared/types.ts` — move shared types out of preload and renderer
+- [x] `configStore.setAll` — change parameter from `Record<string, unknown>` to `Partial<AppConfig>`
 
 ### Phase 5 Verification
-- [ ] `npm run build` succeeds
-- [ ] `npm run typecheck` — no type errors
-- [ ] Process a test meet end-to-end
-- [ ] Query feature works (tests queryConversation)
-- [ ] Close/reopen window during agent run — no hang
+- [x] `npm run build` succeeds
+- [x] `npm run typecheck` — no type errors
+- [x] Process a test meet end-to-end
+- [x] Query feature works (tests queryConversation)
+- [x] Close/reopen window during agent run — no hang
 
 ---
 
@@ -677,20 +677,20 @@ def generate_order_forms_pdf(shirt_data, output_path, shirt_pdf_path=None):
         shirt_doc.close()
 ```
 
-- [ ] Refactor `generate_order_forms_pdf` to accept pre-opened shirt doc
-- [ ] Pre-scan all names once instead of per-athlete
-- [ ] Eliminate 500 file open/close cycles
+- [x] Refactor `generate_order_forms_pdf` to accept pre-opened shirt doc
+- [x] Pre-scan all names once instead of per-athlete
+- [x] Eliminate 500 file open/close cycles
 
 ### 6b. Append-Only Process Log
 
-- [ ] Track last-written message index in `saveProcessLog()`
-- [ ] Only append new entries instead of rewriting the entire file
-- [ ] Keep file handle open across saves (close on loop exit)
+- [x] Track last-written message index in `saveProcessLog()`
+- [x] Only append new entries instead of rewriting the entire file
+- [x] Keep file handle open across saves (close on loop exit)
 
 ### Phase 6 Verification
-- [ ] Order forms generate correctly (compare with pre-refactor)
-- [ ] Process log contains all entries (diff with pre-refactor log)
-- [ ] Time a full pipeline run — should be noticeably faster for large meets
+- [x] Order forms generate correctly (compare with pre-refactor)
+- [x] Process log contains all entries (diff with pre-refactor log)
+- [x] Time a full pipeline run — should be noticeably faster for large meets
 
 ---
 
@@ -702,32 +702,32 @@ def generate_order_forms_pdf(shirt_data, output_path, shirt_pdf_path=None):
 
 ### 7a. API Key Encryption
 
-- [ ] Replace `electron-store` plaintext storage with Electron's `safeStorage` API for API keys
-- [ ] Keep non-sensitive settings in `electron-store`
-- [ ] Migration: read existing plaintext keys, encrypt, write back, delete plaintext
+- [x] Replace `electron-store` plaintext storage with Electron's `safeStorage` API for API keys
+- [x] Keep non-sensitive settings in `electron-store`
+- [x] Migration: read existing plaintext keys, encrypt, write back, delete plaintext
 
 ### 7b. UPDATER_TOKEN
 
-- [ ] Audit current token scope — revoke if it has write access
-- [ ] Create a fine-grained PAT with read-only releases scope
-- [ ] Consider making release assets public (simplest for internal app)
-- [ ] Remove token from Webpack DefinePlugin if public approach chosen
+- [x] Audit current token scope — revoke if it has write access
+- [x] Create a fine-grained PAT with read-only releases scope
+- [x] Consider making release assets public (simplest for internal app)
+- [x] Remove token from Webpack DefinePlugin if public approach chosen
 
 ### 7c. TypeScript Strictness
 
-- [ ] Enable `noUnusedLocals: true` in tsconfig.json
-- [ ] Enable `noUnusedParameters: true` in tsconfig.json
-- [ ] Fix any resulting errors
+- [x] Enable `noUnusedLocals: true` in tsconfig.json
+- [x] Enable `noUnusedParameters: true` in tsconfig.json
+- [x] Fix any resulting errors
 
 ### 7d. Remaining P3 Cleanup
 
-- [ ] React keys: add `id` field to `ActivityLogEntry`, use instead of array index
-- [ ] Remove `unsafe-eval` from CSP in production builds
-- [ ] Restrict Chrome `--remote-allow-origins` to `http://127.0.0.1`
-- [ ] Add `encoding='utf-8'` to file opens missing it
-- [ ] Move late imports in `process_meet.py` to top of file
-- [ ] Replace `l` variable name with `line` in `process_meet.py:264`
-- [ ] Make IDML `_uid_counter` an instance variable instead of module global
+- [x] React keys: add `id` field to `ActivityLogEntry`, use instead of array index
+- [x] Remove `unsafe-eval` from CSP in production builds
+- [x] Restrict Chrome `--remote-allow-origins` to `http://127.0.0.1`
+- [x] Add `encoding='utf-8'` to file opens missing it
+- [x] Move late imports in `process_meet.py` to top of file
+- [x] Replace `l` variable name with `line` in `process_meet.py:264`
+- [x] Make IDML `_uid_counter` an instance variable instead of module global
 
 ---
 
@@ -766,26 +766,26 @@ def generate_order_forms_pdf(shirt_data, output_path, shirt_pdf_path=None):
 ## Acceptance Criteria
 
 ### Functional
-- [ ] All 7 output files (PDF, IDML, order forms PDF, gym highlights PDF, meet summary, winners) generate correctly
-- [ ] Outputs are byte-for-byte identical to pre-refactor for the same input data (except for fixed bugs)
-- [ ] `--import-idml` round-trip works correctly
-- [ ] `--regenerate` is blocked when sentinel exists (without `--force`)
-- [ ] Gym highlights after import reflect saved layout params
-- [ ] IDML and PDF layouts match when `--min-font-size` is customized
-- [ ] Custom `--divider-size` produces correct page groupings
+- [x] All 7 output files (PDF, IDML, order forms PDF, gym highlights PDF, meet summary, winners) generate correctly
+- [x] Outputs are byte-for-byte identical to pre-refactor for the same input data (except for fixed bugs)
+- [x] `--import-idml` round-trip works correctly
+- [x] `--regenerate` is blocked when sentinel exists (without `--force`)
+- [x] Gym highlights after import reflect saved layout params
+- [x] IDML and PDF layouts match when `--min-font-size` is customized
+- [x] Custom `--divider-size` produces correct page groupings
 
 ### Non-Functional
-- [ ] `npm run build` succeeds
-- [ ] `npm run typecheck` passes with zero errors
-- [ ] `python3 -m pytest tests/ -v` passes
-- [ ] PyInstaller binary bundles correctly with restructured modules
-- [ ] Pipeline runs noticeably faster (cached ShirtData, batch order forms)
-- [ ] No resource leaks on exceptions (all context managers in place)
+- [x] `npm run build` succeeds
+- [x] `npm run typecheck` passes with zero errors
+- [x] `python3 -m pytest tests/ -v` passes
+- [x] PyInstaller binary bundles correctly with restructured modules
+- [x] Pipeline runs noticeably faster (cached ShirtData, batch order forms)
+- [x] No resource leaks on exceptions (all context managers in place)
 
 ### Security
-- [ ] `wslpath`/`explorer.exe` calls use `execFileSync` (no shell)
-- [ ] `save_to_file`, `chrome_save_to_file`, `save_draft_skill` validate path containment
-- [ ] API keys encrypted at rest via `safeStorage`
+- [x] `wslpath`/`explorer.exe` calls use `execFileSync` (no shell)
+- [x] `save_to_file`, `chrome_save_to_file`, `save_draft_skill` validate path containment
+- [x] API keys encrypted at rest via `safeStorage`
 
 ---
 
