@@ -124,5 +124,5 @@ def generate_order_forms(db_path: str, meet_name: str, output_path: str):
     finally:
         conn.close()
 
-    with open(output_path, 'w') as f:
+    with open(output_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))

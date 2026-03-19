@@ -153,7 +153,7 @@ def get_division_order(db_path: str, meet_name: str, state: str,
 
     # Try loading from cache
     if os.path.exists(json_path):
-        with open(json_path, 'r') as f:
+        with open(json_path, 'r', encoding='utf-8') as f:
             all_orders = json.load(f)
         if state in all_orders:
             return all_orders[state]
@@ -166,7 +166,7 @@ def get_division_order(db_path: str, meet_name: str, state: str,
     # Save to cache
     all_orders[state] = order
     os.makedirs(config_dir, exist_ok=True)
-    with open(json_path, 'w') as f:
+    with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(all_orders, f, indent=2)
 
     return order

@@ -2,7 +2,7 @@ import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
-import { requireString, optionalString, optionalNumber } from './validation';
+import { requireString, optionalNumber } from './validation';
 
 export const browserToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   chrome_navigate: async (args) => {

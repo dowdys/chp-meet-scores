@@ -631,6 +631,15 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             skipped in this output, preventing duplicate coverage across the
             8.5x11 and 8.5x14 gym highlights files.
     """
+    # Resolve font and accent color from parameters
+    if font_family == 'sans-serif':
+        _fb = 'Helvetica-Bold'
+        _fitz_bold_key = 'hebo'  # Helvetica Bold
+    else:
+        _fb = FONT_BOLD
+        _fitz_bold_key = 'tibo'  # Times Bold
+    _accent = _parse_hex_color(accent_color) if accent_color else RED
+
     shirt_doc = fitz.open(shirt_pdf_path)
     # Read page dimensions from the source PDF (handles both letter and legal)
     _src_w = shirt_doc[0].rect.width if len(shirt_doc) > 0 else PAGE_W
@@ -699,10 +708,10 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             # for breathing room. Find the title bottom and oval top.
             gym_display = gym.upper()
             gym_fs = 10
-            tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
+            tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
             while tw > pw - 60 and gym_fs > 7:
                 gym_fs -= 0.5
-                tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
+                tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
 
             # Find the title bottom and oval top from page content
             title_bottom_y = 57  # fallback
@@ -738,43 +747,70 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             # identity after show_pdf_page() overlay (PyMuPDF known issue).
             gym_name_y = gap_top + (gap_bottom - gap_top) / 2 + gym_fs * 0.35
             gym_tw = fitz.TextWriter(page.rect)
-            gym_font = fitz.Font('tibo')  # Times Bold
+            gym_font = fitz.Font(_fitz_bold_key)
             gym_tw.append(fitz.Point(pw / 2 - tw / 2, gym_name_y),
                           gym_display, font=gym_font, fontsize=gym_fs)
-            gym_tw.write_text(page, color=RED)
+            gym_tw.write_text(page, color=_accent)
 
     shirt_doc.close()
     doc.save(output_path)
     doc.close()
 
 
-def add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name):
+def add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name,
+                                   shirt_doc=None, name_page_hits=None):
     """Append back-of-shirt pages from an existing PDF with a red star overlay.
 
     Used during IDML import so designer edits are preserved. Copies pages
     from the shirt PDF where the athlete appears, overlaying a red star
     next to each occurrence of their name.
+
+    Performance optimisation: when *shirt_doc* (an already-open fitz.Document)
+    and *name_page_hits* (a dict mapping cleaned names to [(page_idx, [Rect])])
+    are supplied by the caller, the function skips opening the file and
+    scanning every page.  This turns O(N * P) file-opens and text searches
+    into a single pre-scan for the whole batch.
     """
-    # Clean the name to match what's on the shirt PDF (which uses cleaned names)
     search_name = _clean_name_for_shirt(athlete_name)
-    shirt_doc = fitz.open(shirt_pdf_path)
+    owns_doc = shirt_doc is None
+    if owns_doc:
+        shirt_doc = fitz.open(shirt_pdf_path)
 
-    for pi in range(len(shirt_doc)):
-        src = shirt_doc[pi]
-        hits = src.search_for(search_name)
-        if not hits:
-            continue
+    if name_page_hits is not None:
+        # Fast path: use pre-scanned lookup
+        page_hits = name_page_hits.get(search_name, [])
+        for pi, hits in page_hits:
+            src = shirt_doc[pi]
+            pw, ph = src.rect.width, src.rect.height
+            page = doc.new_page(width=pw, height=ph)
+            page.show_pdf_page(page.rect, shirt_doc, pi)
 
-        pw, ph = src.rect.width, src.rect.height
-        page = doc.new_page(width=pw, height=ph)
-        page.show_pdf_page(page.rect, shirt_doc, pi)
+            for rect in hits:
+                font_size = rect.height * 0.8
+                star_r = font_size * 0.65
+                star_cx = rect.x0 - star_r - 3
+                star_cy = (rect.y0 + rect.y1) / 2
+                _draw_star_polygon(page, star_cx, star_cy, star_r, star_r * 0.4,
+                                   color=RED)
+    else:
+        # Legacy path: scan every page (used when called without pre-scan)
+        for pi in range(len(shirt_doc)):
+            src = shirt_doc[pi]
+            hits = src.search_for(search_name)
+            if not hits:
+                continue
 
-        for rect in hits:
-            font_size = rect.height * 0.8
-            star_r = font_size * 0.65
-            star_cx = rect.x0 - star_r - 3
-            star_cy = (rect.y0 + rect.y1) / 2
-            _draw_star_polygon(page, star_cx, star_cy, star_r, star_r * 0.4,
-                               color=RED)
+            pw, ph = src.rect.width, src.rect.height
+            page = doc.new_page(width=pw, height=ph)
+            page.show_pdf_page(page.rect, shirt_doc, pi)
 
-    shirt_doc.close()
+            for rect in hits:
+                font_size = rect.height * 0.8
+                star_r = font_size * 0.65
+                star_cx = rect.x0 - star_r - 3
+                star_cy = (rect.y0 + rect.y1) / 2
+                _draw_star_polygon(page, star_cx, star_cy, star_r, star_r * 0.4,
+                                   color=RED)
+
+    if owns_doc:
+        shirt_doc.close()

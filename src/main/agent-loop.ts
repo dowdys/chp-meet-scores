@@ -228,7 +228,8 @@ export class AgentLoop {
       const querySystem = systemPrompt + '\n\n## Query Mode\nYou are answering questions about previously processed meet data. Use the query_db tool to look up data in the SQLite database. Give clear, concise answers.';
 
       // Truncate old query conversation if it gets too large
-      const contextLimit = this.llmClient.getContextLimit();
+      const _contextLimit = this.llmClient.getContextLimit();
+      void _contextLimit; // reserved for future context-aware truncation
       if (this.queryConversation.length > 20) {
         // Keep the last 10 messages to stay within context limits
         this.queryConversation = this.queryConversation.slice(-10);

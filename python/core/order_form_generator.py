@@ -132,14 +132,38 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
 
     # Diagnostic: report which path and source is used for order form backs
     total_athletes = sum(len(a) for a in gym_athletes.values())
+
+    # When using PDF overlay, open the shirt PDF ONCE and pre-scan all
+    # athlete names across all pages.  This avoids reopening the file for
+    # each of the potentially hundreds of athletes (O(1) opens instead of
+    # O(N)).
+    shirt_doc = None
+    name_page_hits = {}  # cleaned_name -> [(page_idx, [Rect, ...])]
+
     if use_pdf_overlay:
-        _diag_doc = fitz.open(shirt_pdf_path)
+        from python.core.layout_engine import _clean_name_for_shirt
+
+        shirt_doc = fitz.open(shirt_pdf_path)
         print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
-              f"({len(_diag_doc)} pages, {_diag_doc[0].rect.width:.0f}x{_diag_doc[0].rect.height:.0f})")
-        _diag_doc.close()
+              f"({len(shirt_doc)} pages, {shirt_doc[0].rect.width:.0f}x{shirt_doc[0].rect.height:.0f})")
+
+        # Collect every unique athlete name (cleaned) for the pre-scan
+        all_athlete_names = set()
+        for gym in gyms:
+            for athlete_name, _le in gym_athletes[gym]:
+                all_athlete_names.add(_clean_name_for_shirt(athlete_name))
+
+        # Pre-scan: search each page for every athlete name
+        for page_idx in range(len(shirt_doc)):
+            src_page = shirt_doc[page_idx]
+            for name in all_athlete_names:
+                hits = src_page.search_for(name)
+                if hits:
+                    name_page_hits.setdefault(name, []).append((page_idx, hits))
     else:
         _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
         print(f"Order form backs: using code-generated path ({_pg_count} page groups)")
+
     print(f"Order forms: {total_athletes} athletes across {len(gyms)} gyms")
 
     backs_found = 0
@@ -159,7 +183,10 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
 
             # Append back-of-shirt page(s) with red star
             if use_pdf_overlay:
-                add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name)
+                add_shirt_back_pages_from_pdf(
+                    doc, shirt_pdf_path, athlete_name,
+                    shirt_doc=shirt_doc, name_page_hits=name_page_hits,
+                )
             else:
                 add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
 
@@ -177,6 +204,10 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
               f"{backs_missing} athletes MISSING backs")
     else:
         print(f"Order form backs: all {backs_found} athletes have back pages")
+
+    # Close the shirt PDF if we opened it
+    if shirt_doc is not None:
+        shirt_doc.close()
 
     template_doc.close()
     doc.save(output_path)

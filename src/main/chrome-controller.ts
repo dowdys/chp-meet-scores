@@ -122,7 +122,7 @@ class ChromeController {
       `--user-data-dir=${userDataDir}`,
       '--no-first-run',
       '--no-default-browser-check',
-      '--remote-allow-origins=*',
+      '--remote-allow-origins=http://127.0.0.1',
     ], {
       detached: false,
       stdio: 'ignore',

@@ -29,6 +29,8 @@ export interface AgentContext {
   abortRequested: boolean;
   logPath?: string;
   iterationCount: number;
+  /** Index into messages[] up to which the process log has been written (for append-only logging). */
+  lastLoggedMessageIndex?: number;
 }
 
 export interface ProgressData {

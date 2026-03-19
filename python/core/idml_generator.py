@@ -19,6 +19,8 @@ DOMVersion 8.0 targets InDesign CS6 and is compatible with all later versions.
 import json
 import math
 import zipfile
+
+import fitz  # PyMuPDF — used for precise font metric measurements
 from xml.sax.saxutils import escape as xml_escape
 
 from python.core.constants import (
@@ -48,21 +50,25 @@ _FONT_MAP = {
 # Namespace used in all IDML package files
 _NS = 'http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging'
 
-# Unique ID counter — avoids collisions across all XML elements
-_uid_counter = 0
+class _UidCounter:
+    """Per-generation unique ID counter.
+
+    Created fresh at the start of each generate_shirt_idml() call to avoid
+    stale state from previous runs.
+    """
+    __slots__ = ('_count',)
+
+    def __init__(self):
+        self._count = 0
+
+    def __call__(self):
+        """Generate a unique ID string for Self attributes."""
+        self._count += 1
+        return f'u{self._count:04x}'
 
 
-def _uid():
-    """Generate a unique ID string for Self attributes."""
-    global _uid_counter
-    _uid_counter += 1
-    return f'u{_uid_counter:04x}'
-
-
-def _reset_uid():
-    """Reset UID counter (call at start of each generation)."""
-    global _uid_counter
-    _uid_counter = 0
+# Module-level instance replaced at the start of each generation call.
+_uid = _UidCounter()
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +101,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     Uses the same data query, level grouping, and style params as the PDF
     generator so the two outputs always match.
     """
-    _reset_uid()
+    global _uid
+    _uid = _UidCounter()
 
     _page_h = page_h or PAGE_H
     if precomputed is not None:
@@ -300,8 +307,8 @@ def _write_idml(output_path, year, state,
                     v_just='CenterAlign'
                 ))
 
-                # Header underline
-                approx_w = len(header) * hl * 0.52
+                # Header underline — use actual font metrics instead of approximation
+                approx_w = fitz.get_text_length(header, fontname=font_bold, fontsize=hl)
                 line_id = _uid()
                 page_items.append(_gl(
                     line_id, layer_id,
@@ -349,9 +356,9 @@ def _write_idml(output_path, year, state,
                     v_just='CenterAlign'
                 ))
 
-                # Flanking lines
+                # Flanking lines — use actual font metrics instead of approximation
                 line_y_pos = y - ds * 0.35
-                approx_tw = len(spaced) * ds * 0.5
+                approx_tw = fitz.get_text_length(spaced, fontname=font_bold, fontsize=ds)
                 gap = 8
                 left_margin = 40
                 right_margin = PAGE_W - 40
