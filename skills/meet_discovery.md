@@ -6,7 +6,7 @@ Find gymnastics meet results online given a meet name.
 ## CRITICAL: Budget & Efficiency
 - You have limited iterations. Spend AT MOST 10 iterations total on discovery.
 - **Search data sources DIRECTLY first** — do NOT start with web search.
-- Priority order: ScoreCat (Algolia) → MSO (Results.All) → MyMeetScores → Web search (last resort).
+- Priority order: MSO (Results.All) → ScoreCat (Algolia) → MyMeetScores → Web search (last resort).
 - If multiple meets match (e.g., "Dev State" + "Xcel State"), use the `ask_user` tool with the matches as options so the user can pick. Never silently combine separate meets.
 
 ## BEFORE YOU START: Establish Context
@@ -20,73 +20,15 @@ Before searching, determine the following. If the user's request is ambiguous, u
 
 ## IMPORTANT: Avoid Redundant Searches
 
-When a state championship is split across multiple sub-meets (e.g., "Dev State" + "Xcel State"), you will typically find ALL of them in a single Algolia search. Do NOT re-search ScoreCat for each sub-meet after the user selects them — you already have their `meet_id` values from the initial search results. Extract each selected meet directly using its `meet_id`.
+When a state championship is split across multiple sub-meets (e.g., "Dev State" + "Xcel State"), you will typically find ALL of them in a single search. Do NOT re-search for each sub-meet after the user selects them — you already have their `meet_id` values from the initial search results. Extract each selected meet directly using its `meet_id`.
 
-Similarly, if one search finds a meet on ScoreCat, do NOT also search MSO or MyMeetScores for the same meet. Move directly to extraction.
+Similarly, if one search finds a meet on MSO, do NOT also search ScoreCat or MyMeetScores for the same meet. Move directly to extraction.
 
-**When ScoreCat finds only a partial match** (e.g., one sub-meet for "Level 2, XB, XS" when you need all levels), do NOT keep re-searching ScoreCat with different queries. If you found one sub-meet, the rest are likely on a different platform. Move immediately to MSO (Step 2). Maximum 2 Algolia searches total — one initial + one retry with shorter query if needed. Algolia's fuzzy matching means rephrasing rarely helps.
+**When MSO doesn't find the meet**, move to ScoreCat (Step 2). Do NOT spend more than 1-2 attempts on MSO before moving on.
 
-## Step 1: ScoreCat — Algolia Search (headless, fastest)
+## Step 1: MSO — Results.All Page (browser)
 
-ScoreCat uses Algolia for meet search. It's a public API, no browser needed.
-
-```javascript
-// Node.js — no browser, no auth
-const response = await fetch('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
-  method: 'POST',
-  headers: {
-    'x-algolia-application-id': '2R102D471D',
-    'x-algolia-api-key': 'f6c6022306eb2dace46c6490e7ae9984',
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ query: 'Iowa state 2025' })
-});
-const data = await response.json();
-// data.hits = array of meet objects
-```
-
-Each hit returns: `meet_id`, `name`, `state`, `startDate`, `endDate`, `hostGym`, `program` (Women/Men), `league`.
-
-- Searches ALL states and ALL seasons at once
-- Case-insensitive, partial matching
-- If found, extract `meet_id` and load `scorecat_extraction` skill
-- See `skills/details/scorecat_schema.md` for full Algolia schema
-
-### CRITICAL: Handling Multiple ScoreCat Results
-
-When Algolia returns multiple hits:
-
-1. **Convert ALL `startDate` timestamps to human-readable dates** using `run_script`:
-   ```python
-   import datetime
-   ts = 1765540800000 / 1000
-   dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
-   print(f"{dt.strftime('%B %d, %Y')}")
-   ```
-2. **Never dismiss a meet as "future" without checking today's date first.**
-3. **Group related meets** — state championships are almost always split into color-coded sessions (BLUE, RED, WHITE) or by level range. Same director + same dates = same championship.
-4. **Present ALL plausible matches to the user** via `ask_user`. Include the date, director, host gym, and meet name for each. Let the user pick.
-
-**Important**: A state championship is almost always split across multiple meets on every data source (e.g., "Dev State" for levels 1-5, "Levels 6-10 State", "Xcel State"). A complete championship should cover Levels 1-10 and Xcel Bronze/Silver/Gold/Platinum/Diamond/Sapphire (some states skip lower levels). Present ALL matching meets to the user via `ask_user` so they can select which ones to combine. Each selected meet gets extracted separately but feeds into the same database.
-
-### After Extraction: Verify Levels
-
-After `scorecat_extract` or `mso_extract` returns data, **immediately verify** that the levels match what the user requested. Use a **single** `run_script` call to check levels in the extracted JSON:
-```python
-import json, os
-filepath = os.path.join(os.environ['DATA_DIR'], '<extract_filename>')
-with open(filepath) as f:
-    data = json.load(f)
-from collections import Counter
-levels = Counter(a.get('level', '') for a in data)
-print("Levels found:", dict(levels))
-```
-
-If the levels don't match the user's request (e.g., user wanted L3-5 but you got L6-10), **stop and search for the correct meets** before building the database. Do NOT build a database from the wrong meets.
-
-## Step 2: MSO — Results.All Page (headless or browser)
-
-If ScoreCat didn't find the meet, try MeetScoresOnline.
+Most meets are found on MeetScoresOnline. Search here FIRST.
 
 ### Determine the Season
 - Season crossover is May/June. If the meet is before ~June, use prior-year season.
@@ -123,9 +65,62 @@ The meetId from `data-meetid` is what you need. **Go directly to `mso_extract`**
 - If `mso_extract` returns athletes → proceed to level verification and `run_python`
 - If `mso_extract` returns 0 athletes for a meet → it may use Report Builder (PDF) format. Load `mso_pdf_extraction` skill.
 
+### After Extraction: Verify Levels
+
+After `mso_extract` or `scorecat_extract` returns data, **immediately verify** that the levels match what the user requested. Use a **single** `run_script` call to check levels in the extracted JSON:
+```python
+import json, os
+filepath = os.path.join(os.environ['DATA_DIR'], '<extract_filename>')
+with open(filepath) as f:
+    data = json.load(f)
+from collections import Counter
+levels = Counter(a.get('level', '') for a in data)
+print("Levels found:", dict(levels))
+```
+
+If the levels don't match the user's request (e.g., user wanted L3-5 but you got L6-10), **stop and search for the correct meets** before building the database. Do NOT build a database from the wrong meets.
+
+**Important**: A state championship is almost always split across multiple meets on every data source (e.g., "Dev State" for levels 1-5, "Levels 6-10 State", "Xcel State"). A complete championship should cover Levels 1-10 and Xcel Bronze/Silver/Gold/Platinum/Diamond/Sapphire (some states skip lower levels). Present ALL matching meets to the user via `ask_user` so they can select which ones to combine. Each selected meet gets extracted separately but feeds into the same database.
+
+## Step 2: ScoreCat — Algolia Search (headless)
+
+If MSO didn't find the meet, try ScoreCat. It uses Algolia for meet search — a public API, no browser needed.
+
+```javascript
+// Node.js — no browser, no auth
+const response = await fetch('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
+  method: 'POST',
+  headers: {
+    'x-algolia-application-id': '2R102D471D',
+    'x-algolia-api-key': 'f6c6022306eb2dace46c6490e7ae9984',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ query: 'Iowa state 2025' })
+});
+const data = await response.json();
+// data.hits = array of meet objects
+```
+
+Each hit returns: `meet_id`, `name`, `state`, `startDate`, `endDate`, `hostGym`, `program` (Women/Men), `league`.
+
+- Searches ALL states and ALL seasons at once
+- Case-insensitive, partial matching
+- If found, extract `meet_id` and load `scorecat_extraction` skill
+- See `skills/details/scorecat_schema.md` for full Algolia schema
+- Maximum 2 Algolia searches total — one initial + one retry with shorter query if needed
+
+### Handling Multiple ScoreCat Results
+
+When Algolia returns multiple hits:
+
+1. **Convert ALL `startDate` timestamps to human-readable dates** using `run_script`
+2. **Never dismiss a meet as "future" without checking today's date first.**
+3. **Group related meets** — same director + same dates = same championship.
+4. **Present ALL plausible matches to the user** via `ask_user`.
+
 ## Step 3: MyMeetScores (headless)
 
-If ScoreCat and MSO came up empty, try MyMeetScores.com. Use `http_fetch` — no browser needed.
+If MSO and ScoreCat came up empty, try MyMeetScores.com. Use `http_fetch` — no browser needed.
 
 **Completed meets by state and year:**
 ```
@@ -143,7 +138,7 @@ If found with scores, load `mymeetscores_extraction` skill. The meetid is what y
 
 ## Step 4: Web Search (last resort)
 
-Only if ScoreCat, MSO, and MyMeetScores all come up empty:
+Only if MSO, ScoreCat, and MyMeetScores all come up empty:
 
 ```
 web_search: "2025 Alabama State Championships" gymnastics results scores

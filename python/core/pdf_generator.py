@@ -1381,14 +1381,18 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
                 annot.set_colors(stroke=(1, 1, 0))
                 annot.update()
 
-            # Draw gym name at top of page (below the title area)
+            # Draw gym name between title and oval (roughly y≈60 on the page)
+            # Search the page for the oval area to find the right Y position
             gym_display = gym.upper()
             gym_fs = 10
             tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
             while tw > pw - 60 and gym_fs > 7:
                 gym_fs -= 0.5
                 tw = fitz.get_text_length(gym_display, fontname=FONT_BOLD, fontsize=gym_fs)
-            page.insert_text(fitz.Point(pw / 2 - tw / 2, 15),
+            # Position: between the "STATE CHAMPIONS OF" title (~y=44) and the
+            # oval (~y=70). y=60 places it centered in that gap.
+            gym_name_y = 60
+            page.insert_text(fitz.Point(pw / 2 - tw / 2, gym_name_y),
                              gym_display, fontname=FONT_BOLD, fontsize=gym_fs,
                              color=RED)
 

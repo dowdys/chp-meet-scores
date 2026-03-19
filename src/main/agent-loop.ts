@@ -1214,7 +1214,16 @@ export class AgentLoop {
       if (meetIdx !== -1 && meetIdx + 1 < argParts.length) {
         // If --meet is explicitly in args, prefer that for folder name
       }
-      argParts.push('--db', isRegenerate ? getDbPath() : getStagingDbPath());
+      // For --regenerate: prefer staging DB if it exists (handles crash-then-regenerate),
+      // otherwise use central DB. For full pipeline: always use staging DB.
+      if (isRegenerate) {
+        const stagingPath = getStagingDbPath();
+        const centralPath = getDbPath();
+        const fs = require('fs');
+        argParts.push('--db', (fs.existsSync(stagingPath) ? stagingPath : centralPath));
+      } else {
+        argParts.push('--db', getStagingDbPath());
+      }
       argParts.push('--output', getOutputDir(outputMeetName));
     }
 

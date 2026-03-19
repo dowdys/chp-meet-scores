@@ -101,7 +101,7 @@ def _safe_move(tmp_path, final_path):
                 pass
         os.replace(tmp_path, new_path)
         print(f"WARNING: {os.path.basename(final_path)} is open in another app. "
-              f"Saved as {os.path.basename(new_path)} instead — close the original "
+              f"Saved as {os.path.basename(new_path)} instead -close the original "
               f"and rename when ready.")
         return new_path
 
@@ -246,7 +246,7 @@ def main():
                         args.year = _meta['year']
                     print(f"Read metadata from IDML: meet={_meta.get('meet_name')}, state={_meta.get('state')}, year={_meta.get('year')}")
                 else:
-                    print("No embedded metadata found in IDML — will convert to PDF only")
+                    print("No embedded metadata found in IDML -will convert to PDF only")
         except Exception as e:
             print(f"Warning: Could not read IDML metadata: {e}")
         # Default to placeholder values if metadata is missing
@@ -351,7 +351,7 @@ def main():
 
             errors = []
 
-            # Gym highlights — overlay on the IDML-generated shirt PDF
+            # Gym highlights -overlay on the IDML-generated shirt PDF
             try:
                 gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
                 tmp = _tmp_path_for(gym_highlights_path)
@@ -363,7 +363,7 @@ def main():
                 print(f"ERROR generating gym_highlights.pdf: {e}")
                 errors.append(('gym_highlights', str(e)))
 
-            # Order forms — always use 8.5x11 back_of_shirt.pdf for back pages
+            # Order forms -always use 8.5x11 back_of_shirt.pdf for back pages
             # (even when importing a legal-size IDML)
             _letter_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
             _order_shirt = _letter_shirt if os.path.exists(_letter_shirt) else pdf_path
@@ -576,13 +576,13 @@ def main():
         if _modified:
             print(f"NAME_CLEANUP: {len(_modified)} name(s) were auto-cleaned:")
             for raw, cleaned, event, level in _modified[:20]:
-                print(f"  L{level} {event}: \"{raw}\" → \"{cleaned}\"")
+                print(f"  L{level} {event}: \"{raw}\" -> \"{cleaned}\"")
             if len(_modified) > 20:
                 print(f"  ... and {len(_modified) - 20} more")
         if _flagged:
             print(f"SUSPICIOUS_NAMES: {len(_flagged)} name(s) look unusual and may need manual review:")
             for cleaned, raw, event, level, reason in _flagged:
-                print(f"  L{level} {event}: \"{cleaned}\" — {reason}")
+                print(f"  L{level} {event}: \"{cleaned}\" -{reason}")
             print("If any of these need fixing, you can update the names in the database "
                   "with query_db or re-run the data extraction.")
 
@@ -659,7 +659,7 @@ def main():
                 print(f"ERROR generating back_of_shirt_8.5x14.pdf: {e}")
                 errors.append(('shirt_legal', str(e)))
 
-    # ICML generation removed — only generated on explicit --regenerate icml request
+    # ICML generation removed -only generated on explicit --regenerate icml request
     if 'icml' in regen_set:
         try:
             icml_path = os.path.join(args.output, 'back_of_shirt.icml')
