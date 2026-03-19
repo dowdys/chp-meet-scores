@@ -147,6 +147,38 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
       const centralPath = getDbPath();
 
+      // Check for potential duplicate meets by querying staging DB for state
+      let duplicateWarning = '';
+      try {
+        const stagingDb = new Database(stagingPath, { readonly: true });
+        const stateRow = stagingDb.prepare(
+          'SELECT DISTINCT state FROM results WHERE meet_name = ? LIMIT 1'
+        ).get(meetName) as { state: string } | undefined;
+        stagingDb.close();
+
+        if (stateRow?.state && fs.existsSync(centralPath)) {
+          const checkDb = new Database(centralPath, { readonly: true });
+          try {
+            const existingMeets = checkDb.prepare(
+              'SELECT DISTINCT meet_name, COUNT(*) as cnt FROM results WHERE state = ? GROUP BY meet_name'
+            ).all(stateRow.state) as { meet_name: string; cnt: number }[];
+
+            if (existingMeets.length > 0) {
+              const warnings = existingMeets.map((m) =>
+                `  "${m.meet_name}" (${m.cnt} athletes)`
+              ).join('\n');
+              duplicateWarning = `Note: ${stateRow.state} already has meets in the database:\n${warnings}\n` +
+                `Adding: "${meetName}". If this is a duplicate, use the same meet name to overwrite.\n`;
+              console.log(duplicateWarning);
+            }
+          } finally {
+            checkDb.close();
+          }
+        }
+      } catch {
+        // Non-fatal: skip duplicate check if staging DB query fails
+      }
+
       // Open central DB (read-write)
       const centralDb = new Database(centralPath);
 
@@ -219,7 +251,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
         }
         currentStagingDbPath = null;
 
-        return `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        const finalMsg = `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        return duplicateWarning ? duplicateWarning + finalMsg : finalMsg;
       } catch (err) {
         centralDb.close();
         throw err;
