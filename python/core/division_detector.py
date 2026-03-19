@@ -147,6 +147,16 @@ def detect_division_order(db_path: str, meet_name: str,
         cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
                     (meet_name,))
         raw_divisions = [row[0] for row in cur.fetchall() if row[0]]
+
+        # Also collect divisions from winners table — they may use different
+        # case/whitespace than the results table (e.g. "Jr A" vs "JR A").
+        winner_divisions = []
+        try:
+            cur.execute('SELECT DISTINCT division FROM winners WHERE meet_name = ?',
+                        (meet_name,))
+            winner_divisions = [row[0] for row in cur.fetchall() if row[0]]
+        except sqlite3.OperationalError:
+            pass  # winners table may not exist yet during initial build
     finally:
         conn.close()
 
@@ -199,6 +209,18 @@ def detect_division_order(db_path: str, meet_name: str,
             key = div.strip().upper()
             if key in canonical_pos:
                 order[div] = canonical_pos[key]
+
+    # Map winner-table divisions that aren't already in order.
+    # This handles case/whitespace differences between the results and
+    # winners tables (e.g. results has "JR A", winners has "Jr A").
+    for div in winner_divisions:
+        if div not in order:
+            key = div.strip().upper()
+            if key in canonical_pos:
+                order[div] = canonical_pos[key]
+            else:
+                # Division only in winners, not results — score it directly
+                order[div] = _score_division(div)
 
     return order, unknowns
 

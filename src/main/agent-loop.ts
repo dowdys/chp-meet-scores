@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LLMClient, LLMMessage, ContentBlock, LLMResponse, ToolResultContent } from './llm-client';
 import { resetStagingDb } from './tools/python-tools';
-import { getProjectRoot, getDataDir } from './paths';
+import { getProjectRoot, getDataDir, getOutputDir } from './paths';
 import { getToolDefinitions } from './tool-definitions';
 import {
   AgentContext,
@@ -152,10 +152,50 @@ export class AgentLoop {
           content: `You are resuming work on meet "${meetName}". Here is your previous progress:\n\nSummary: ${savedProgress.summary}\n\nNext steps: ${savedProgress.next_steps}${fileInventory}${trackedFileStatus}\n\nPlease continue from where you left off.`,
         });
       } else {
-        // Fresh start
+        // Fresh start — clear stale output files from previous runs.
+        // Skip deletion if outputs were produced by IDML import (designer edits).
+        let staleFileWarning = '';
+        const outputDir = getOutputDir(meetName, false);
+        if (fs.existsSync(outputDir)) {
+          // Check if outputs came from a designer-edited IDML import
+          const layoutJsonPath = path.join(getDataDir(), 'shirt_layout.json');
+          let isImported = false;
+          try {
+            if (fs.existsSync(layoutJsonPath)) {
+              const layoutData = JSON.parse(fs.readFileSync(layoutJsonPath, 'utf8'));
+              isImported = layoutData._source === 'imported';
+            }
+          } catch { /* ignore parse errors */ }
+
+          if (isImported) {
+            this.onActivity('Output directory has designer-edited files (IDML import) — preserving.', 'warning');
+            staleFileWarning = '\n\nIMPORTANT: The output directory contains designer-edited files from an IDML import. Do NOT overwrite them unless the user explicitly requests regeneration.';
+          } else {
+            try {
+              const staleFiles = fs.readdirSync(outputDir)
+                .filter(f => !f.startsWith('.') && f !== 'process_log.md');
+              let deletedCount = 0;
+              for (const f of staleFiles) {
+                try {
+                  fs.unlinkSync(path.join(outputDir, f));
+                  deletedCount++;
+                } catch {
+                  // File locked or permission denied — skip it
+                }
+              }
+              if (deletedCount > 0) {
+                this.onActivity(`Cleared ${deletedCount} stale file(s) from previous run`, 'warning');
+                staleFileWarning = '\n\nNote: Stale output files from a previous run were cleared. Generate all outputs fresh.';
+              }
+            } catch {
+              // Output directory not readable — skip stale file cleanup
+            }
+          }
+        }
+
         context.messages.push({
           role: 'user',
-          content: `Please process the gymnastics meet: "${meetName}"\n\nFind the meet results online, extract all athlete scores, build the database, check data quality, and generate the output files (back-of-shirt names, per-gym order forms, winners CSV). Use the load_skill tool to get detailed instructions for each step.`,
+          content: `Please process the gymnastics meet: "${meetName}"\n\nFind the meet results online, extract all athlete scores, build the database, check data quality, and generate the output files (back-of-shirt names, per-gym order forms, winners CSV). Use the load_skill tool to get detailed instructions for each step.${staleFileWarning}`,
         });
       }
 

@@ -157,6 +157,9 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
         'accent_color': accent, 'font_regular': f_reg, 'font_bold': f_bold,
     }
 
+    _page_h = page_h or PAGE_H
+    _names_bottom = _page_h - 18
+
     empty_result = {
         'levels': [], 'data': {}, 'page_groups': [],
         'lhr': lhr, 'lgap': lgap, 'mfill': mfill, 'mfs': mfs, 'mxfs': mxfs,
@@ -187,8 +190,6 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
 
     logger.debug("SHIRT_DIAG: xcel_levels=%s, numbered_levels=%s", xcel_levels, numbered_levels)
 
-    _page_h = page_h or PAGE_H
-    _names_bottom = _page_h - 18
     available = (_names_bottom - names_start) * mfill
 
     # Custom level groups override auto bin-packing
@@ -426,6 +427,7 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
 
         # Get division ordering for age-based sort
         div_order, _unknowns = detect_division_order(db_path, meet_name)
+        logger.debug("WINNERS_DIAG: div_order has %d entries: %s", len(div_order), div_order)
 
         # Build AA score lookup keyed by (name, level, session) for tie-breaking.
         # AA tie-breaking only applies within the same division+session.
@@ -458,6 +460,14 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                             (meet_name, event, level))
                 rows = cur.fetchall()
                 if rows:
+                    # Safety net: log divisions not found in div_order
+                    _row_divs = {r[1] for r in rows if r[1]}
+                    _unmatched = _row_divs - set(div_order.keys())
+                    if _unmatched:
+                        logger.debug("ORDERING_DIAG: L%s %s: %d winner divisions "
+                                     "not in div_order: %s",
+                                     level, event, len(_unmatched), _unmatched)
+
                     if name_sort == 'alpha':
                         rows.sort(key=lambda r: r[0])
                     else:

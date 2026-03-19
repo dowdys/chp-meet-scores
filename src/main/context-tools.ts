@@ -276,7 +276,7 @@ export async function toolOpenFile(filePath: string, meetName: string): Promise<
 }
 
 export async function toolListOutputFiles(meetName: string): Promise<string> {
-  const dir = getOutputDir(meetName);
+  const dir = getOutputDir(meetName, false);
   if (!fs.existsSync(dir)) {
     return 'Output directory does not exist yet.';
   }
