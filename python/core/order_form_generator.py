@@ -7,7 +7,6 @@ fields (sticker label with name, events, gym).
 """
 
 import logging
-import math
 import os
 import sys
 import sqlite3
@@ -16,13 +15,10 @@ import fitz  # PyMuPDF
 
 from python.core.constants import (
     EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to_abbrev,
-    PAGE_W, PAGE_H, WHITE, BLACK, FONT_BOLD, FONT_REGULAR,
+    PAGE_W, PAGE_H, BLACK,
 )
 from python.core.layout_engine import precompute_shirt_data, clean_name_for_shirt
-from python.core.rendering_utils import (
-    draw_small_caps, measure_small_caps_width,
-    draw_star_polygon as _draw_star,
-)
+from python.core.rendering_utils import draw_star_polygon as _draw_star
 from python.core.pdf_generator import (
     add_shirt_back_pages, add_shirt_back_pages_from_pdf,
 )

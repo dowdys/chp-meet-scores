@@ -10,7 +10,7 @@ import sqlite3
 
 from python.core.constants import (
     EVENTS as EVENT_KEYS,
-    PAGE_H, PAGE_H_LEGAL,
+    PAGE_H,
     RED,
     DEFAULT_SPORT, DEFAULT_TITLE_PREFIX, DEFAULT_COPYRIGHT,
     FONT_REGULAR, FONT_BOLD,
@@ -164,6 +164,8 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
         'title1_y': title1_y, 'title2_y': title2_y,
         'oval_y': oval_y, 'headers_y': headers_y,
         'names_start_y': names_start,
+        'page_h': _page_h,
+        'flagged_names': [], 'modified_names': [],
         **style,
     }
 
@@ -630,12 +632,8 @@ def fit_font_size(levels: list, data: dict,
     return round(best, 1)
 
 
-def space_text(text: str, tracking: float = 0) -> str:
-    """Add letter spacing: 'LEVEL 10' -> 'L E V E L  1 0'.
-
-    The tracking parameter is accepted for API completeness but the
-    spacing is always one space per character, two spaces between words.
-    """
+def space_text(text: str) -> str:
+    """Add letter spacing: 'LEVEL 10' -> 'L E V E L  1 0'."""
     words = text.split()
     spaced_words = [' '.join(list(word)) for word in words]
     return '  '.join(spaced_words)

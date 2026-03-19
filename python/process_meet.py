@@ -365,7 +365,9 @@ def main():
                 tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
                                             year=args.year, state=args.state,
-                                            layout=import_layout)
+                                            layout=import_layout,
+                                            level_groups=args.level_groups,
+                                            exclude_levels=args.exclude_levels)
                 actual = _safe_move(tmp, gym_highlights_path)
                 print(f"Generated {actual}")
             except Exception as e:
