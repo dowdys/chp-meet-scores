@@ -705,6 +705,29 @@ def main():
         # Only use legal shirt for exclusion/generation when it was explicitly requested
         _has_legal = _legal_groups and os.path.exists(legal_shirt)
 
+        # Determine which levels belong to legal vs letter page groups
+        # so gym highlights can be filtered to only include the correct levels.
+        _legal_levels = None
+        _letter_levels = None
+        if _has_legal:
+            # We need the page_groups to split levels. Use pre if available,
+            # otherwise compute it.
+            _gh_pre = pre if pre is not None else precompute_shirt_data(
+                db_path, config.meet_name, layout=layout,
+                level_groups=args.level_groups,
+                exclude_levels=args.exclude_levels)
+            _legal_filter = _legal_groups if any(_legal_groups) else None
+            _legal_lvs = []
+            _letter_lvs = []
+            for _lbl, _lvs in _gh_pre['page_groups']:
+                if _legal_filter is not None and any(
+                        f.upper() in _lbl.upper() for f in _legal_filter):
+                    _legal_lvs.extend(_lvs)
+                else:
+                    _letter_lvs.extend(_lvs)
+            _legal_levels = _legal_lvs if _legal_lvs else None
+            _letter_levels = _letter_lvs if _letter_lvs else None
+
         # Generate 8.5x14 gym highlights when legal was explicitly requested
         if _has_legal:
             try:
@@ -715,7 +738,8 @@ def main():
                                             layout=layout,
                                             level_groups=args.level_groups,
                                             exclude_levels=args.exclude_levels,
-                                            page_h=PAGE_H_LEGAL)
+                                            page_h=PAGE_H_LEGAL,
+                                            include_levels=_legal_levels)
                 actual = _safe_move(tmp, gh_legal_path)
                 print(f"Generated {actual} (8.5x14)")
             except Exception as e:
@@ -731,7 +755,8 @@ def main():
                                         layout=layout,
                                         level_groups=args.level_groups,
                                         exclude_levels=args.exclude_levels,
-                                        precomputed=pre)
+                                        precomputed=pre,
+                                        include_levels=_letter_levels)
             actual = _safe_move(tmp, gym_highlights_path)
             print(f"Generated {actual}")
         except Exception as e:

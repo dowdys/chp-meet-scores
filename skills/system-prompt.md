@@ -30,6 +30,7 @@ However, most data sources split a state championship across **multiple separate
 ## Process Flow
 
 1. **Find the meet** — Load `meet_discovery` skill. Search data sources directly: MSO Results.All first, then ScoreCat Algolia, then MyMeetScores, then web search as last resort. ALWAYS convert Algolia `startDate` timestamps to human-readable dates. ALWAYS verify today's date with `run_script` before dismissing meets as "future". If multiple meets match, present ALL to the user via `ask_user`. If you can't find the meet after 2-3 attempts, ask the user for help (they often have the URL).
+   **CRITICAL: Once you find a meet on MSO, STOP searching.** Do NOT also search ScoreCat or MyMeetScores for the same meet. Move directly to extraction. Only search alternative sources if MSO did NOT find the meet.
 2. **Verify levels** — After extraction, IMMEDIATELY check that the extracted levels match what the user requested. Use `run_script` to check level distribution in the JSON. If levels don't match (e.g., user wanted L3-5 but you got L6-10), STOP and search for the correct meets. Do NOT build a database from the wrong data. **When reporting levels to the user** (e.g., in `ask_user`), list ALL levels found explicitly — don't abbreviate or skip any. If the user requested a range like "levels 3-10" and any levels are missing from the data, explicitly call that out (e.g., "Found levels 3, 4, 6-10. Note: Level 5 is not present in this meet data — this may be normal for this state, or it may be in a separate meet.").
 3. **Set a clean output folder name** — IMMEDIATELY after identifying the correct meet, call `set_output_name` with a short, clean name like "2025 SC State Championships". The user's raw input is often a long sentence — do NOT use it as the folder name.
 4. **Get dates** — Use `ask_user` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Do NOT ask for dates one at a time.
@@ -123,6 +124,7 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 - **Save progress**: Before approaching context limits, use `save_progress` with a detailed summary of what you've accomplished and what's left. Include `data_files` to track produced files.
 - **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/). When referencing files (for `read_file`, `render_pdf_page`, `open_file`, etc.), ALWAYS use the full absolute path returned by tool results. Never guess or construct paths from memory — copy the exact path from the previous tool output.
 - **`run_script` file paths**: The `run_script` tool passes `DATA_DIR`, `DB_PATH`, and `STAGING_DB_PATH` as environment variables. ALWAYS use `os.environ['DATA_DIR']` to build file paths in scripts — never use bare relative paths like `data/` or hardcoded absolute paths. Example: `import os; data_dir = os.environ['DATA_DIR']; filepath = os.path.join(data_dir, 'myfile.json')`.
+- **IMPORTANT: When using `run_script` to read files on Windows, ALWAYS use `encoding='utf-8'`** in all `open()` calls. Windows defaults to cp1252 encoding which crashes on Unicode characters in athlete names.
 - **User interaction**: Use the `ask_user` tool whenever you need the user to make a choice or provide input. Pass a clear question and an array of option strings. The user can click a suggested option OR type a custom response. Use this when:
   - Multiple meets match a search query (let them pick which one)
   - You need to confirm something before proceeding
@@ -206,6 +208,7 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - When the user asks to change the sport name, copyright text, or title prefix, use `--sport`, `--copyright`, or `--title-prefix`.
 - When the user asks to change column header or level divider text sizes, use `--header-size` (default 11) or `--divider-size` (default 10).
 - **ALWAYS load the `output_generation` skill BEFORE attempting layout changes.** This skill documents all available flags and their defaults. Do NOT guess about what is or isn't configurable — check the skill docs first. This prevents wasting iterations trying to change something you think is hardcoded when a flag actually exists.
+- **When the user requests custom level grouping, page sizes, or layout changes:** ALWAYS load the `output_generation` skill first using `load_skill`. This skill has detailed documentation for all layout flags (`--level-groups`, `--page-size-legal`, `--min-font-size`, etc.). Do NOT guess flag syntax — load the skill.
 
 ## Available Skills
 

@@ -424,7 +424,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                 name_sort='age',
                                 level_groups=None, exclude_levels=None,
                                 page_h=None,
-                                precomputed: dict = None):
+                                precomputed: dict = None,
+                                include_levels=None):
     """Generate a gym highlights version of the back-of-shirt PDF.
 
     For each gym (alphabetically), generates the same back-of-shirt pages
@@ -432,6 +433,11 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
     in the top-left and top-right corners.
 
     Only includes pages that contain at least one of that gym's athletes.
+
+    Args:
+        include_levels: Optional list/set of level strings. When provided,
+            only these levels are included in the highlights PDF. Used to
+            split gym highlights by page size (e.g. letter vs legal).
     """
     _page_h = page_h or PAGE_H
     # Use precomputed data if provided, otherwise compute
@@ -443,6 +449,23 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                                     level_groups=level_groups,
                                     exclude_levels=exclude_levels,
                                     page_h=_page_h)
+
+    # When include_levels is specified, filter to only those levels/page groups.
+    # This is used to split gym highlights by page size (e.g. letter vs legal).
+    if include_levels is not None:
+        incl = set(include_levels)
+        pre = dict(pre)  # shallow copy to avoid mutating caller's dict
+        pre['levels'] = [lv for lv in pre['levels'] if lv in incl]
+        pre['data'] = {
+            event: {lv: names for lv, names in evdata.items() if lv in incl}
+            for event, evdata in pre['data'].items()
+        }
+        pre['page_groups'] = [
+            (label, [lv for lv in lvs if lv in incl])
+            for label, lvs in pre['page_groups']
+            if any(lv in incl for lv in lvs)
+        ]
+
     levels = pre['levels']
     data = pre['data']
     page_groups = pre['page_groups']
