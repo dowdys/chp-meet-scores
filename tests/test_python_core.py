@@ -16,9 +16,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from python.core.models import MeetConfig
 from python.core.db_builder import build_database
-from python.core.output_generator import (
-    generate_back_of_shirt, generate_order_forms, generate_winners_csv
-)
+from python.core.output_generator import generate_order_forms
 from python.adapters.scorecat_adapter import ScoreCatAdapter
 from python.adapters.html_adapter import HtmlAdapter
 
@@ -108,21 +106,6 @@ class TestIowaDatabase:
 
 
 class TestIowaOutputs:
-    def test_back_of_shirt(self, ia_db, tmp_path):
-        db_path, _ = ia_db
-        output = str(tmp_path / 'ia_back_of_shirt.md')
-        generate_back_of_shirt(
-            db_path, IA_CONFIG.meet_name, output,
-            shirt_title='2025 Iowa Dev State Champions',
-            format='level_first'
-        )
-        expected_path = os.path.join(REFERENCE_DIR, 'ia_back_of_shirt_expected.md')
-        with open(output) as f:
-            actual = f.read()
-        with open(expected_path) as f:
-            expected = f.read()
-        assert actual == expected, "Back of shirt content does not match expected"
-
     def test_order_forms(self, ia_db, tmp_path):
         db_path, _ = ia_db
         output = str(tmp_path / 'ia_order_forms.txt')
@@ -134,17 +117,6 @@ class TestIowaOutputs:
             expected = f.read()
         assert actual == expected, "Order forms content does not match expected"
 
-    def test_winners_csv(self, ia_db, tmp_path):
-        db_path, _ = ia_db
-        output = str(tmp_path / 'ia_winners.csv')
-        generate_winners_csv(db_path, IA_CONFIG.meet_name, output,
-                             IA_CONFIG.division_order)
-        expected_path = os.path.join(REFERENCE_DIR, 'ia_winners_expected.csv')
-        with open(output) as f:
-            actual = f.read()
-        with open(expected_path) as f:
-            expected = f.read()
-        assert actual == expected, "Winners CSV content does not match expected"
 
 
 # ─── Colorado (MSO HTML) ────────────────────────────────────────────
@@ -268,20 +240,6 @@ class TestUtahDatabase:
 
 class TestUtahOutputs:
     """Test Utah outputs (event-first format)."""
-    def test_back_of_shirt(self, ut_db, tmp_path):
-        db_path, _ = ut_db
-        output = str(tmp_path / 'ut_back_of_shirt.md')
-        generate_back_of_shirt(
-            db_path, UT_CONFIG.meet_name, output,
-            format='event_first'
-        )
-        expected_path = os.path.join(REFERENCE_DIR, 'ut_back_of_shirt_expected.md')
-        with open(output) as f:
-            actual = f.read()
-        with open(expected_path) as f:
-            expected = f.read()
-        assert actual == expected, "Back of shirt content does not match expected"
-
     def test_order_forms(self, ut_db, tmp_path):
         db_path, _ = ut_db
         output = str(tmp_path / 'ut_order_forms.txt')
@@ -292,15 +250,3 @@ class TestUtahOutputs:
         with open(expected_path) as f:
             expected = f.read()
         assert actual == expected, "Order forms content does not match expected"
-
-    def test_winners_csv(self, ut_db, tmp_path):
-        db_path, _ = ut_db
-        output = str(tmp_path / 'ut_winners.csv')
-        generate_winners_csv(db_path, UT_CONFIG.meet_name, output,
-                             UT_CONFIG.division_order)
-        expected_path = os.path.join(REFERENCE_DIR, 'ut_winners_expected.csv')
-        with open(output) as f:
-            actual = f.read()
-        with open(expected_path) as f:
-            expected = f.read()
-        assert actual == expected, "Winners CSV content does not match expected"

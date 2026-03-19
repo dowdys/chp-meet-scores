@@ -19,6 +19,29 @@ If the user's input looks like a **file path** (starts with `/`, `C:\`, `~`, `/m
 
 If the path is not an IDML file, ask the user what they'd like to do with it.
 
+### Partial IDML Import (Replacing One Page of a Multi-Page Shirt)
+
+When a user provides an IDML that represents ONLY ONE page group of a multi-page meet (e.g., "here's the updated levels 2-10 back" for a meet with both Xcel and levels 2-10 backs):
+
+1. **Identify** which page group the IDML represents from context
+2. **Import** the IDML: `run_python --import-idml <path>` → produces a single-page PDF
+3. **Combine** with existing pages using `run_script`:
+   ```python
+   import fitz
+   # Open the existing multi-page shirt
+   existing = fitz.open("path/to/back_of_shirt.pdf")
+   # Open the new imported page
+   new_page = fitz.open("path/to/imported/back_of_shirt.pdf")
+   # Replace the target page (e.g., page 2 for levels 2-10)
+   existing.delete_page(target_page_index)
+   existing.insert_pdf(new_page, from_page=0, to_page=0, start_at=target_page_index)
+   existing.save("path/to/back_of_shirt.pdf")
+   ```
+4. **Regenerate** order forms and gym highlights from the combined PDF
+5. **CRITICAL**: Use `set_output_name` to match the EXISTING meet folder name, not create a new one
+
+Do NOT import the IDML to a generic "IDML Import" folder when the user clearly references an existing meet.
+
 ## Understanding State Championships
 
 A full state championship covers **all** competitive levels in women's artistic gymnastics:
@@ -29,14 +52,17 @@ However, most data sources split a state championship across **multiple separate
 
 ## Process Flow
 
+**CRITICAL: Load the appropriate skill BEFORE every major workflow step.** Do not attempt output generation, data quality checks, or meet discovery without first loading the relevant skill. The skills contain flag documentation and workflow details that prevent errors.
+
 1. **Find the meet** — Load `meet_discovery` skill. Search data sources directly: MSO Results.All first, then ScoreCat Algolia, then MyMeetScores, then web search as last resort. ALWAYS convert Algolia `startDate` timestamps to human-readable dates. ALWAYS verify today's date with `run_script` before dismissing meets as "future". If multiple meets match, present ALL to the user via `ask_user`. If you can't find the meet after 2-3 attempts, ask the user for help (they often have the URL).
+   **CRITICAL: Once you find a meet on MSO, move directly to extraction — do NOT also search ScoreCat or MyMeetScores for the same meet.** However, AFTER extraction, verify the levels cover what the user requested (see step 2). If the user asked for "all levels" but the MSO meet only has numbered levels (missing Xcel) or only Xcel (missing numbered), there may be a separate meet for the missing levels — in that case, go back and search for it.
 2. **Verify levels** — After extraction, IMMEDIATELY check that the extracted levels match what the user requested. Use `run_script` to check level distribution in the JSON. If levels don't match (e.g., user wanted L3-5 but you got L6-10), STOP and search for the correct meets. Do NOT build a database from the wrong data. **When reporting levels to the user** (e.g., in `ask_user`), list ALL levels found explicitly — don't abbreviate or skip any. If the user requested a range like "levels 3-10" and any levels are missing from the data, explicitly call that out (e.g., "Found levels 3, 4, 6-10. Note: Level 5 is not present in this meet data — this may be normal for this state, or it may be in a separate meet.").
 3. **Set a clean output folder name** — IMMEDIATELY after identifying the correct meet, call `set_output_name` with a short, clean name like "2025 SC State Championships". The user's raw input is often a long sentence — do NOT use it as the folder name.
 4. **Get dates** — Use `ask_user` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Do NOT ask for dates one at a time.
 5. **Extract data** — For MSO meets, use the `mso_extract` tool. For ScoreCat meets, use the `scorecat_extract` tool. These dedicated tools handle navigation, API calls, name decoding, field mapping, and saving to file automatically. Only use manual scripting (`chrome_save_to_file`) for unknown/new sources (load `general_scraping` skill).
 6. **Build database** — Parse extracted data into the unified SQLite schema (load `database_building` skill)
 7. **Check quality** — Run the full data quality checklist (load `data_quality` skill). Batch multiple `query_db` checks into a single `run_script` call when possible (e.g., total results + total winners + zero-score count = one script, not three iterations).
-8. **Generate outputs** — Produce back-of-shirt PDF, IDML, order forms PDF, gym highlights PDF, and meet summary (load `output_generation` skill). Pass deadline dates as `--postmark-date`, `--online-date`, `--ship-date` flags.
+8. **Generate outputs** — **MANDATORY: Load `output_generation` skill FIRST.** Then produce back-of-shirt PDF, IDML, order forms PDF, gym highlights PDF, and meet summary. Pass deadline dates as `--postmark-date`, `--online-date`, `--ship-date` flags. Do NOT call `run_python` for output generation without having loaded this skill in the current session — it contains critical flag documentation.
 9. **Visually inspect shirt PDF** — Read `meet_summary.txt` first to know the page count and layout. Then use `render_pdf_page` on 1-2 pages to spot-check layout quality (e.g., the most crowded page). Do NOT render every page one by one — the user will review the full PDF via `open_file`. Check that names are as large as possible, spacing looks good, and no page is too full or cut off. If layout needs adjustment, use `--regenerate shirt` to quickly regenerate the shirt PDF and all dependent outputs (ICML, order forms, gym highlights, summary) with different layout params. This skips the full pipeline. One round of adjustment is usually enough. Names are sorted by age division by default (`--name-sort age`). Do NOT change this to alphabetical unless the user explicitly asks for it.
 10. **Review with user** — Use `open_file` to open BOTH `back_of_shirt.pdf` AND `meet_summary.txt` on the user's computer so they can review both. The summary helps users decide on level grouping and edits. Then ask with `ask_user`: "I've opened the back-of-shirt PDF and meet summary for you to review. Are you satisfied with the layout, or would you like any changes?" If the user requests changes (e.g., "make names bigger", "too cramped on page 2", "fix gym name X"), use `--regenerate shirt` (or the relevant output) with adjusted params, open the new PDF again with `open_file`, and ask again. Repeat until satisfied. Common adjustments: layout params (--line-spacing, --level-gap, --max-fill, --min-font-size, --max-font-size), gym name corrections (--gym-map). The ICML and IDML files are generated as companions to the finalized PDF for InDesign editing — they do not need user review. IDML is preferred (complete document with graphics); ICML is text-only fallback.
 11. **Finalize** — CRITICAL: Call `finalize_meet` with the meet name to merge the staging database into the central database. This MUST happen or the data will be lost and the Query Results tab won't work. Do this after the user approves the outputs.
@@ -123,6 +149,11 @@ For MSO and ScoreCat, **ALWAYS** use the dedicated extraction tools. These handl
 - **Save progress**: Before approaching context limits, use `save_progress` with a detailed summary of what you've accomplished and what's left. Include `data_files` to track produced files.
 - **File paths**: Output files go in the configured output directory (Documents/Gymnastics Champions/[Meet Name]/). When referencing files (for `read_file`, `render_pdf_page`, `open_file`, etc.), ALWAYS use the full absolute path returned by tool results. Never guess or construct paths from memory — copy the exact path from the previous tool output.
 - **`run_script` file paths**: The `run_script` tool passes `DATA_DIR`, `DB_PATH`, and `STAGING_DB_PATH` as environment variables. ALWAYS use `os.environ['DATA_DIR']` to build file paths in scripts — never use bare relative paths like `data/` or hardcoded absolute paths. Example: `import os; data_dir = os.environ['DATA_DIR']; filepath = os.path.join(data_dir, 'myfile.json')`.
+- **IMPORTANT: When using `run_script` to read files on Windows, ALWAYS use `encoding='utf-8'`** in all `open()` calls. Windows defaults to cp1252 encoding which crashes on Unicode characters in athlete names.
+- **run_script best practices:**
+  - Always import ALL needed stdlib modules at the top: `import os, json, sys, shutil`
+  - Always use `encoding='utf-8'` in file open() calls
+  - Always wrap file operations in try/except for clear error messages
 - **User interaction**: Use the `ask_user` tool whenever you need the user to make a choice or provide input. Pass a clear question and an array of option strings. The user can click a suggested option OR type a custom response. Use this when:
   - Multiple meets match a search query (let them pick which one)
   - You need to confirm something before proceeding
@@ -155,6 +186,8 @@ If potential duplicates need manual mapping:
 **Do NOT spend more than ~3 iterations on gym normalization.** Auto-normalize handles 95%+ of cases now (case + suffix merging). Only create a gym map for genuine spelling differences that fuzzy matching flags. Minor spelling variants are acceptable if uncertain.
 
 **Important**: `query_db` automatically queries the staging database during processing. You do NOT need to use `run_script` to query the staging DB — `query_db` already points there.
+
+**File naming:** Always use standard output filenames (back_of_shirt.pdf, gym_highlights.pdf, order_forms.pdf). Do NOT create ad-hoc variants like `_old`, `_levels_2-10`, `_xcel`. If a file is locked (gets `_NEW` suffix), tell the user to close it, then re-run. The `_NEW` pattern is a workaround, not a workflow.
 
 ## When to Stop
 
@@ -206,6 +239,7 @@ If you hit the iteration limit, you will be asked to use the `ask_user` tool to 
 - When the user asks to change the sport name, copyright text, or title prefix, use `--sport`, `--copyright`, or `--title-prefix`.
 - When the user asks to change column header or level divider text sizes, use `--header-size` (default 11) or `--divider-size` (default 10).
 - **ALWAYS load the `output_generation` skill BEFORE attempting layout changes.** This skill documents all available flags and their defaults. Do NOT guess about what is or isn't configurable — check the skill docs first. This prevents wasting iterations trying to change something you think is hardcoded when a flag actually exists.
+- **When the user requests custom level grouping, page sizes, or layout changes:** ALWAYS load the `output_generation` skill first using `load_skill`. This skill has detailed documentation for all layout flags (`--level-groups`, `--page-size-legal`, `--min-font-size`, etc.). Do NOT guess flag syntax — load the skill.
 
 ## Available Skills
 

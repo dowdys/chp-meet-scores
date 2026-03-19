@@ -34,6 +34,8 @@ module.exports = (env = {}) => {
     },
     plugins: [
       new webpack.DefinePlugin({
+        // TODO: Migrate to Cloudflare R2 for releases to eliminate this token requirement
+        // See: docs/plans/2026-03-19-001-refactor-codebase-architecture-plan.md Phase 7b
         'process.env.UPDATER_TOKEN': JSON.stringify(process.env.UPDATER_TOKEN || ''),
       }),
     ],

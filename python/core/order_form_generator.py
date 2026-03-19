@@ -6,28 +6,29 @@ then for each athlete, copies the template page and adds athlete-specific
 fields (sticker label with name, events, gym).
 """
 
-import math
+import logging
 import os
 import sys
 import sqlite3
 from collections import defaultdict
 import fitz  # PyMuPDF
 
-from python.core.constants import EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to_abbrev
+from python.core.constants import (
+    EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to_abbrev,
+    PAGE_W, PAGE_H, BLACK,
+)
+from python.core.layout_engine import precompute_shirt_data, clean_name_for_shirt
+from python.core.rendering_utils import draw_star_polygon as _draw_star
 from python.core.pdf_generator import (
-    _draw_small_caps, _measure_small_caps_width,
-    precompute_shirt_data, add_shirt_back_pages,
-    add_shirt_back_pages_from_pdf
+    add_shirt_back_pages, add_shirt_back_pages_from_pdf,
 )
 from python.core.order_form_idml import get_state_template
 
-PAGE_W = 612
-PAGE_H = 792
-WHITE = (1, 1, 1)
-BLACK = (0, 0, 0)
-RED = (0.8, 0, 0)
-FONT_BOLD = 'Times-Bold'
-FONT_REGULAR = 'Times-Roman'
+logger = logging.getLogger(__name__)
+
+# Order-form-specific red (darker than the constants.py RED used on shirts)
+ORDER_FORM_RED = (0.8, 0, 0)
+
 FONT_ITALIC = 'Times-Italic'
 
 # PyInstaller extracts --add-data files relative to sys._MEIPASS;
@@ -46,22 +47,12 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              postmark_date: str = 'TBD',
                              online_date: str = 'TBD',
                              ship_date: str = 'TBD',
-                             line_spacing: float = None,
-                             level_gap: float = None,
-                             max_fill: float = None,
-                             min_font_size: float = None,
-                             max_font_size: float = None,
+                             layout=None,
                              name_sort: str = 'age',
-                             max_shirt_pages: int = None,
-                             title1_size: float = None,
-                             title2_size: float = None,
                              level_groups: str = None,
                              exclude_levels: str = None,
-                             copyright: str = None, accent_color: str = None,
-                             font_family: str = None, sport: str = None,
-                             title_prefix: str = None, header_size: float = None,
-                             divider_size: float = None,
-                             shirt_pdf_path: str = None):
+                             shirt_pdf_path: str = None,
+                             precomputed: dict = None):
     """Generate per-athlete order form PDF using the template overlay approach.
 
     Each athlete gets an order form page (template with filled-in variables)
@@ -81,7 +72,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     if not state:
         state = _extract_state(meet_name)
     if not state_abbrev:
-        state_abbrev = state_to_abbrev(state)  # "Arkansas" → "AR"
+        state_abbrev = state_to_abbrev(state)  # "Arkansas" -> "AR"
 
     # When shirt_pdf_path is provided (IDML import), use the rendered PDF
     # as the visual base for back pages so designer edits are preserved.
@@ -89,26 +80,15 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
 
     shirt_data = None
     if not use_pdf_overlay:
-        # Pre-compute shirt data for back pages (standard code-rendered path)
-        shirt_data = precompute_shirt_data(db_path, meet_name,
-                                           name_sort=name_sort,
-                                           line_spacing=line_spacing,
-                                           level_gap=level_gap,
-                                           max_fill=max_fill,
-                                           min_font_size=min_font_size,
-                                           max_font_size=max_font_size,
-                                           max_shirt_pages=max_shirt_pages,
-                                           title1_size=title1_size,
-                                           title2_size=title2_size,
-                                           level_groups=level_groups,
-                                           exclude_levels=exclude_levels,
-                                           copyright=copyright,
-                                           accent_color=accent_color,
-                                           font_family=font_family,
-                                           sport=sport,
-                                           title_prefix=title_prefix,
-                                           header_size=header_size,
-                                           divider_size=divider_size)
+        # Use precomputed data if provided, otherwise compute
+        if precomputed is not None:
+            shirt_data = precomputed
+        else:
+            shirt_data = precompute_shirt_data(db_path, meet_name,
+                                               name_sort=name_sort,
+                                               layout=layout,
+                                               level_groups=level_groups,
+                                               exclude_levels=exclude_levels)
 
     # Build state-specific template (logo + abbreviation + dates baked in)
     template_doc = get_state_template(
@@ -119,81 +99,96 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     )
 
     doc = fitz.open()
-    gyms = sorted(gym_athletes.keys())
+    shirt_doc = None
+    try:
+        gyms = sorted(gym_athletes.keys())
 
-    # Diagnostic: report which path and source is used for order form backs
-    total_athletes = sum(len(a) for a in gym_athletes.values())
-    if use_pdf_overlay:
-        _diag_doc = fitz.open(shirt_pdf_path)
-        print(f"Order form backs: using PDF overlay from {os.path.basename(shirt_pdf_path)} "
-              f"({len(_diag_doc)} pages, {_diag_doc[0].rect.width:.0f}x{_diag_doc[0].rect.height:.0f})")
-        _diag_doc.close()
-    else:
-        _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
-        print(f"Order form backs: using code-generated path ({_pg_count} page groups)")
-    print(f"Order forms: {total_athletes} athletes across {len(gyms)} gyms")
+        # Diagnostic: report which path and source is used for order form backs
+        total_athletes = sum(len(a) for a in gym_athletes.values())
 
-    backs_found = 0
-    backs_missing = 0
+        # When using PDF overlay, open the shirt PDF ONCE and pre-scan all
+        # athlete names across all pages.  This avoids reopening the file for
+        # each of the potentially hundreds of athletes (O(1) opens instead of
+        # O(N)).
+        name_page_hits = {}  # cleaned_name -> [(page_idx, [Rect, ...])]
 
-    for gym in gyms:
-        athletes = gym_athletes[gym]
-        for athlete_name, level_events in athletes:
-            pages_before = len(doc)
+        if use_pdf_overlay:
+            shirt_doc = fitz.open(shirt_pdf_path)
+            logger.info("Order form backs: using PDF overlay from %s (%d pages, %.0fx%.0f)",
+                        os.path.basename(shirt_pdf_path), len(shirt_doc),
+                        shirt_doc[0].rect.width, shirt_doc[0].rect.height)
 
-            # Copy state-specific template page
-            page = doc.new_page(width=PAGE_W, height=PAGE_H)
-            page.show_pdf_page(page.rect, template_doc, 0)
+            # Collect every unique athlete name (cleaned) for the pre-scan
+            all_athlete_names = set()
+            for gym in gyms:
+                for athlete_name, _le in gym_athletes[gym]:
+                    all_athlete_names.add(clean_name_for_shirt(athlete_name))
 
-            # Add athlete-specific sticker label
-            _add_athlete_label(page, athlete_name, gym, level_events)
+            # Pre-scan: search each page for every athlete name
+            for page_idx in range(len(shirt_doc)):
+                src_page = shirt_doc[page_idx]
+                for name in all_athlete_names:
+                    hits = src_page.search_for(name)
+                    if hits:
+                        name_page_hits.setdefault(name, []).append((page_idx, hits))
+        else:
+            _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
+            logger.info("Order form backs: using code-generated path (%d page groups)", _pg_count)
 
-            # Append back-of-shirt page(s) with red star
-            if use_pdf_overlay:
-                add_shirt_back_pages_from_pdf(doc, shirt_pdf_path, athlete_name)
-            else:
-                add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
+        logger.info("Order forms: %d athletes across %d gyms", total_athletes, len(gyms))
 
-            # Track if back pages were added (front page = 1, so >1 means backs exist)
-            pages_added = len(doc) - pages_before
-            if pages_added > 1:
-                backs_found += 1
-            else:
-                backs_missing += 1
-                if backs_missing <= 5:  # Only print first 5 to avoid spam
-                    print(f"  WARNING: No back pages found for \"{athlete_name}\" ({gym})")
+        backs_found = 0
+        backs_missing = 0
 
-    if backs_missing > 0:
-        print(f"Order form backs: {backs_found} athletes have backs, "
-              f"{backs_missing} athletes MISSING backs")
-    else:
-        print(f"Order form backs: all {backs_found} athletes have back pages")
+        for gym in gyms:
+            athletes = gym_athletes[gym]
+            for athlete_name, level_events in athletes:
+                pages_before = len(doc)
 
-    template_doc.close()
-    doc.save(output_path)
-    doc.close()
+                # Copy state-specific template page
+                page = doc.new_page(width=PAGE_W, height=PAGE_H)
+                page.show_pdf_page(page.rect, template_doc, 0)
 
+                # Add athlete-specific sticker label
+                _add_athlete_label(page, athlete_name, gym, level_events)
 
-def _draw_star(page, cx, cy, outer_r, inner_r, color=RED):
-    """Draw a filled 5-pointed star polygon."""
-    points = []
-    for i in range(10):
-        angle = math.radians(90 + i * 36)
-        r = outer_r if i % 2 == 0 else inner_r
-        x = cx + r * math.cos(angle)
-        y = cy - r * math.sin(angle)
-        points.append(fitz.Point(x, y))
-    shape = page.new_shape()
-    shape.draw_polyline(points + [points[0]])
-    shape.finish(fill=color, color=color)
-    shape.commit()
+                # Append back-of-shirt page(s) with red star
+                if use_pdf_overlay:
+                    add_shirt_back_pages_from_pdf(
+                        doc, shirt_pdf_path, athlete_name,
+                        shirt_doc=shirt_doc, name_page_hits=name_page_hits,
+                    )
+                else:
+                    add_shirt_back_pages(doc, shirt_data, athlete_name, year, state)
+
+                # Track if back pages were added (front page = 1, so >1 means backs exist)
+                pages_added = len(doc) - pages_before
+                if pages_added > 1:
+                    backs_found += 1
+                else:
+                    backs_missing += 1
+                    if backs_missing <= 5:  # Only log first 5 to avoid spam
+                        logger.warning('No back pages found for "%s" (%s)', athlete_name, gym)
+
+        if backs_missing > 0:
+            logger.info("Order form backs: %d athletes have backs, %d athletes MISSING backs",
+                        backs_found, backs_missing)
+        else:
+            logger.info("Order form backs: all %d athletes have back pages", backs_found)
+
+        doc.save(output_path)
+    finally:
+        if shirt_doc is not None:
+            shirt_doc.close()
+        template_doc.close()
+        doc.close()
 
 
 def _add_athlete_label(page, athlete_name, gym, level_events):
     """Add athlete-specific sticker label to the order form page.
 
     Two lines centered in the white space, flanked by big red stars:
-      ★  Name - Event1, Event2  ★
+      *  Name - Event1, Event2  *
               Gym Name
     """
     # Collect all events across all levels (deduplicated, ordered)
@@ -208,7 +203,7 @@ def _add_athlete_label(page, athlete_name, gym, level_events):
                     if e in STICKER_EVENT_ORDER else 99)
     events_str = ', '.join(all_events)
 
-    # Use TextWriter with explicit Font objects — page.insert_text() loses
+    # Use TextWriter with explicit Font objects -- page.insert_text() loses
     # font identity after show_pdf_page() overlay.
     font_bold = fitz.Font('tibo')     # Times Bold
     font_regular = fitz.Font('tiro')  # Times Roman
@@ -221,7 +216,7 @@ def _add_athlete_label(page, athlete_name, gym, level_events):
         fs1 = 10
         tw1 = font_bold.text_length(label_line1, fontsize=fs1)
 
-    # Vertical centering: white space y≈122 to y≈178
+    # Vertical centering: white space y~122 to y~178
     y_line1 = 143
     y_line2 = 159
 
@@ -238,14 +233,14 @@ def _add_athlete_label(page, athlete_name, gym, level_events):
                    gym, font=font_regular, fontsize=12)
     writer2.write_text(page, color=BLACK)
 
-    # Big red stars on both sides — spanning both lines vertically
-    star_r = 12  # outer radius — big enough to span both lines + extra
+    # Big red stars on both sides -- spanning both lines vertically
+    star_r = 12  # outer radius -- big enough to span both lines + extra
     star_cy = (y_line1 + y_line2) / 2 - 3  # vertically centered between lines
     star_gap = 6  # gap between star and text
     _draw_star(page, x_text - star_gap - star_r, star_cy,
-               star_r, star_r * 0.4, color=RED)
+               star_r, star_r * 0.4, color=ORDER_FORM_RED)
     _draw_star(page, x_text + tw1 + star_gap + star_r, star_cy,
-               star_r, star_r * 0.4, color=RED)
+               star_r, star_r * 0.4, color=ORDER_FORM_RED)
 
 
 def _extract_state(meet_name: str) -> str:
@@ -262,39 +257,39 @@ def _get_gym_athletes(db_path: str, meet_name: str):
     from python.core.division_detector import detect_division_order
 
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    div_order, _unknowns = detect_division_order(db_path, meet_name)
+        div_order, _unknowns = detect_division_order(db_path, meet_name)
 
-    cur.execute('''
-        SELECT gym, name, level, division, event
-        FROM winners
-        WHERE meet_name = ?
-        ORDER BY gym, name,
-                 CAST(level AS INTEGER),
-                 CASE event
-                     WHEN 'vault' THEN 1 WHEN 'bars' THEN 2
-                     WHEN 'beam' THEN 3 WHEN 'floor' THEN 4
-                     WHEN 'aa' THEN 5
-                 END
-    ''', (meet_name,))
+        cur.execute('''
+            SELECT gym, name, level, division, event
+            FROM winners
+            WHERE meet_name = ?
+            ORDER BY gym, name,
+                     CAST(level AS INTEGER),
+                     CASE event
+                         WHEN 'vault' THEN 1 WHEN 'bars' THEN 2
+                         WHEN 'beam' THEN 3 WHEN 'floor' THEN 4
+                         WHEN 'aa' THEN 5
+                     END
+        ''', (meet_name,))
 
-    from python.core.pdf_generator import _clean_name_for_shirt
-    gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    athlete_divisions = {}
-    for gym, raw_name, level, division, event in cur.fetchall():
-        name = _clean_name_for_shirt(raw_name)
-        if not name:
-            continue
-        display = EVENT_DISPLAY.get(event, event)
-        if display not in gym_data[gym][name][level]:
-            gym_data[gym][name][level].append(display)
-        key = (gym, name)
-        div_sort = div_order.get(division, 99)
-        if key not in athlete_divisions or div_sort < athlete_divisions[key]:
-            athlete_divisions[key] = div_sort
-
-    conn.close()
+        gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        athlete_divisions = {}
+        for gym, raw_name, level, division, event in cur.fetchall():
+            name = clean_name_for_shirt(raw_name)
+            if not name:
+                continue
+            display = EVENT_DISPLAY.get(event, event)
+            if display not in gym_data[gym][name][level]:
+                gym_data[gym][name][level].append(display)
+            key = (gym, name)
+            div_sort = div_order.get(division, 99)
+            if key not in athlete_divisions or div_sort < athlete_divisions[key]:
+                athlete_divisions[key] = div_sort
+    finally:
+        conn.close()
 
     result = {}
     for gym in gym_data:

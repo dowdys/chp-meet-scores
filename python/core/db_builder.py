@@ -29,54 +29,58 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
         The db_path for convenience.
     """
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    # Create results table if it doesn't exist
-    cur.execute('''CREATE TABLE IF NOT EXISTS results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        state TEXT,
-        meet_name TEXT,
-        association TEXT,
-        name TEXT,
-        gym TEXT,
-        session TEXT,
-        level TEXT,
-        division TEXT,
-        vault REAL,
-        bars REAL,
-        beam REAL,
-        floor REAL,
-        aa REAL,
-        rank TEXT,
-        num TEXT
-    )''')
+        # Create results table if it doesn't exist
+        cur.execute('''CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT,
+            meet_name TEXT,
+            association TEXT,
+            name TEXT,
+            gym TEXT,
+            session TEXT,
+            level TEXT,
+            division TEXT,
+            vault REAL,
+            bars REAL,
+            beam REAL,
+            floor REAL,
+            aa REAL,
+            rank TEXT,
+            num TEXT
+        )''')
 
-    # Unique index as safety net for any duplicate rows within the same extraction
-    cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
-        ON results(meet_name, name, gym, session, level, division)''')
+        # Unique index as safety net for any duplicate rows within the same extraction
+        cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
+            ON results(meet_name, name, gym, session, level, division)''')
 
-    # Delete existing data for this meet first (clean slate for full re-runs),
-    # then INSERT OR REPLACE as safety net for edge-case duplicates within the data
-    cur.execute('DELETE FROM results WHERE meet_name = ?', (config.meet_name,))
+        # Covering index for winner determination queries (WHERE meet_name + session + level + division)
+        cur.execute('CREATE INDEX IF NOT EXISTS idx_results_meet_sld ON results(meet_name, session, level, division)')
 
-    for a in athletes:
-        cur.execute('''INSERT OR REPLACE INTO results
-            (state, meet_name, association, name, gym, session, level, division,
-             vault, bars, beam, floor, aa, rank, num)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (config.state, config.meet_name, config.association,
-             a['name'], a['gym'], a['session'], a['level'], a['division'],
-             a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
-             a.get('rank'), a.get('num')))
+        # Delete existing data for this meet first (clean slate for full re-runs),
+        # then INSERT OR REPLACE as safety net for edge-case duplicates within the data
+        cur.execute('DELETE FROM results WHERE meet_name = ?', (config.meet_name,))
 
-    conn.commit()
+        for a in athletes:
+            cur.execute('''INSERT OR REPLACE INTO results
+                (state, meet_name, association, name, gym, session, level, division,
+                 vault, bars, beam, floor, aa, rank, num)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (config.state, config.meet_name, config.association,
+                 a['name'], a['gym'], a['session'], a['level'], a['division'],
+                 a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
+                 a.get('rank'), a.get('num')))
 
-    # Always use score-based winner determination — ranks from data sources
-    # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
-    # to tied athletes instead of giving both rank 1)
-    _build_winners_score_based(conn, config)
+        conn.commit()
 
-    conn.close()
+        # Always use score-based winner determination — ranks from data sources
+        # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
+        # to tied athletes instead of giving both rank 1)
+        _build_winners_score_based(conn, config)
+    finally:
+        conn.close()
     return db_path
 
 
@@ -98,6 +102,9 @@ def _create_winners_table(cur, meet_name: str):
     )''')
     cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
         ON winners(meet_name, name, gym, session, level, division, event)''')
+    # Covering indexes for common query patterns (output generation, gym lookups)
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_winners_meet_event_level ON winners(meet_name, event, level)')
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_winners_meet_gym ON winners(meet_name, gym)')
     # Winners are always fully rebuilt per meet
     cur.execute('DELETE FROM winners WHERE meet_name = ?', (meet_name,))
 

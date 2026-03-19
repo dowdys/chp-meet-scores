@@ -25,6 +25,67 @@ XCEL_ORDER = {
     'BRONZE': 0, 'SILVER': 1, 'GOLD': 2, 'PLATINUM': 3, 'DIAMOND': 4, 'SAPPHIRE': 5,
 }
 
+# --- Page layout constants ---
+PAGE_W = 612
+PAGE_H = 792           # Letter: 8.5 x 11
+PAGE_H_LEGAL = 1008    # Legal:  8.5 x 14
+
+# Column center X positions for 5-column layout
+COL_CENTERS = [72, 192, 306, 420, 546]
+
+# Colors (RGB 0-1 tuples)
+RED = (1, 0, 0)
+WHITE = (1, 1, 1)
+BLACK = (0, 0, 0)
+YELLOW_HL = (1.0, 1.0, 0.0)
+
+# Default text content
+DEFAULT_SPORT = 'GYMNASTICS'
+DEFAULT_TITLE_PREFIX = 'STATE CHAMPIONS OF'
+DEFAULT_COPYRIGHT = '\u00a9 C. H. Publishing'
+
+# Fonts
+FONT_REGULAR = 'Times-Roman'
+FONT_BOLD = 'Times-Bold'
+
+# Font sizes
+TITLE1_LARGE = 18
+TITLE1_SMALL = 14
+TITLE2_LARGE = 20
+TITLE2_SMALL = 15
+HEADER_LARGE = 11
+HEADER_SMALL = 8
+DEFAULT_NAME_SIZE = 9
+MIN_NAME_SIZE = 6.5
+LEVEL_DIVIDER_SIZE = 10
+COPYRIGHT_SIZE = 7
+OVAL_LABEL_SIZE = 12
+
+# Layout Y positions (derived from page height and default title sizes)
+COPYRIGHT_Y = PAGE_H - 8
+NAMES_BOTTOM_Y = PAGE_H - 18
+# Default NAMES_START_Y computed from compute_layout(TITLE1_LARGE, TITLE2_LARGE)
+NAMES_START_Y = 121
+
+# Tight spacing: 1.15 ratio keeps names close together, maximizing font size
+LINE_HEIGHT_RATIO = 1.15
+LEVEL_GAP = 6
+
+# Target page fill: don't fill more than 90% of available space
+MAX_PAGE_FILL = 0.90
+
+# Xcel level mapping (abbreviation and full-name forms)
+XCEL_MAP = {
+    'XSA': 'SAPPHIRE', 'XD': 'DIAMOND', 'XP': 'PLATINUM',
+    'XG': 'GOLD', 'XS': 'SILVER', 'XB': 'BRONZE',
+    'Sapphire': 'SAPPHIRE', 'Diamond': 'DIAMOND', 'Platinum': 'PLATINUM',
+    'Gold': 'GOLD', 'Silver': 'SILVER', 'Bronze': 'BRONZE',
+    'SAPPHIRE': 'SAPPHIRE', 'DIAMOND': 'DIAMOND', 'PLATINUM': 'PLATINUM',
+    'GOLD': 'GOLD', 'SILVER': 'SILVER', 'BRONZE': 'BRONZE',
+}
+# Prestige order (highest first)
+XCEL_PRESTIGE_ORDER = ['SAPPHIRE', 'DIAMOND', 'PLATINUM', 'GOLD', 'SILVER', 'BRONZE']
+
 
 # US state name → abbreviation (for auto-deriving state_abbrev from state name)
 STATE_ABBREVS = {

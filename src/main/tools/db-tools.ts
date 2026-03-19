@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir, getOutputDir } from '../paths';
 import { getStagingDbPath } from './python-tools';
+import { requireString, optionalString } from './validation';
 
 function getCentralDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
@@ -73,10 +74,7 @@ function formatTable(columns: string[], rows: Record<string, unknown>[]): string
 export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   query_db: async (args) => {
     try {
-      const sql = args.sql as string;
-      if (!sql) {
-        return 'Error: sql parameter is required';
-      }
+      const sql = requireString(args, 'sql');
       if (!isSelectOnly(sql)) {
         return 'Error: Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other modification statements are not permitted.';
       }
@@ -111,11 +109,8 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
 
   query_db_to_file: async (args) => {
     try {
-      const sql = args.sql as string;
-      const filename = args.filename as string;
-      if (!sql || !filename) {
-        return 'Error: sql and filename parameters are required';
-      }
+      const sql = requireString(args, 'sql');
+      const filename = requireString(args, 'filename');
       if (!isSelectOnly(sql)) {
         return 'Error: Only SELECT queries are allowed.';
       }
@@ -146,9 +141,13 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         ];
         const csvContent = csvLines.join('\n');
 
-        const meetName = (args.meet_name as string) || 'query-output';
+        const meetName = optionalString(args, 'meet_name') ?? 'query-output';
         const outDir = getOutputDir(meetName);
         const filepath = path.join(outDir, filename);
+        const resolvedPath = path.resolve(filepath);
+        if (!resolvedPath.startsWith(path.resolve(outDir))) {
+          return 'Error: filename must not escape the output directory.';
+        }
         const dir = path.dirname(filepath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -191,10 +190,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
 
   get_meet_summary: async (args) => {
     try {
-      const meetName = args.meet_name as string;
-      if (!meetName) {
-        return 'Error: meet_name parameter is required';
-      }
+      const meetName = requireString(args, 'meet_name');
 
       const db = openDb();
       try {

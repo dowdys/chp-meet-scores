@@ -21,14 +21,15 @@ class PdfAdapter(BaseAdapter):
     def parse(self, data_path: str) -> list[dict]:
         """Parse a PDF and return list of athlete dicts."""
         doc = fitz.open(data_path)
-        all_athletes = []
+        try:
+            all_athletes = []
 
-        for page_num in range(doc.page_count):
-            athletes = self._parse_individual_page(page_num, doc)
-            if athletes:
-                all_athletes.extend(athletes)
-
-        doc.close()
+            for page_num in range(doc.page_count):
+                athletes = self._parse_individual_page(page_num, doc)
+                if athletes:
+                    all_athletes.extend(athletes)
+        finally:
+            doc.close()
         return all_athletes
 
     def _parse_individual_page(self, page_num: int, doc) -> list[dict]:

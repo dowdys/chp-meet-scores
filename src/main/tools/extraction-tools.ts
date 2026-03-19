@@ -2,25 +2,18 @@ import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
-
-async function ensureConnected(): Promise<void> {
-  if (!chromeController.isConnected()) {
-    console.log(`[EXTRACTION-TOOLS] ensureConnected: not connected, calling chromeController.ensureConnected()...`);
-    await chromeController.ensureConnected();
-    console.log(`[EXTRACTION-TOOLS] ensureConnected: connected!`);
-  }
-}
+import { requireArray } from './validation';
 
 export const extractionToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
 
   mso_extract: async (args) => {
     try {
-      const meetIds = args.meet_ids as string[];
-      if (!meetIds || !Array.isArray(meetIds) || meetIds.length === 0) {
+      const meetIds = requireArray(args, 'meet_ids') as string[];
+      if (meetIds.length === 0) {
         return 'Error: meet_ids parameter is required (array of string MSO meet IDs)';
       }
 
-      await ensureConnected();
+      await chromeController.ensureConnected();
 
       // Navigate to MSO for same-origin cookies
       await chromeController.navigate('https://www.meetscoresonline.com');
@@ -152,12 +145,12 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
 
   scorecat_extract: async (args) => {
     try {
-      const meetIds = args.meet_ids as string[];
-      if (!meetIds || !Array.isArray(meetIds) || meetIds.length === 0) {
+      const meetIds = requireArray(args, 'meet_ids') as string[];
+      if (meetIds.length === 0) {
         return 'Error: meet_ids parameter is required (array of string Algolia meet IDs)';
       }
 
-      await ensureConnected();
+      await chromeController.ensureConnected();
 
       // Navigate to ScoreCat homepage to load Firebase SDK
       await chromeController.navigate('https://results.scorecatonline.com/');

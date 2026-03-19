@@ -15,17 +15,20 @@ def _score_division(name: str) -> int:
     """Assign a numeric sort score to a division name.
 
     Age-group pattern scoring (youngest → oldest):
-        Younger/Young   -> 100 range
-        Child/CH*       -> 150 range
-        Youth/YTH*      -> 200 range
-        Middle          -> 250 range
-        Junior/JR*      -> 300 range
-        Senior/SR*      -> 400 range
-        Older/Old       -> 450 range
-        ALL             -> 900 (catch-all, sorts last)
+        Younger/Young   -> 1000 range
+        Child/CH*       -> 2000 range
+        Youth/YTH*      -> 3000 range
+        Middle          -> 4000 range
+        Junior/JR*      -> 5000 range
+        Senior/SR*      -> 6000 range
+        Older/Old       -> 7000 range
+        ALL             -> 9000 (catch-all, sorts last)
 
-    Sub-letter A-D adds 1-4 within each group (e.g. "Child A" = 151).
-    Bare full names without a letter get offset 5 (after lettered).
+    Within each tier, group letters and sub-numbers produce offsets:
+        base + group_letter * 10 + number
+    e.g. JR A1 = 5010+1 = 5011, JR B2 = 5020+2 = 5022, SR A1 = 6011.
+
+    Bare full names without a letter get offset 999 (after all lettered).
     Bare abbreviations without a letter get offset 0 (before lettered).
 
     Numeric divisions (1, 2, 3, etc.) get 50 + number, so they sort
@@ -34,7 +37,7 @@ def _score_division(name: str) -> int:
     Single-letter divisions (A, B, C, D) get 10 + letter offset,
     treated as youngest-to-oldest alphabetically.
 
-    Unknown patterns get 500.
+    Unknown patterns get 8000.
     """
     upper = name.strip().upper()
     if not upper:
@@ -42,7 +45,7 @@ def _score_division(name: str) -> int:
 
     # "ALL" — everyone competed together, sorts last
     if upper == 'ALL':
-        return 900
+        return 9000
 
     # Pure numeric division (e.g. "1", "2", "3")
     if re.match(r'^\d+$', upper):
@@ -52,47 +55,78 @@ def _score_division(name: str) -> int:
     if re.match(r'^[A-Z]$', upper):
         return 10 + (ord(upper) - ord('A') + 1)
 
-    # Try to extract a trailing letter (A-E)
-    letter_match = re.search(r'[.\s]([A-E])$', upper)
-    letter_offset = 0
-    if letter_match:
-        letter_offset = ord(letter_match.group(1)) - ord('A') + 1  # A=1, B=2, ...
+    # ── Tier detection ──────────────────────────────────────────────
+    # Map the tier prefix to its base score and figure out the remainder.
+    tier_patterns = [
+        (r'^(?:YOUNGER|YOUNG)\b',  1000),
+        (r'^(?:CHILD|CH)\b',       2000),
+        (r'^(?:YOUTH|YTH)\.?\b',   3000),
+        (r'^(?:MIDDLE|MID)\b',     4000),
+        (r'^(?:JUNIOR|JR)\.?\b',   5000),
+        (r'^(?:SENIOR|SR)\.?\b',   6000),
+        (r'^(?:OLDER|OLD)\b',      7000),
+    ]
 
-    # Determine the age group and base score
-    # Younger / Young (100 range — youngest named group)
-    if upper.startswith('YOUNGER') or upper == 'YOUNG':
-        base = 100
-    # Child / CH patterns (150 range)
-    elif upper.startswith('CHILD') or re.match(r'^CH\b', upper) or re.match(r'^CHA?$', upper):
-        base = 150
-    # Youth / YTH patterns (200 range)
-    elif upper.startswith('YOUTH') or re.match(r'^YTH\.?\b', upper):
-        base = 200
-    # Middle (250 range)
-    elif upper.startswith('MIDDLE') or upper == 'MID':
-        base = 250
-    # Junior / JR patterns (300 range)
-    elif upper.startswith('JUNIOR') or re.match(r'^JR\.?\b', upper):
-        base = 300
-    # Senior / SR patterns (400 range)
-    elif upper.startswith('SENIOR') or re.match(r'^SR\.?\b', upper):
-        base = 400
-    # Older / Old (450 range — oldest named group)
-    elif upper.startswith('OLDER') or upper == 'OLD':
-        base = 450
-    else:
-        return 500  # Unknown — sorts after all known patterns
+    base = None
+    remainder = ''
+    for pattern, score in tier_patterns:
+        m = re.match(pattern, upper)
+        if m:
+            base = score
+            remainder = upper[m.end():].strip(' .')
+            break
 
-    # Bare full name (no letter) → offset 5 (after all lettered variants)
-    # Bare abbreviation (no letter, e.g. "SR") → offset 0 (before lettered)
-    if letter_offset == 0:
-        if len(upper) > 3:
-            # Full-name form like "CHILD", "JUNIOR", "SENIOR", "YOUNGER"
-            return base + 5
+    # Fallback for MSO-style concatenated abbreviations without spaces
+    # (e.g., "CHA", "JRA1", "SRB2") where the \b anchor fails because
+    # the next character is a word character.
+    if base is None:
+        concat = re.match(r'^(CH|JR|SR|YTH)([A-Z]\d*|\d+)$', upper)
+        if concat:
+            prefix = concat.group(1)
+            tier_map = {'CH': 2000, 'YTH': 3000, 'JR': 5000, 'SR': 6000}
+            base = tier_map.get(prefix, 8000)
+            remainder = concat.group(2)
         else:
-            # Short abbreviation like "SR", "CH", "JR"
+            return 8000  # Unknown — sorts after all known patterns
+
+    # ── Parse the remainder after the tier prefix ───────────────────
+    # Possible forms:
+    #   ""       → bare tier ("JR", "JUNIOR")
+    #   "A"      → group letter only ("JR A")
+    #   "A1"     → group letter + sub-number ("JR A1")
+    #   "A 1"    → group letter + space + sub-number ("JR A 1")
+    #   "1"      → bare number ("JR 1")
+
+    # Compound: group letter + optional number (e.g. "A1", "B3", "C 2")
+    compound = re.match(r'^([A-Z])\s*(\d+)$', remainder)
+    if compound:
+        group_offset = (ord(compound.group(1)) - ord('A') + 1) * 10
+        number_offset = int(compound.group(2))
+        return base + group_offset + number_offset
+
+    # Simple group letter only (e.g. "A", "B", "C")
+    # Uses same *10 scale as compounds so JR D (5040) > JR C3 (5033).
+    # Sub-number 0 means the bare letter sorts before its numbered variants
+    # (JR A=5010 < JR A1=5011).
+    if re.match(r'^[A-Z]$', remainder):
+        group_offset = (ord(remainder) - ord('A') + 1) * 10
+        return base + group_offset
+
+    # Bare number only (e.g. "1", "2") — "JR 1", "SR 2"
+    if re.match(r'^\d+$', remainder):
+        return base + int(remainder)
+
+    # Bare tier — no group/number
+    if remainder == '':
+        # Short abbreviation like "SR", "CH", "JR" → offset 0 (before lettered)
+        # Full-name form like "CHILD", "JUNIOR", "SENIOR" → offset 999 (after all lettered)
+        if len(upper) > 3:
+            return base + 999
+        else:
             return base
-    return base + letter_offset
+
+    # Unrecognised remainder — still group under this tier but sort late
+    return base + 9
 
 
 def detect_division_order(db_path: str, meet_name: str,
@@ -108,11 +142,30 @@ def detect_division_order(db_path: str, meet_name: str,
     by the auto-detected scoring (or explicit ordering when provided).
     """
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
-                (meet_name,))
-    divisions = [row[0] for row in cur.fetchall() if row[0]]
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
+                    (meet_name,))
+        raw_divisions = [row[0] for row in cur.fetchall() if row[0]]
+    finally:
+        conn.close()
+
+    # ── Normalise case: merge divisions that differ only by case ────
+    # Keep one canonical form per uppercased key.  Prefer the ALL-CAPS
+    # variant (e.g. "JR A" over "Jr A") for consistency; if none is
+    # all-caps, keep the first one encountered.
+    seen_upper: dict[str, str] = {}   # UPPER -> chosen canonical form
+    for div in raw_divisions:
+        key = div.strip().upper()
+        if key not in seen_upper:
+            seen_upper[key] = div
+        else:
+            # Prefer the version that is already fully uppercased
+            existing = seen_upper[key]
+            if div == key and existing != key:
+                seen_upper[key] = div
+
+    divisions = list(seen_upper.values())
 
     # Build explicit ordering map (case-insensitive matching)
     explicit_map = {}
@@ -126,9 +179,9 @@ def detect_division_order(db_path: str, meet_name: str,
             return explicit_map[upper]
         return _score_division(div)
 
-    # Identify unknowns (score exactly 500) for reporting
+    # Identify unknowns (score exactly 8000) for reporting
     unknowns = [d for d in divisions
-                 if _score_division(d) == 500 and d.strip().upper() not in explicit_map]
+                 if _score_division(d) == 8000 and d.strip().upper() not in explicit_map]
 
     scored = sorted(divisions, key=_sort_key)
     order = {}
@@ -137,6 +190,16 @@ def detect_division_order(db_path: str, meet_name: str,
         if div not in order:
             order[div] = pos
             pos += 1
+
+    # Also map the non-canonical case variants to the same position
+    # so callers using either "Jr A" or "JR A" get the same result.
+    canonical_pos = {d.strip().upper(): p for d, p in order.items()}
+    for div in raw_divisions:
+        if div not in order:
+            key = div.strip().upper()
+            if key in canonical_pos:
+                order[div] = canonical_pos[key]
+
     return order, unknowns
 
 
@@ -151,7 +214,7 @@ def get_division_order(db_path: str, meet_name: str, state: str,
 
     # Try loading from cache
     if os.path.exists(json_path):
-        with open(json_path, 'r') as f:
+        with open(json_path, 'r', encoding='utf-8') as f:
             all_orders = json.load(f)
         if state in all_orders:
             return all_orders[state]
@@ -164,7 +227,7 @@ def get_division_order(db_path: str, meet_name: str, state: str,
     # Save to cache
     all_orders[state] = order
     os.makedirs(config_dir, exist_ok=True)
-    with open(json_path, 'w') as f:
+    with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(all_orders, f, indent=2)
 
     return order

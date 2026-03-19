@@ -172,7 +172,8 @@ def customize_idml(state, postmark_date, online_date, ship_date,
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
         for name in members:
-            zout.writestr(name, contents[name])
+            compress = zipfile.ZIP_STORED if name == 'mimetype' else zipfile.ZIP_DEFLATED
+            zout.writestr(name, contents[name], compress_type=compress)
 
     # Copy logo alongside the IDML so InDesign can find it
     if logo_path:
@@ -248,59 +249,6 @@ def _apply_text_replacements(page, state, postmark_date, online_date, ship_date)
     page.apply_redactions()
 
 
-def customize_pdf(state, postmark_date, online_date, ship_date,
-                  output_path, logo_dir=None, template_path=None):
-    """Generate a state-specific PDF from the master template.
-
-    Primary approach: edit the IDML template (text + logo) then convert
-    to PDF via idml_to_pdf(). Falls back to PDF redaction if conversion
-    fails.
-
-    Returns the output PDF path.
-    """
-    from python.core.idml_parser import idml_to_pdf
-
-    idml_template = template_path or TEMPLATE_IDML
-    if os.path.exists(idml_template):
-        tmp_idml = None
-        try:
-            fd, tmp_idml = tempfile.mkstemp(suffix='.idml')
-            os.close(fd)
-            customize_idml(state, postmark_date, online_date, ship_date,
-                           tmp_idml, logo_dir, idml_template)
-            os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
-            idml_to_pdf(tmp_idml, output_path)
-            os.unlink(tmp_idml)
-            return output_path
-        except Exception:
-            if tmp_idml and os.path.exists(tmp_idml):
-                try:
-                    os.unlink(tmp_idml)
-                except OSError:
-                    pass
-
-    # Fallback: PDF redaction approach
-    template_path = template_path or TEMPLATE_PDF
-    logo_dir = logo_dir or LOGO_DIR
-    logo_path = _find_logo_path(state, logo_dir)
-
-    doc = fitz.open(template_path)
-    page = doc[0]
-
-    if logo_path:
-        logo_doc = fitz.open(logo_path)
-        page.show_pdf_page(LOGO_TARGET_RECT, logo_doc, 0,
-                           clip=LOGO_SOURCE_CLIP)
-        logo_doc.close()
-
-    _apply_text_replacements(page, state, postmark_date, online_date, ship_date)
-
-    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
-    doc.save(output_path)
-    doc.close()
-    return output_path
-
-
 def get_state_template(state, postmark_date='TBD', online_date='TBD',
                        ship_date='TBD', logo_dir=None, template_path=None):
     """Create a state-specific template PDF in memory.
@@ -360,19 +308,3 @@ def get_state_template(state, postmark_date='TBD', online_date='TBD',
     _apply_text_replacements(page, state, postmark_date, online_date, ship_date)
 
     return doc
-
-
-def generate_both(state, postmark_date, online_date, ship_date,
-                  output_dir, logo_dir=None):
-    """Generate both IDML and PDF for a state. Returns dict with paths."""
-    os.makedirs(output_dir, exist_ok=True)
-
-    idml_path = os.path.join(output_dir, f'{state} Order Form 2026.idml')
-    pdf_path = os.path.join(output_dir, f'{state} Order Form 2026.pdf')
-
-    customize_idml(state, postmark_date, online_date, ship_date,
-                   idml_path, logo_dir)
-    customize_pdf(state, postmark_date, online_date, ship_date,
-                  pdf_path, logo_dir)
-
-    return {'idml': idml_path, 'pdf': pdf_path}

@@ -94,11 +94,30 @@ Personalized per-athlete order forms, grouped by gym with blank separator pages.
 
 **Signature**: `generate_order_forms_pdf(db_path, meet_name, output_path, year='2026', state='', postmark_date='TBD', online_date='TBD', ship_date='TBD')`
 
+## Output 4: Gym Highlights (`gym_highlights.pdf`)
+
+Per-gym highlighted version of the back-of-shirt PDF. Each gym gets a copy of the shirt pages with their athletes' names highlighted in yellow, so the gym can see which of their athletes made the shirt.
+
+**Page-size-legal splitting**: When `--page-size-legal` is used (some page groups are legal-size, some are letter-size), the gym highlights are automatically split into two files:
+- `gym_highlights.pdf` (letter) — only contains winners from letter-size page groups
+- `gym_highlights_8.5x14.pdf` (legal) — only contains winners from legal-size page groups
+
+This split is necessary because a single PDF cannot mix page sizes for printing. Each file only includes the gyms that have winners in the corresponding page groups.
+
 ## Per-Page Font Sizing
 
 Each shirt page group independently calls `_fit_font_size()` to find the largest font that fits all names on that page. This means pages with fewer names get larger text automatically. You do NOT need to set a single font size for the entire PDF — it's already per-page.
 
 The `--max-font-size` and `--min-font-size` flags set the upper and lower bounds for this per-page search. If a page has very few names, it uses `max-font-size`. If a page is packed, it shrinks down toward `min-font-size`.
+
+## Per-Page-Group Layout Limitations
+
+Layout parameters (`--min-font-size`, `--max-font-size`, `--line-spacing`, `--level-gap`, `--max-fill`, `--header-size`, `--divider-size`, etc.) apply **globally to all page groups**. There is currently no way to set different layout parameters for individual page groups (e.g., tighter spacing on the Xcel page but looser spacing on the numbered levels page).
+
+If the user needs different layout settings per page group, suggest these workarounds:
+- **Process as separate meets**: Run Xcel and numbered levels as separate meets with different layout settings, producing separate PDFs
+- **Use `--page-size-legal`**: Give the most crowded page group more vertical space by making it legal-size instead of letter
+- **Adjust `--level-groups`**: Redistribute levels across pages so each page has roughly equal density, allowing the global settings to work well for all pages
 
 ## CLI Arguments
 
@@ -120,6 +139,7 @@ The `process_meet.py` script accepts:
 - `--max-shirt-pages N` — Constrain total shirt pages (bin-packer shrinks font estimates to fit).
 - `--level-groups STRING` — Custom level grouping (overrides auto bin-packing). Semicolon-separated groups, comma-separated levels. E.g. `"XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"`. Any levels with winners NOT listed are auto-appended to the last group (no winners are silently dropped).
 - `--exclude-levels STRING` — Comma-separated levels to intentionally exclude from the shirt (e.g. `"3,4"` if those levels had no real scores). Excluded levels will not appear even with auto-grouping.
+- `--page-size-legal STRING` — Comma-separated list of page group indices (0-based) that should be printed on legal-size paper (8.5x14) instead of letter (8.5x11). E.g. `--page-size-legal "0"` makes the first page group legal-size. Legal pages have more vertical space for names. When used, gym highlights are automatically split into separate letter and legal PDFs (see Output 4).
 
 **Style flags** (all saved to `shirt_layout.json`):
 - `--copyright TEXT` — Copyright footer text (default "© C. H. Publishing"). E.g. `--copyright "© My Company 2026"`.
@@ -189,7 +209,7 @@ When using `--import-idml`, only `--state`, `--meet`, `--output`, and the IDML p
 
 ## Sticky Layout Params
 
-ALL layout and style params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`, `--title1-size`, `--title2-size`, `--level-groups`, `--copyright`, `--accent-color`, `--font-family`, `--sport`, `--title-prefix`, `--header-size`, `--divider-size`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
+ALL layout and style params (`--max-shirt-pages`, `--line-spacing`, `--level-gap`, `--max-fill`, `--min-font-size`, `--max-font-size`, `--title1-size`, `--title2-size`, `--level-groups`, `--page-size-legal`, `--copyright`, `--accent-color`, `--font-family`, `--sport`, `--title-prefix`, `--header-size`, `--divider-size`) are **saved to `shirt_layout.json`** in the output directory after each shirt generation. On subsequent runs (including full pipeline re-runs), saved params are loaded automatically — you do NOT need to re-pass them. CLI args still override saved values. This means:
 - `--regenerate shirt --max-shirt-pages 2` → saves `max_shirt_pages: 2` → all future runs use 2 pages
 - `--regenerate shirt --level-groups "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3"` → saves custom grouping → persists
 - Full pipeline re-run (no layout args) → reads saved params → uses saved layout

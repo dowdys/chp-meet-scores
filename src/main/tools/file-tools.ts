@@ -1,23 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import { getDataDir as sharedGetDataDir, getProjectRoot as sharedGetProjectRoot } from '../paths';
-
-function getProjectRoot(): string {
-  return sharedGetProjectRoot();
-}
-
-function getDataDir(): string {
-  return sharedGetDataDir();
-}
+import { getDataDir, getProjectRoot } from '../paths';
+import { requireString, optionalNumber } from './validation';
 
 export const fileToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   read_file: async (args) => {
     try {
-      const filePath = args.path as string;
-      if (!filePath) {
-        return 'Error: path parameter is required';
-      }
+      const filePath = requireString(args, 'path');
 
       // Resolve path: if relative, check writable data dir first, then resources data dir
       let resolvedPath: string;
@@ -71,8 +61,8 @@ export const fileToolExecutors: Record<string, (args: Record<string, unknown>) =
       const lines = content.split('\n');
 
       // Apply offset/limit (1-based line numbers, like Claude Code's Read)
-      const offset = (args.offset as number) || 1;
-      const limit = (args.limit as number) || lines.length;
+      const offset = optionalNumber(args, 'offset') ?? 1;
+      const limit = optionalNumber(args, 'limit') ?? lines.length;
       const startIdx = Math.max(0, offset - 1);
       const endIdx = Math.min(lines.length, startIdx + limit);
       const selectedLines = lines.slice(startIdx, endIdx);

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getDataDir } from '../paths';
+import { requireString, optionalNumber } from './validation';
 
 function getDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
@@ -39,14 +40,16 @@ export function resetStagingDb(): void {
 export const pythonToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   save_to_file: async (args) => {
     try {
-      const content = args.content as string;
-      const filename = args.filename as string;
-      if (!content || !filename) {
-        return 'Error: content and filename parameters are required';
-      }
+      const content = requireString(args, 'content');
+      const filename = requireString(args, 'filename');
 
       const dataDir = getDataDir();
       const filepath = path.join(dataDir, filename);
+
+      const resolved = path.resolve(filepath);
+      if (!resolved.startsWith(path.resolve(dataDir))) {
+        return 'Error: filename must not escape the data directory.';
+      }
 
       // Create directories if needed
       const dir = path.dirname(filepath);
@@ -64,12 +67,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
   run_script: async (args) => {
     try {
-      const code = args.code as string;
-      if (!code) {
-        return 'Error: code parameter is required';
-      }
-
-      const timeout = (args.timeout as number) || 30000;
+      const code = requireString(args, 'code');
+      const timeout = optionalNumber(args, 'timeout') ?? 30000;
       const dataDir = getDataDir();
       const dbPath = getDbPath();
 
@@ -126,10 +125,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
   finalize_meet: async (args) => {
     try {
-      const meetName = args.meet_name as string;
-      if (!meetName) {
-        return 'Error: meet_name parameter is required';
-      }
+      const meetName = requireString(args, 'meet_name');
 
       // Find staging DB: use module-level path, or fall back to scanning data dir
       let stagingPath = currentStagingDbPath;
@@ -150,6 +146,38 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       }
 
       const centralPath = getDbPath();
+
+      // Check for potential duplicate meets by querying staging DB for state
+      let duplicateWarning = '';
+      try {
+        const stagingDb = new Database(stagingPath, { readonly: true });
+        const stateRow = stagingDb.prepare(
+          'SELECT DISTINCT state FROM results WHERE meet_name = ? LIMIT 1'
+        ).get(meetName) as { state: string } | undefined;
+        stagingDb.close();
+
+        if (stateRow?.state && fs.existsSync(centralPath)) {
+          const checkDb = new Database(centralPath, { readonly: true });
+          try {
+            const existingMeets = checkDb.prepare(
+              'SELECT DISTINCT meet_name, COUNT(*) as cnt FROM results WHERE state = ? GROUP BY meet_name'
+            ).all(stateRow.state) as { meet_name: string; cnt: number }[];
+
+            if (existingMeets.length > 0) {
+              const warnings = existingMeets.map((m) =>
+                `  "${m.meet_name}" (${m.cnt} athletes)`
+              ).join('\n');
+              duplicateWarning = `Note: ${stateRow.state} already has meets in the database:\n${warnings}\n` +
+                `Adding: "${meetName}". If this is a duplicate, use the same meet name to overwrite.\n`;
+              console.log(duplicateWarning);
+            }
+          } finally {
+            checkDb.close();
+          }
+        }
+      } catch {
+        // Non-fatal: skip duplicate check if staging DB query fails
+      }
 
       // Open central DB (read-write)
       const centralDb = new Database(centralPath);
@@ -223,7 +251,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
         }
         currentStagingDbPath = null;
 
-        return `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        const finalMsg = `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        return duplicateWarning ? duplicateWarning + finalMsg : finalMsg;
       } catch (err) {
         centralDb.close();
         throw err;

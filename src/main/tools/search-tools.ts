@@ -2,18 +2,13 @@ import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
-
-async function ensureConnected(): Promise<void> {
-  if (!chromeController.isConnected()) {
-    await chromeController.ensureConnected();
-  }
-}
+import { requireString, optionalString } from './validation';
 
 export const searchToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   http_fetch: async (args) => {
     try {
-      const url = args.url as string;
-      const method = (args.method as string || 'GET').toUpperCase();
+      const url = requireString(args, 'url');
+      const method = (optionalString(args, 'method') ?? 'GET').toUpperCase();
       // Headers can come as a JSON string or an object
       let headers: Record<string, string> = {};
       if (args.headers) {
@@ -23,11 +18,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
           headers = args.headers as Record<string, string>;
         }
       }
-      const body = args.body as string | undefined;
-
-      if (!url) {
-        return 'Error: url parameter is required';
-      }
+      const body = optionalString(args, 'body');
 
       const options: RequestInit = { method, headers };
       if (body && method !== 'GET') {
@@ -59,12 +50,9 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
 
   web_search: async (args) => {
     try {
-      const query = args.query as string;
-      if (!query) {
-        return 'Error: query parameter is required';
-      }
+      const query = requireString(args, 'query');
 
-      await ensureConnected();
+      await chromeController.ensureConnected();
 
       // Use Google search in a real Chrome window
       const encodedQuery = encodeURIComponent(query);
