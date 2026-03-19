@@ -89,8 +89,8 @@ cur.execute('CREATE INDEX IF NOT EXISTS idx_winners_meet_event_level ON winners(
 cur.execute('CREATE INDEX IF NOT EXISTS idx_winners_meet_gym ON winners(meet_name, gym)')
 ```
 
-- [ ] Add 3 CREATE INDEX statements to `db_builder.py`
-- [ ] Verify pipeline still works with existing databases
+- [x] Add 3 CREATE INDEX statements to `db_builder.py`
+- [x] Verify pipeline still works with existing databases
 
 ### 1b. Context Managers
 
@@ -130,15 +130,15 @@ finally:
 Note: PyMuPDF's context manager (`with fitz.open() as doc`) closes on exit, but we often need `doc.save()` before close. Use try/finally for those cases.
 
 Files to update:
-- [ ] `python/core/db_builder.py` (1 location)
-- [ ] `python/core/pdf_generator.py` (~6 locations)
-- [ ] `python/core/order_form_generator.py` (~2 locations)
-- [ ] `python/core/output_generator.py` (~3 locations)
-- [ ] `python/core/meet_summary.py` (~1 location)
-- [ ] `python/core/division_detector.py` (~1 location)
-- [ ] `python/core/idml_parser.py` (~3 locations)
-- [ ] `python/adapters/pdf_adapter.py` (~1 location)
-- [ ] `python/process_meet.py` (~1 location, the --render-pdf helper)
+- [x] `python/core/db_builder.py` (1 location)
+- [x] `python/core/pdf_generator.py` (~6 locations)
+- [x] `python/core/order_form_generator.py` (~2 locations)
+- [x] `python/core/output_generator.py` (~3 locations)
+- [x] `python/core/meet_summary.py` (~1 location)
+- [x] `python/core/division_detector.py` (~1 location)
+- [x] `python/core/idml_parser.py` (~3 locations)
+- [x] `python/adapters/pdf_adapter.py` (~1 location)
+- [x] `python/process_meet.py` (~1 location, the --render-pdf helper)
 
 ### 1c. Security Fixes
 
@@ -154,9 +154,9 @@ const winPath = execFileSync('wslpath', ['-w', meetDir], { encoding: 'utf-8' }).
 execFileSync('explorer.exe', [winPath]);
 ```
 
-- [ ] `src/main/main.ts` — `open-output-folder` handler (~line 295)
-- [ ] `src/main/main.ts` — `open-logs-folder` handler (~line 316)
-- [ ] `src/main/agent-loop.ts` — `toolOpenFile` method (~line 1302)
+- [x] `src/main/main.ts` — `open-output-folder` handler (~line 295)
+- [x] `src/main/main.ts` — `open-logs-folder` handler (~line 316)
+- [x] `src/main/agent-loop.ts` — `toolOpenFile` method (~line 1302)
 
 **Path traversal — add containment checks:**
 
@@ -167,61 +167,61 @@ if (!resolved.startsWith(path.resolve(dataDir))) {
 }
 ```
 
-- [ ] `src/main/tools/python-tools.ts` — `save_to_file` tool
-- [ ] `src/main/tools/browser-tools.ts` — `chrome_save_to_file` tool
-- [ ] `src/main/agent-loop.ts` — `toolSaveDraftSkill` method
-- [ ] `src/main/agent-loop.ts` — `toolLoadSkill` and `toolLoadSkillDetail` (validate skill name is alphanumeric/hyphens only)
+- [x] `src/main/tools/python-tools.ts` — `save_to_file` tool
+- [x] `src/main/tools/browser-tools.ts` — `chrome_save_to_file` tool
+- [x] `src/main/agent-loop.ts` — `toolSaveDraftSkill` method
+- [x] `src/main/agent-loop.ts` — `toolLoadSkill` and `toolLoadSkillDetail` (validate skill name is alphanumeric/hyphens only)
 
 ### 1d. One-Line Publishing Bug Fixes
 
 **IDML min_font_size** — `python/core/idml_generator.py` ~line 96:
-- [ ] Add `min_font_size=min_font_size` to the `precompute_shirt_data()` call
+- [x] Add `min_font_size=min_font_size` to the `precompute_shirt_data()` call
 
 **`_level_height` divider size** — `python/core/pdf_generator.py` ~line 762:
-- [ ] Add `divider_size=LEVEL_DIVIDER_SIZE` parameter to `_level_height()`
-- [ ] Update `_bin_pack_levels()` to pass the custom divider size through
-- [ ] Update `_fit_font_size()` call to `_level_height` to pass divider_size
+- [x] Add `divider_size=LEVEL_DIVIDER_SIZE` parameter to `_level_height()`
+- [x] Update `_bin_pack_levels()` to pass the custom divider size through
+- [x] Update `_fit_font_size()` call to `_level_height` to pass divider_size
 
 **IDML copyright on legal pages** — `python/core/idml_generator.py` ~line 439:
-- [ ] Change `COPYRIGHT_Y` reference to calculate from `_ph` parameter: `cr_top = (_ph or PAGE_H) - 8 - COPYRIGHT_SIZE`
+- [x] Change `COPYRIGHT_Y` reference to calculate from `_ph` parameter: `cr_top = (_ph or PAGE_H) - 8 - COPYRIGHT_SIZE`
 
 **Order form IDML mimetype** — `python/core/order_form_idml.py` ~line 171:
-- [ ] When writing ZIP entry named `'mimetype'`, use `compress_type=zipfile.ZIP_STORED`
+- [x] When writing ZIP entry named `'mimetype'`, use `compress_type=zipfile.ZIP_STORED`
 
 ### 1e. Font Loss Fix in Gym Highlights Overlay
 
 `generate_gym_highlights_from_pdf` at `pdf_generator.py:1448` uses `page.insert_text()` with `fontname=FONT_BOLD` AFTER `page.show_pdf_page()` at line 1400. Per the documented PyMuPDF font-loss gotcha, this silently renders in the wrong font. Fix: use `fitz.TextWriter` + explicit `fitz.Font()` (same pattern already used in `order_form_generator.py:213-214`).
 
-- [ ] Replace `insert_text()` with `TextWriter` + `fitz.Font('tibo')` in `generate_gym_highlights_from_pdf`
-- [ ] Verify gym name renders in Times-Bold on highlighted pages
+- [x] Replace `insert_text()` with `TextWriter` + `fitz.Font('tibo')` in `generate_gym_highlights_from_pdf`
+- [x] Verify gym name renders in Times-Bold on highlighted pages
 
 ### 1f. Dead Code Removal & ICML Removal
 
-- [ ] Remove `buildToolExecutors` dead stub (`agent-loop.ts:1534-1537`) and 3 call sites
-- [ ] Remove wrapper functions `getProjectRoot/getOutputDir/getDataDir` in `agent-loop.ts:403-425`, use shared imports directly
-- [ ] Remove duplicate wrappers in `file-tools.ts:6-12`
-- [ ] Consolidate `ensureConnected()` — remove wrappers in `browser-tools.ts`, `extraction-tools.ts`, `search-tools.ts`; call `chromeController.ensureConnected()` directly
-- [ ] Remove duplicate `_draw_star` in `order_form_generator.py:177`, import from `pdf_generator`
-- [ ] Remove duplicate `_space_text` in `icml_generator.py:418`, import from `pdf_generator`
-- [ ] Remove empty `skill-tools.ts` and its import/spread in `tools/index.ts`
-- [ ] Remove redundant `await import('fs')` in `main.ts:259,287` — use top-level import
-- [ ] Remove dead `customize_pdf` and `generate_both` in `order_form_idml.py:251-378`
-- [ ] Remove dead `generate_back_of_shirt` in `output_generator.py:16-52`
-- [ ] Deprecate/remove `generate_winners_csv` in `output_generator.py:170-234`
-- [ ] Remove `icml_generator.py` entirely (ICML is deprecated — only IDML is used)
-- [ ] Remove ICML-related code paths from `process_meet.py` (`--regenerate icml`)
-- [ ] Remove ICML import from `process_meet.py`
-- [ ] Remove duplicate `import shutil` in `process_meet.py:410`
-- [ ] Move `import glob` from `process_meet.py:861` to top of file
+- [x] Remove `buildToolExecutors` dead stub (`agent-loop.ts:1534-1537`) and 3 call sites
+- [x] Remove wrapper functions `getProjectRoot/getOutputDir/getDataDir` in `agent-loop.ts:403-425`, use shared imports directly
+- [x] Remove duplicate wrappers in `file-tools.ts:6-12`
+- [x] Consolidate `ensureConnected()` — remove wrappers in `browser-tools.ts`, `extraction-tools.ts`, `search-tools.ts`; call `chromeController.ensureConnected()` directly
+- [x] Remove duplicate `_draw_star` in `order_form_generator.py:177`, import from `pdf_generator`
+- [x] Remove duplicate `_space_text` in `icml_generator.py:418`, import from `pdf_generator`
+- [x] Remove empty `skill-tools.ts` and its import/spread in `tools/index.ts`
+- [x] Remove redundant `await import('fs')` in `main.ts:259,287` — use top-level import
+- [x] Remove dead `customize_pdf` and `generate_both` in `order_form_idml.py:251-378`
+- [x] Remove dead `generate_back_of_shirt` in `output_generator.py:16-52`
+- [x] Deprecate/remove `generate_winners_csv` in `output_generator.py:170-234`
+- [x] Remove `icml_generator.py` entirely (ICML is deprecated — only IDML is used)
+- [x] Remove ICML-related code paths from `process_meet.py` (`--regenerate icml`)
+- [x] Remove ICML import from `process_meet.py`
+- [x] Remove duplicate `import shutil` in `process_meet.py:410`
+- [x] Move `import glob` from `process_meet.py:861` to top of file
 
 **Estimated removal: ~756 lines**
 
 ### Phase 1 Verification
-- [ ] Run `npm run build` — TypeScript compiles
-- [ ] Run `npm run typecheck` — no type errors
-- [ ] Run `python3 -m pytest tests/ -v` — existing tests pass
-- [ ] Process a test meet end-to-end — all 7 output files generated correctly
-- [ ] Compare output files byte-for-byte with pre-refactor baseline
+- [x] Run `npm run build` — TypeScript compiles
+- [x] Run `npm run typecheck` — no type errors
+- [x] Run `python3 -m pytest tests/ -v` — existing tests pass
+- [x] Process a test meet end-to-end — all 7 output files generated correctly
+- [x] Compare output files byte-for-byte with pre-refactor baseline
 
 ---
 

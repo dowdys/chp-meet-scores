@@ -72,18 +72,31 @@ function sendActivityLog(message: string, level: 'info' | 'success' | 'error' | 
  * Sends an IPC event to the renderer and waits for the response.
  */
 function askUserForChoice(question: string, options: string[]): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       resolve(options[0] || 'No window available');
       return;
     }
 
+    const cleanup = () => {
+      ipcMain.removeListener('user-choice-response', handler);
+      if (mainWindow) {
+        mainWindow.removeListener('closed', onWindowClosed);
+      }
+    };
+
+    const onWindowClosed = () => {
+      cleanup();
+      reject(new Error('Window closed'));
+    };
+
     // Listen for the user's response (one-time)
     const handler = (_event: Electron.IpcMainEvent, response: { choice: string }) => {
-      ipcMain.removeListener('user-choice-response', handler);
+      cleanup();
       resolve(response.choice);
     };
     ipcMain.on('user-choice-response', handler);
+    mainWindow.on('closed', onWindowClosed);
 
     // Send the question to the renderer
     mainWindow.webContents.send('ask-user', { question, options });
@@ -240,7 +253,7 @@ function setupIPC(): void {
   });
 
   // Save settings
-  ipcMain.handle('save-settings', async (_event, settings: Record<string, unknown>) => {
+  ipcMain.handle('save-settings', async (_event, settings: Partial<import('./config-store').AppConfig>) => {
     try {
       configStore.setAll(settings);
       // Reset agent loop so it picks up new settings

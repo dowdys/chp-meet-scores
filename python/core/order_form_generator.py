@@ -14,11 +14,13 @@ from collections import defaultdict
 import fitz  # PyMuPDF
 
 from python.core.constants import EVENTS as EVENT_ORDER, EVENT_DISPLAY, state_to_abbrev
-from python.core.pdf_generator import (
+from python.core.layout_engine import precompute_shirt_data
+from python.core.rendering_utils import (
     _draw_small_caps, _measure_small_caps_width,
-    precompute_shirt_data, add_shirt_back_pages,
-    add_shirt_back_pages_from_pdf,
-    _draw_star_polygon as _draw_star
+    _draw_star_polygon as _draw_star,
+)
+from python.core.pdf_generator import (
+    add_shirt_back_pages, add_shirt_back_pages_from_pdf,
 )
 from python.core.order_form_idml import get_state_template
 
@@ -47,6 +49,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              postmark_date: str = 'TBD',
                              online_date: str = 'TBD',
                              ship_date: str = 'TBD',
+                             layout=None,  # LayoutParams object
                              line_spacing: float = None,
                              level_gap: float = None,
                              max_fill: float = None,
@@ -62,7 +65,8 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              font_family: str = None, sport: str = None,
                              title_prefix: str = None, header_size: float = None,
                              divider_size: float = None,
-                             shirt_pdf_path: str = None):
+                             shirt_pdf_path: str = None,
+                             precomputed: dict = None):
     """Generate per-athlete order form PDF using the template overlay approach.
 
     Each athlete gets an order form page (template with filled-in variables)
@@ -90,26 +94,30 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
 
     shirt_data = None
     if not use_pdf_overlay:
-        # Pre-compute shirt data for back pages (standard code-rendered path)
-        shirt_data = precompute_shirt_data(db_path, meet_name,
-                                           name_sort=name_sort,
-                                           line_spacing=line_spacing,
-                                           level_gap=level_gap,
-                                           max_fill=max_fill,
-                                           min_font_size=min_font_size,
-                                           max_font_size=max_font_size,
-                                           max_shirt_pages=max_shirt_pages,
-                                           title1_size=title1_size,
-                                           title2_size=title2_size,
-                                           level_groups=level_groups,
-                                           exclude_levels=exclude_levels,
-                                           copyright=copyright,
-                                           accent_color=accent_color,
-                                           font_family=font_family,
-                                           sport=sport,
-                                           title_prefix=title_prefix,
-                                           header_size=header_size,
-                                           divider_size=divider_size)
+        # Use precomputed data if provided, otherwise compute
+        if precomputed is not None:
+            shirt_data = precomputed
+        else:
+            shirt_data = precompute_shirt_data(db_path, meet_name,
+                                               name_sort=name_sort,
+                                               layout=layout,
+                                               line_spacing=line_spacing,
+                                               level_gap=level_gap,
+                                               max_fill=max_fill,
+                                               min_font_size=min_font_size,
+                                               max_font_size=max_font_size,
+                                               max_shirt_pages=max_shirt_pages,
+                                               title1_size=title1_size,
+                                               title2_size=title2_size,
+                                               level_groups=level_groups,
+                                               exclude_levels=exclude_levels,
+                                               copyright=copyright,
+                                               accent_color=accent_color,
+                                               font_family=font_family,
+                                               sport=sport,
+                                               title_prefix=title_prefix,
+                                               header_size=header_size,
+                                               divider_size=divider_size)
 
     # Build state-specific template (logo + abbreviation + dates baked in)
     template_doc = get_state_template(
@@ -265,7 +273,7 @@ def _get_gym_athletes(db_path: str, meet_name: str):
                  END
     ''', (meet_name,))
 
-    from python.core.pdf_generator import _clean_name_for_shirt
+    from python.core.layout_engine import _clean_name_for_shirt
     gym_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     athlete_divisions = {}
     for gym, raw_name, level, division, event in cur.fetchall():

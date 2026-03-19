@@ -2,14 +2,12 @@ import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
+import { requireString, optionalString, optionalNumber } from './validation';
 
 export const browserToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   chrome_navigate: async (args) => {
     try {
-      const url = args.url as string;
-      if (!url) {
-        return 'Error: url parameter is required';
-      }
+      const url = requireString(args, 'url');
       await chromeController.ensureConnected();
       await chromeController.navigate(url);
       return `Navigated to ${url}`;
@@ -20,10 +18,7 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
 
   chrome_execute_js: async (args) => {
     try {
-      const script = args.script as string;
-      if (!script) {
-        return 'Error: script parameter is required';
-      }
+      const script = requireString(args, 'script');
       await chromeController.ensureConnected();
       const result = await chromeController.executeJS(script);
       // Agent scripts often call JSON.stringify() themselves, so result is already
@@ -54,15 +49,9 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
 
   chrome_save_to_file: async (args) => {
     try {
-      const script = args.script as string;
-      const filename = args.filename as string;
-      const timeoutMs = (args.timeout_ms as number) || 60000;
-      if (!script) {
-        return 'Error: script parameter is required';
-      }
-      if (!filename) {
-        return 'Error: filename parameter is required';
-      }
+      const script = requireString(args, 'script');
+      const filename = requireString(args, 'filename');
+      const timeoutMs = optionalNumber(args, 'timeout_ms') ?? 60000;
       await chromeController.ensureConnected();
       const dataDir = getDataDir();
       if (!fs.existsSync(dataDir)) {
@@ -95,10 +84,7 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
 
   chrome_click: async (args) => {
     try {
-      const selector = args.selector as string;
-      if (!selector) {
-        return 'Error: selector parameter is required';
-      }
+      const selector = requireString(args, 'selector');
       await chromeController.ensureConnected();
       await chromeController.executeJS(`document.querySelector(${JSON.stringify(selector)}).click()`);
       return `Clicked element: ${selector}`;
@@ -109,7 +95,7 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
 
   chrome_network: async (args) => {
     try {
-      const duration = (args.duration as number) || 5000;
+      const duration = optionalNumber(args, 'duration') ?? 5000;
       await chromeController.ensureConnected();
 
       // Inject a network monitor that collects XHR/fetch requests

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getDataDir } from '../paths';
+import { requireString, optionalNumber } from './validation';
 
 function getDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
@@ -39,11 +40,8 @@ export function resetStagingDb(): void {
 export const pythonToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   save_to_file: async (args) => {
     try {
-      const content = args.content as string;
-      const filename = args.filename as string;
-      if (!content || !filename) {
-        return 'Error: content and filename parameters are required';
-      }
+      const content = requireString(args, 'content');
+      const filename = requireString(args, 'filename');
 
       const dataDir = getDataDir();
       const filepath = path.join(dataDir, filename);
@@ -69,12 +67,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
   run_script: async (args) => {
     try {
-      const code = args.code as string;
-      if (!code) {
-        return 'Error: code parameter is required';
-      }
-
-      const timeout = (args.timeout as number) || 30000;
+      const code = requireString(args, 'code');
+      const timeout = optionalNumber(args, 'timeout') ?? 30000;
       const dataDir = getDataDir();
       const dbPath = getDbPath();
 
@@ -131,10 +125,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
   finalize_meet: async (args) => {
     try {
-      const meetName = args.meet_name as string;
-      if (!meetName) {
-        return 'Error: meet_name parameter is required';
-      }
+      const meetName = requireString(args, 'meet_name');
 
       // Find staging DB: use module-level path, or fall back to scanning data dir
       let stagingPath = currentStagingDbPath;

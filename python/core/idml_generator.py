@@ -21,15 +21,18 @@ import math
 import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
-from python.core.pdf_generator import (
+from python.core.constants import (
     PAGE_W, PAGE_H,
-    XCEL_MAP, XCEL_ORDER, EVENT_KEYS, COL_HEADERS, COL_CENTERS,
+    XCEL_MAP, XCEL_PRESTIGE_ORDER as XCEL_ORDER,
+    EVENTS as EVENT_KEYS, COL_HEADERS, COL_CENTERS,
     TITLE1_LARGE, TITLE1_SMALL, TITLE2_LARGE, TITLE2_SMALL,
     HEADER_LARGE, HEADER_SMALL, LEVEL_DIVIDER_SIZE, OVAL_LABEL_SIZE,
     DEFAULT_NAME_SIZE, COPYRIGHT_SIZE, COPYRIGHT_Y,
     DEFAULT_SPORT, DEFAULT_TITLE_PREFIX, DEFAULT_COPYRIGHT,
     FONT_REGULAR, FONT_BOLD,
     RED, BLACK, WHITE,
+)
+from python.core.layout_engine import (
     _compute_layout, _fit_font_size, _space_text,
     precompute_shirt_data,
 )
@@ -68,6 +71,7 @@ def _reset_uid():
 
 def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                         year: str = '2026', state: str = 'Maryland',
+                        layout=None,  # LayoutParams object
                         line_spacing: float = None, level_gap: float = None,
                         max_fill: float = None, min_font_size: float = None,
                         max_font_size: float = None,
@@ -84,7 +88,8 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
                         header_size: float = None,
                         divider_size: float = None,
                         page_h: int = None,
-                        page_group_filter: list = None):
+                        page_group_filter: list = None,
+                        precomputed: dict = None):
     """Generate back-of-shirt IDML file for InDesign.
 
     Uses the same data query, level grouping, and style params as the PDF
@@ -93,22 +98,26 @@ def generate_shirt_idml(db_path: str, meet_name: str, output_path: str,
     _reset_uid()
 
     _page_h = page_h or PAGE_H
-    pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
-                                line_spacing=line_spacing, level_gap=level_gap,
-                                max_fill=max_fill, min_font_size=min_font_size,
-                                max_font_size=max_font_size,
-                                max_shirt_pages=max_shirt_pages,
-                                title1_size=title1_size,
-                                title2_size=title2_size,
-                                level_groups=level_groups,
-                                exclude_levels=exclude_levels,
-                                copyright=copyright, sport=sport,
-                                title_prefix=title_prefix,
-                                accent_color=accent_color,
-                                font_family=font_family,
-                                header_size=header_size,
-                                divider_size=divider_size,
-                                page_h=_page_h)
+    if precomputed is not None:
+        pre = precomputed
+    else:
+        pre = precompute_shirt_data(db_path, meet_name, name_sort=name_sort,
+                                    layout=layout,
+                                    line_spacing=line_spacing, level_gap=level_gap,
+                                    max_fill=max_fill, min_font_size=min_font_size,
+                                    max_font_size=max_font_size,
+                                    max_shirt_pages=max_shirt_pages,
+                                    title1_size=title1_size,
+                                    title2_size=title2_size,
+                                    level_groups=level_groups,
+                                    exclude_levels=exclude_levels,
+                                    copyright=copyright, sport=sport,
+                                    title_prefix=title_prefix,
+                                    accent_color=accent_color,
+                                    font_family=font_family,
+                                    header_size=header_size,
+                                    divider_size=divider_size,
+                                    page_h=_page_h)
 
     style = {
         'page_groups': pre['page_groups'],

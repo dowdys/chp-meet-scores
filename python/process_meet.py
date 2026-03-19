@@ -52,12 +52,12 @@ if len(sys.argv) >= 3 and sys.argv[1] == '--render-pdf':
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from python.core.models import MeetConfig
+from python.core.models import MeetConfig, LayoutParams
 from python.core.db_builder import build_database
 from python.core.output_generator import generate_order_forms
 from python.core.pdf_generator import (
     generate_shirt_pdf, generate_gym_highlights_pdf,
-    generate_gym_highlights_from_pdf
+    generate_gym_highlights_from_pdf, precompute_shirt_data,
 )
 from python.core.idml_generator import generate_shirt_idml
 from python.core.idml_parser import idml_to_pdf
@@ -338,18 +338,19 @@ def main():
                         saved_layout = json.load(f)
                 except (json.JSONDecodeError, OSError):
                     pass
-            # NOTE: level_groups, exclude_levels, page_size NOT included here
-            # (same as LAYOUT_PARAMS — they are per-run overrides, not sticky)
-            LAYOUT_PARAMS_IMPORT = ['line_spacing', 'level_gap', 'max_fill',
-                                    'min_font_size', 'max_font_size', 'max_shirt_pages',
-                                    'title1_size', 'title2_size',
-                                    'copyright', 'accent_color',
-                                    'font_family', 'sport', 'title_prefix',
-                                    'header_size', 'divider_size']
-            for param in LAYOUT_PARAMS_IMPORT:
-                cli_val = getattr(args, param)
-                if cli_val is None and param in saved_layout:
-                    setattr(args, param, saved_layout[param])
+            # Build LayoutParams from saved + CLI overrides
+            import_layout = LayoutParams.from_sticky_dict(saved_layout)
+            _IMPORT_FIELDS = ['line_spacing', 'level_gap', 'max_fill',
+                              'min_font_size', 'max_font_size', 'max_shirt_pages',
+                              'title1_size', 'title2_size',
+                              'copyright', 'accent_color',
+                              'font_family', 'sport', 'title_prefix',
+                              'header_size', 'divider_size']
+            for param in _IMPORT_FIELDS:
+                cli_val = getattr(args, param, None)
+                if cli_val is not None:
+                    setattr(import_layout, param, cli_val)
+            import_layout.name_sort = args.name_sort
 
             errors = []
 
@@ -359,7 +360,7 @@ def main():
                 tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
                                             year=args.year, state=args.state,
-                                            name_sort=args.name_sort)
+                                            layout=import_layout)
                 actual = _safe_move(tmp, gym_highlights_path)
                 print(f"Generated {actual}")
             except Exception as e:
@@ -379,7 +380,7 @@ def main():
                                          postmark_date=args.postmark_date,
                                          online_date=args.online_date,
                                          ship_date=args.ship_date,
-                                         name_sort=args.name_sort,
+                                         layout=import_layout,
                                          shirt_pdf_path=_order_shirt)
                 actual = _safe_move(tmp, order_pdf_path)
                 print(f"Generated {actual}")
@@ -391,13 +392,7 @@ def main():
             try:
                 summary_path = os.path.join(args.output, 'meet_summary.txt')
                 generate_meet_summary(db_path, config.meet_name, summary_path,
-                                      line_spacing=args.line_spacing,
-                                      level_gap=args.level_gap,
-                                      max_fill=args.max_fill,
-                                      max_font_size=args.max_font_size,
-                                      max_shirt_pages=args.max_shirt_pages,
-                                      title1_size=args.title1_size,
-                                      title2_size=args.title2_size,
+                                      layout=import_layout,
                                       level_groups=args.level_groups,
                                       exclude_levels=args.exclude_levels)
                 print(f"Generated {summary_path}")
@@ -528,19 +523,21 @@ def main():
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Merge: CLI (if explicitly set, i.e. not None) > saved > default (None)
-    # NOTE: level_groups, exclude_levels, and page_size are intentionally NOT
-    # persisted here — they are per-run overrides, not sticky layout settings.
-    # Persisting them caused bugs where subsequent runs applied stale exclusions.
-    LAYOUT_PARAMS = ['line_spacing', 'level_gap', 'max_fill',
-                     'min_font_size', 'max_font_size', 'max_shirt_pages',
-                     'title1_size', 'title2_size',
-                     'copyright', 'accent_color', 'font_family',
-                     'sport', 'title_prefix', 'header_size', 'divider_size']
-    for param in LAYOUT_PARAMS:
-        cli_val = getattr(args, param)
-        if cli_val is None and param in saved_layout:
-            setattr(args, param, saved_layout[param])
+    # Load saved sticky params, then override with any CLI-provided values
+    layout = LayoutParams.from_sticky_dict(saved_layout)
+    # CLI overrides (only if explicitly set, i.e. not None)
+    _LAYOUT_FIELD_NAMES = [
+        'line_spacing', 'level_gap', 'max_fill',
+        'min_font_size', 'max_font_size', 'max_shirt_pages',
+        'title1_size', 'title2_size',
+        'copyright', 'accent_color', 'font_family',
+        'sport', 'title_prefix', 'header_size', 'divider_size',
+    ]
+    for param in _LAYOUT_FIELD_NAMES:
+        cli_val = getattr(args, param, None)
+        if cli_val is not None:
+            setattr(layout, param, cli_val)
+    layout.name_sort = args.name_sort
 
     # Generate outputs (all or selected)
     # Each output is wrapped in try/except so one failure doesn't block the rest
@@ -561,12 +558,16 @@ def main():
     if args.page_size == 'legal' and not _legal_groups:
         _legal_groups = ['']  # empty string matches all groups
 
-    # Pre-check names for suspicious content before generating shirt
+    # Pre-compute shirt data ONCE and reuse across all generators
+    pre = None
     if do_all or 'shirt' in regen_set:
-        from python.core.pdf_generator import precompute_shirt_data as _pre_check
-        _check = _pre_check(db_path, config.meet_name, name_sort=args.name_sort)
-        _flagged = _check.get('flagged_names', [])
-        _modified = _check.get('modified_names', [])
+        pre = precompute_shirt_data(db_path, config.meet_name,
+                                    layout=layout,
+                                    level_groups=args.level_groups,
+                                    exclude_levels=args.exclude_levels)
+
+        _flagged = pre.get('flagged_names', [])
+        _modified = pre.get('modified_names', [])
         if _modified:
             print(f"NAME_CLEANUP: {len(_modified)} name(s) were auto-cleaned:")
             for raw, cleaned, event, level in _modified[:20]:
@@ -586,34 +587,15 @@ def main():
             tmp = _tmp_path_for(pdf_path)
             generate_shirt_pdf(db_path, config.meet_name, tmp,
                                year=args.year, state=args.state,
-                               line_spacing=args.line_spacing,
-                               level_gap=args.level_gap,
-                               max_fill=args.max_fill,
-                               min_font_size=args.min_font_size,
-                               max_font_size=args.max_font_size,
-                               name_sort=args.name_sort,
-                               max_shirt_pages=args.max_shirt_pages,
-                               title1_size=args.title1_size,
-                               title2_size=args.title2_size,
+                               layout=layout,
                                level_groups=args.level_groups,
                                exclude_levels=args.exclude_levels,
-                               copyright=args.copyright,
-                               accent_color=args.accent_color,
-                               font_family=args.font_family,
-                               sport=args.sport,
-                               title_prefix=args.title_prefix,
-                               header_size=args.header_size,
-                               divider_size=args.divider_size)
+                               precomputed=pre)
             actual = _safe_move(tmp, pdf_path)
             print(f"Generated {actual}")
             # Save effective layout params so future runs reuse them
-            effective_layout = {}
-            for param in LAYOUT_PARAMS:
-                val = getattr(args, param)
-                if val is not None:
-                    effective_layout[param] = val
             with open(layout_json, 'w') as f:
-                json.dump(effective_layout, f, indent=2)
+                json.dump(layout.to_sticky_dict(), f, indent=2)
         except Exception as e:
             print(f"ERROR generating back_of_shirt.pdf: {e}")
             errors.append(('shirt', str(e)))
@@ -627,24 +609,9 @@ def main():
                 tmp = _tmp_path_for(legal_pdf)
                 generate_shirt_pdf(db_path, config.meet_name, tmp,
                                    year=args.year, state=args.state,
-                                   line_spacing=args.line_spacing,
-                                   level_gap=args.level_gap,
-                                   max_fill=args.max_fill,
-                                   min_font_size=args.min_font_size,
-                                   max_font_size=args.max_font_size,
-                                   name_sort=args.name_sort,
-                                   max_shirt_pages=args.max_shirt_pages,
-                                   title1_size=args.title1_size,
-                                   title2_size=args.title2_size,
+                                   layout=layout,
                                    level_groups=args.level_groups,
                                    exclude_levels=args.exclude_levels,
-                                   copyright=args.copyright,
-                                   accent_color=args.accent_color,
-                                   font_family=args.font_family,
-                                   sport=args.sport,
-                                   title_prefix=args.title_prefix,
-                                   header_size=args.header_size,
-                                   divider_size=args.divider_size,
                                    page_h=PAGE_H_LEGAL,
                                    page_group_filter=_filter)
                 actual = _safe_move(tmp, legal_pdf)
@@ -658,24 +625,10 @@ def main():
             idml_path = os.path.join(args.output, 'back_of_shirt.idml')
             generate_shirt_idml(db_path, config.meet_name, idml_path,
                                 year=args.year, state=args.state,
-                                line_spacing=args.line_spacing,
-                                level_gap=args.level_gap,
-                                max_fill=args.max_fill,
-                                min_font_size=args.min_font_size,
-                                max_font_size=args.max_font_size,
-                                name_sort=args.name_sort,
-                                max_shirt_pages=args.max_shirt_pages,
-                                title1_size=args.title1_size,
-                                title2_size=args.title2_size,
+                                layout=layout,
                                 level_groups=args.level_groups,
                                 exclude_levels=args.exclude_levels,
-                                copyright=args.copyright,
-                                sport=args.sport,
-                                title_prefix=args.title_prefix,
-                                accent_color=args.accent_color,
-                                font_family=args.font_family,
-                                header_size=args.header_size,
-                                divider_size=args.divider_size)
+                                precomputed=pre)
             print(f"Generated {idml_path}")
         except Exception as e:
             print(f"ERROR generating back_of_shirt.idml: {e}")
@@ -689,24 +642,9 @@ def main():
                 legal_idml = os.path.join(args.output, 'back_of_shirt_8.5x14.idml')
                 generate_shirt_idml(db_path, config.meet_name, legal_idml,
                                     year=args.year, state=args.state,
-                                    line_spacing=args.line_spacing,
-                                    level_gap=args.level_gap,
-                                    max_fill=args.max_fill,
-                                    min_font_size=args.min_font_size,
-                                    max_font_size=args.max_font_size,
-                                    name_sort=args.name_sort,
-                                    max_shirt_pages=args.max_shirt_pages,
-                                    title1_size=args.title1_size,
-                                    title2_size=args.title2_size,
+                                    layout=layout,
                                     level_groups=args.level_groups,
                                     exclude_levels=args.exclude_levels,
-                                    copyright=args.copyright,
-                                    sport=args.sport,
-                                    title_prefix=args.title_prefix,
-                                    accent_color=args.accent_color,
-                                    font_family=args.font_family,
-                                    header_size=args.header_size,
-                                    divider_size=args.divider_size,
                                     page_h=PAGE_H_LEGAL,
                                     page_group_filter=_filter)
                 print(f"Generated {legal_idml} (8.5x14)")
@@ -727,25 +665,11 @@ def main():
                                      postmark_date=args.postmark_date,
                                      online_date=args.online_date,
                                      ship_date=args.ship_date,
-                                     line_spacing=args.line_spacing,
-                                     level_gap=args.level_gap,
-                                     max_fill=args.max_fill,
-                                     min_font_size=args.min_font_size,
-                                     max_font_size=args.max_font_size,
-                                     name_sort=args.name_sort,
-                                     max_shirt_pages=args.max_shirt_pages,
-                                     title1_size=args.title1_size,
-                                     title2_size=args.title2_size,
+                                     layout=layout,
                                      level_groups=args.level_groups,
                                      exclude_levels=args.exclude_levels,
-                                     copyright=args.copyright,
-                                     accent_color=args.accent_color,
-                                     font_family=args.font_family,
-                                     sport=args.sport,
-                                     title_prefix=args.title_prefix,
-                                     header_size=args.header_size,
-                                     divider_size=args.divider_size,
-                                     shirt_pdf_path=_shirt_path)
+                                     shirt_pdf_path=_shirt_path,
+                                     precomputed=pre)
             actual = _safe_move(tmp, order_pdf_path)
             print(f"Generated {actual}")
         except Exception as e:
@@ -758,23 +682,6 @@ def main():
         # Only use legal shirt for exclusion/generation when it was explicitly requested
         _has_legal = _legal_groups and os.path.exists(legal_shirt)
 
-        # Always use code-generated gym highlights (not PDF overlay) because
-        # the overlay approach has no room for the gym name between title and oval.
-        # The code-generated version builds pages from scratch with proper spacing.
-        _gh_args = dict(
-            year=args.year, state=args.state,
-            line_spacing=args.line_spacing, level_gap=args.level_gap,
-            max_fill=args.max_fill, min_font_size=args.min_font_size,
-            max_font_size=args.max_font_size, name_sort=args.name_sort,
-            max_shirt_pages=args.max_shirt_pages,
-            title1_size=args.title1_size, title2_size=args.title2_size,
-            level_groups=args.level_groups, exclude_levels=args.exclude_levels,
-            copyright=args.copyright, accent_color=args.accent_color,
-            font_family=args.font_family, sport=args.sport,
-            title_prefix=args.title_prefix,
-            header_size=args.header_size, divider_size=args.divider_size,
-        )
-
         # Generate 8.5x14 gym highlights when legal was explicitly requested
         if _has_legal:
             try:
@@ -782,7 +689,11 @@ def main():
                 gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
                 tmp = _tmp_path_for(gh_legal_path)
                 generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                            page_h=PAGE_H_LEGAL, **_gh_args)
+                                            year=args.year, state=args.state,
+                                            layout=layout,
+                                            level_groups=args.level_groups,
+                                            exclude_levels=args.exclude_levels,
+                                            page_h=PAGE_H_LEGAL)
                 actual = _safe_move(tmp, gh_legal_path)
                 print(f"Generated {actual} (8.5x14)")
             except Exception as e:
@@ -793,7 +704,12 @@ def main():
         try:
             gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
             tmp = _tmp_path_for(gym_highlights_path)
-            generate_gym_highlights_pdf(db_path, config.meet_name, tmp, **_gh_args)
+            generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
+                                        year=args.year, state=args.state,
+                                        layout=layout,
+                                        level_groups=args.level_groups,
+                                        exclude_levels=args.exclude_levels,
+                                        precomputed=pre)
             actual = _safe_move(tmp, gym_highlights_path)
             print(f"Generated {actual}")
         except Exception as e:
@@ -804,15 +720,10 @@ def main():
         try:
             summary_path = os.path.join(args.output, 'meet_summary.txt')
             generate_meet_summary(db_path, config.meet_name, summary_path,
-                                  line_spacing=args.line_spacing,
-                                  level_gap=args.level_gap,
-                                  max_fill=args.max_fill,
-                                  max_font_size=args.max_font_size,
-                                  max_shirt_pages=args.max_shirt_pages,
-                                  title1_size=args.title1_size,
-                                  title2_size=args.title2_size,
+                                  layout=layout,
                                   level_groups=args.level_groups,
-                                  exclude_levels=args.exclude_levels)
+                                  exclude_levels=args.exclude_levels,
+                                  precomputed=pre)
             print(f"Generated {summary_path}")
         except Exception as e:
             print(f"ERROR generating meet_summary.txt: {e}")

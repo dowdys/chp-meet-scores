@@ -5,6 +5,8 @@
  * because tool executors don't have access to the BrowserWindow.
  */
 
+import { requireString, requireArray } from './validation';
+
 type AskUserHandler = (question: string, options: string[]) => Promise<string>;
 
 let askUserHandler: AskUserHandler | null = null;
@@ -18,15 +20,15 @@ export function setAskUserHandler(handler: AskUserHandler): void {
 
 export const userToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   ask_user: async (args) => {
-    const question = args.question as string;
-    const options = args.options as string[];
+    const question = requireString(args, 'question');
+    const options = requireArray(args, 'options') as string[];
 
     if (!askUserHandler) {
       return 'Error: ask_user handler not configured. Cannot prompt user.';
     }
 
-    if (!question || !options || options.length === 0) {
-      return 'Error: ask_user requires a "question" string and an "options" array.';
+    if (options.length === 0) {
+      return 'Error: ask_user requires at least one option.';
     }
 
     const choice = await askUserHandler(question, options);

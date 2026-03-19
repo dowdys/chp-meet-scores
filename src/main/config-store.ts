@@ -64,10 +64,10 @@ class ConfigStore {
     };
   }
 
-  setAll(settings: Record<string, unknown>): void {
+  setAll(settings: Partial<AppConfig>): void {
     const validKeys: (keyof AppConfig)[] = ['apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir'];
     for (const key of validKeys) {
-      if (key in settings) {
+      if (key in settings && settings[key] !== undefined) {
         this.store.set(key, settings[key] as AppConfig[typeof key]);
       }
     }

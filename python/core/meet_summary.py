@@ -10,21 +10,26 @@ Produces a readable text file with key facts about a processed meet:
 
 import sqlite3
 
-from python.core.pdf_generator import (
-    XCEL_MAP, XCEL_ORDER, EVENT_KEYS,
+from python.core.constants import (
+    XCEL_MAP, XCEL_PRESTIGE_ORDER as XCEL_ORDER,
+    EVENTS as EVENT_KEYS,
     LINE_HEIGHT_RATIO, LEVEL_GAP, DEFAULT_NAME_SIZE, MAX_PAGE_FILL,
     MIN_NAME_SIZE, NAMES_BOTTOM_Y, NAMES_START_Y,
+)
+from python.core.layout_engine import (
     _get_winners_by_event_and_level, _bin_pack_levels,
     precompute_shirt_data,
 )
 
 
 def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
+                          layout=None,  # LayoutParams object
                           line_spacing: float = None, level_gap: float = None,
                           max_fill: float = None, max_font_size: float = None,
                           max_shirt_pages: int = None,
                           title1_size: float = None, title2_size: float = None,
-                          level_groups: str = None, exclude_levels: str = None):
+                          level_groups: str = None, exclude_levels: str = None,
+                          precomputed: dict = None):
     """Generate a meet summary text file."""
     lhr = line_spacing if line_spacing is not None else LINE_HEIGHT_RATIO
     lgap = level_gap if level_gap is not None else LEVEL_GAP
@@ -129,16 +134,20 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
         conn.close()
 
     # --- Shirt page breakdown ---
-    pre = precompute_shirt_data(db_path, meet_name,
-                                line_spacing=line_spacing,
-                                level_gap=level_gap,
-                                max_fill=max_fill,
-                                max_font_size=max_font_size,
-                                max_shirt_pages=max_shirt_pages,
-                                title1_size=title1_size,
-                                title2_size=title2_size,
-                                level_groups=level_groups,
-                                exclude_levels=exclude_levels)
+    if precomputed is not None:
+        pre = precomputed
+    else:
+        pre = precompute_shirt_data(db_path, meet_name,
+                                    layout=layout,
+                                    line_spacing=line_spacing,
+                                    level_gap=level_gap,
+                                    max_fill=max_fill,
+                                    max_font_size=max_font_size,
+                                    max_shirt_pages=max_shirt_pages,
+                                    title1_size=title1_size,
+                                    title2_size=title2_size,
+                                    level_groups=level_groups,
+                                    exclude_levels=exclude_levels)
     page_groups = pre['page_groups']
     data = pre['data']
 

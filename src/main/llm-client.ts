@@ -27,15 +27,25 @@ export interface TextContentPart {
 
 export type ToolResultContent = string | (TextContentPart | ImageContentPart)[];
 
-export interface ContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result';
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  tool_use_id?: string;
-  content?: ToolResultContent;
+export interface TextBlock {
+  type: 'text';
+  text: string;
 }
+
+export interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResultBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: ToolResultContent;
+}
+
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
 
 export interface LLMMessage {
   role: 'user' | 'assistant';
@@ -410,53 +420,38 @@ export class LLMClient {
     return MODEL_CONTEXT_LIMITS[this.config.model] ?? DEFAULT_CONTEXT_LIMIT;
   }
 
-  // --- Anthropic implementation ---
+  // --- Shared Anthropic helpers ---
 
-  private async sendAnthropic(options: {
+  /**
+   * Build the common Anthropic request body.
+   */
+  private buildAnthropicRequestBody(options: {
     system: string;
     messages: LLMMessage[];
     tools: ToolDefinition[];
-  }): Promise<LLMResponse> {
-    const body = {
+  }): Record<string, unknown> {
+    return {
       model: this.config.model,
       max_tokens: 4096,
       system: options.system,
       messages: options.messages,
       tools: options.tools.length > 0 ? options.tools : undefined,
     };
+  }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': this.config.apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after');
-        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
-        throw new RateLimitError(waitMs);
-      }
-      const errorText = await response.text();
-      throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json() as AnthropicResponseBody;
-
-    // Anthropic response maps directly to our format
-    const content: ContentBlock[] = data.content.map((block) => {
+  /**
+   * Parse an Anthropic API response body into our LLMResponse format.
+   */
+  private parseAnthropicResponse(data: AnthropicResponseBody): LLMResponse {
+    const content: ContentBlock[] = data.content.map((block): ContentBlock => {
       if (block.type === 'text') {
-        return { type: 'text' as const, text: block.text };
+        return { type: 'text' as const, text: block.text ?? '' };
       } else {
         return {
           type: 'tool_use' as const,
-          id: block.id,
-          name: block.name,
-          input: block.input,
+          id: block.id ?? '',
+          name: block.name ?? '',
+          input: block.input ?? {},
         };
       }
     });
@@ -469,6 +464,47 @@ export class LLMClient {
     };
   }
 
+  /**
+   * Handle non-OK responses from the Anthropic API.
+   * Throws RateLimitError for 429, ApiError for everything else.
+   */
+  private async handleAnthropicError(response: Response): Promise<never> {
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('retry-after');
+      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
+      throw new RateLimitError(waitMs);
+    }
+    const errorText = await response.text();
+    throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);
+  }
+
+  // --- Anthropic implementation ---
+
+  private async sendAnthropic(options: {
+    system: string;
+    messages: LLMMessage[];
+    tools: ToolDefinition[];
+  }): Promise<LLMResponse> {
+    const body = this.buildAnthropicRequestBody(options);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.config.apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      await this.handleAnthropicError(response);
+    }
+
+    const data = await response.json() as AnthropicResponseBody;
+    return this.parseAnthropicResponse(data);
+  }
+
   // --- Subscription implementation (uses Claude Code OAuth token) ---
 
   private async sendSubscription(options: {
@@ -476,61 +512,38 @@ export class LLMClient {
     messages: LLMMessage[];
     tools: ToolDefinition[];
   }): Promise<LLMResponse> {
-    // Get the OAuth token, auto-refreshing if expired
     const token = await getClaudeOAuthToken();
-
-    const body = {
-      model: this.config.model,
-      max_tokens: 4096,
-      system: options.system,
-      messages: options.messages,
-      tools: options.tools.length > 0 ? options.tools : undefined,
+    const body = this.buildAnthropicRequestBody(options);
+    const subscriptionHeaders = {
+      'Authorization': `Bearer ${token}`,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'oauth-2025-04-20',
+      'content-type': 'application/json',
     };
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'oauth-2025-04-20',
-        'content-type': 'application/json',
-      },
+      headers: subscriptionHeaders,
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after');
-        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
-        throw new RateLimitError(waitMs);
-      }
-      const errorText = await response.text();
       if (response.status === 401) {
         // Token might have been revoked server-side — force a refresh and retry once
         console.log('[OAuth] Got 401, forcing token refresh and retrying...');
         try {
           const freshToken = await getClaudeOAuthToken(true);
-          // Retry the request with the fresh token
           const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
+              ...subscriptionHeaders,
               'Authorization': `Bearer ${freshToken}`,
-              'anthropic-version': '2023-06-01',
-              'anthropic-beta': 'oauth-2025-04-20',
-              'content-type': 'application/json',
             },
             body: JSON.stringify(body),
           });
           if (retryResponse.ok) {
             const retryData = await retryResponse.json() as AnthropicResponseBody;
-            const retryContent: ContentBlock[] = retryData.content.map((block) => {
-              if (block.type === 'text') {
-                return { type: 'text' as const, text: block.text };
-              } else {
-                return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input };
-              }
-            });
-            return { content: retryContent, stop_reason: retryData.stop_reason as LLMResponse['stop_reason'], usage: retryData.usage, model: retryData.model };
+            return this.parseAnthropicResponse(retryData);
           }
         } catch (refreshErr) {
           console.error('[OAuth] Refresh-and-retry failed:', refreshErr);
@@ -540,30 +553,11 @@ export class LLMClient {
           'Please run "claude" in a terminal to re-authenticate.'
         );
       }
-      throw new ApiError(response.status, `Anthropic API error (${response.status}): ${errorText}`);
+      await this.handleAnthropicError(response);
     }
 
     const data = await response.json() as AnthropicResponseBody;
-
-    const content: ContentBlock[] = data.content.map((block) => {
-      if (block.type === 'text') {
-        return { type: 'text' as const, text: block.text };
-      } else {
-        return {
-          type: 'tool_use' as const,
-          id: block.id,
-          name: block.name,
-          input: block.input,
-        };
-      }
-    });
-
-    return {
-      content,
-      stop_reason: data.stop_reason as LLMResponse['stop_reason'],
-      usage: data.usage,
-      model: data.model,
-    };
+    return this.parseAnthropicResponse(data);
   }
 
   // --- OpenRouter implementation ---
@@ -641,15 +635,15 @@ export class LLMClient {
         const toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] = [];
 
         for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
+          if (block.type === 'text') {
             textParts.push(block.text);
           } else if (block.type === 'tool_use') {
             toolCalls.push({
-              id: block.id!,
+              id: block.id,
               type: 'function',
               function: {
-                name: block.name!,
-                arguments: JSON.stringify(block.input ?? {}),
+                name: block.name,
+                arguments: JSON.stringify(block.input),
               },
             });
           }
@@ -669,13 +663,13 @@ export class LLMClient {
         const textParts: string[] = [];
 
         for (const block of msg.content) {
-          if (block.type === 'text' && block.text) {
+          if (block.type === 'text') {
             textParts.push(block.text);
           } else if (block.type === 'tool_result') {
             result.push({
               role: 'tool',
               tool_call_id: block.tool_use_id,
-              content: block.content ?? '',
+              content: block.content,
             });
           }
         }

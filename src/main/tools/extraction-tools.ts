@@ -2,13 +2,14 @@ import { chromeController } from '../chrome-controller';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
+import { requireArray } from './validation';
 
 export const extractionToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
 
   mso_extract: async (args) => {
     try {
-      const meetIds = args.meet_ids as string[];
-      if (!meetIds || !Array.isArray(meetIds) || meetIds.length === 0) {
+      const meetIds = requireArray(args, 'meet_ids') as string[];
+      if (meetIds.length === 0) {
         return 'Error: meet_ids parameter is required (array of string MSO meet IDs)';
       }
 
@@ -144,8 +145,8 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
 
   scorecat_extract: async (args) => {
     try {
-      const meetIds = args.meet_ids as string[];
-      if (!meetIds || !Array.isArray(meetIds) || meetIds.length === 0) {
+      const meetIds = requireArray(args, 'meet_ids') as string[];
+      if (meetIds.length === 0) {
         return 'Error: meet_ids parameter is required (array of string Algolia meet IDs)';
       }
 
