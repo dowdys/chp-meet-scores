@@ -389,8 +389,20 @@ def main():
 
         combined = fitz.open()
         try:
-            # Legal pages: use imported if available, else keep existing scaled pages
-            if legal_pdfs:
+            # Legal pages: if the user provided a legal PDF but NO letter PDF,
+            # use the EXISTING code-generated letter page (not a scaled rasterized version).
+            # Scaling legal→letter produces a "smushed" look. The code-generated version
+            # is already properly laid out for letter size.
+            # Only rasterize/scale when there is NO existing code-generated page to use.
+            _has_existing_letter_for_legal = False
+            if legal_pdfs and not letter_pdfs and _existing_doc:
+                # Check if existing back_of_shirt.pdf has code-generated pages we can reuse
+                for h, idx in _existing_pages:
+                    if h <= _LEGAL_THRESHOLD:
+                        _has_existing_letter_for_legal = True
+                        break
+
+            if legal_pdfs and not _has_existing_letter_for_legal:
                 src = fitz.open(lp)
                 for i in range(src.page_count):
                     src_page = src[i]
@@ -421,8 +433,16 @@ def main():
                     src = fitz.open(lp)
                     combined.insert_pdf(src)
                     src.close()
-            elif _existing_doc:
-                # No letter PDFs imported — keep existing letter-size pages
+
+            # If legal was provided but no letter, AND existing code-generated pages exist,
+            # keep the code-generated letter pages (they look better than scaled rasterized)
+            if _has_existing_letter_for_legal:
+                for h, idx in _existing_pages:
+                    if h <= _LEGAL_THRESHOLD:
+                        combined.insert_pdf(_existing_doc, from_page=idx, to_page=idx)
+                print("Kept existing code-generated letter pages for order forms (legal-only import)")
+            elif not letter_pdfs and _existing_doc:
+                # No letter PDFs imported and no existing code-generated — keep whatever is there
                 for h, idx in _existing_pages:
                     if h <= _LEGAL_THRESHOLD:
                         combined.insert_pdf(_existing_doc, from_page=idx, to_page=idx)
