@@ -87,13 +87,22 @@ def _tmp_path_for(output_path):
 def _safe_move(tmp_path, final_path):
     """Move tmp_path → final_path, handling Windows file-locking gracefully.
 
-    If the target is locked (open in a PDF viewer), saves as <name>_NEW.<ext>
+    Retries once after 2 seconds (handles OneDrive sync locks).
+    If still locked (open in a PDF viewer), saves as <name>_NEW.<ext>
     so the user's work is never lost. Returns the actual path used.
     """
     try:
         os.replace(tmp_path, final_path)
         return final_path
     except PermissionError:
+        # Retry after 2 seconds — OneDrive sync locks are usually brief
+        import time
+        time.sleep(2)
+        try:
+            os.replace(tmp_path, final_path)
+            return final_path
+        except PermissionError:
+            pass  # Fall through to _NEW pattern
         dir_name = os.path.dirname(final_path)
         base, ext = os.path.splitext(os.path.basename(final_path))
         new_path = os.path.join(dir_name, f'{base}_NEW{ext}')
@@ -364,7 +373,7 @@ def main():
                 _tmp = _legal_shirt + '.tmp'
                 legal_combined.save(_tmp)
                 legal_combined.close()
-                os.replace(_tmp, _legal_shirt)
+                _safe_move(_tmp, _legal_shirt)
                 print(f"Generated {_legal_shirt} ({fitz.open(_legal_shirt).page_count} pages)")
             except Exception as e:
                 legal_combined.close()
@@ -460,7 +469,7 @@ def main():
             combined.save(_tmp)
             _pc = combined.page_count
             combined.close()
-            os.replace(_tmp, _main_shirt)
+            _safe_move(_tmp, _main_shirt)
             print(f"Generated {_main_shirt} ({_pc} pages, all letter size"
                   f"{', legal scaled' if legal_pdfs else ''})")
         except Exception as e:

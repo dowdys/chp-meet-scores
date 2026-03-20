@@ -633,8 +633,14 @@ def _search_by_word_proximity(page, full_name, quads=False):
         return []
 
     for anchor in anchor_hits:
-        ax = anchor[0].x0 if quads else anchor.x0
-        ay = anchor[0].y0 if quads else anchor.y0
+        # Quads have 4 Points (ul, ur, ll, lr); Rects have x0/y0 attributes
+        if quads:
+            # Get bounding rect from the quad
+            ax = anchor.rect.x0 if hasattr(anchor, 'rect') else anchor.ul.x
+            ay = anchor.rect.y0 if hasattr(anchor, 'rect') else anchor.ul.y
+        else:
+            ax = anchor.x0
+            ay = anchor.y0
 
         nearby_text = ""
         for block in page.get_text("dict")["blocks"]:
