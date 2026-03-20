@@ -29,6 +29,15 @@ npx electron --remote-debugging-port=9224 dist/main/main.js  # Run in dev
 - 9224 — Electron dev (this app)
 - 9225 — App's Chrome instance (for meet scraping)
 
+## Design Principle: Architecture Over Prompting
+When the inner agent repeatedly fails to follow instructions (browsing instead of using APIs, calling wrong tools, using bad flag combinations), the fix is NOT more prompting. Make the wrong action **structurally impossible**:
+- Split vague tools into typed, purpose-specific tools (e.g., `run_python` → `build_database` + `regenerate_output` + `import_pdf_backs`)
+- Use phase-based tool gating so tools are only available when appropriate
+- Remove deprecated tools entirely — don't leave them as "legacy fallbacks"
+- Enforce invariants in code (e.g., `idmlImported` flag blocks `build_database`)
+
+Every prompt warning replaced by architectural enforcement makes the system more reliable. If you find yourself adding a prompt warning for the third time, build it into the code instead.
+
 ## Post-Edit Reminders
 - After editing TypeScript: `npm run build` then restart Electron (Node.js caches modules)
 - After editing Python: `find python -name __pycache__ -exec rm -rf {} +`
