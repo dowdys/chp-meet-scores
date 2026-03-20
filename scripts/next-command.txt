@@ -1,0 +1,1 @@
+& "C:\Users\goduk\AppData\Local\Programs\Python\Python312\python.exe" -m PyInstaller --onefile --name process_meet python/process_meet.py --distpath dist/pyinstaller --workpath build/pyinstaller --specpath build/pyinstaller -y
