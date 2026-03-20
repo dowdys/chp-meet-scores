@@ -427,14 +427,24 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         context.messages.push({ role: 'user', content: toolResults });
 
         // Auto-switch to import_backs if ask_user response contains PDF paths
+        // Only check ask_user results — NOT build_database or other tool outputs
+        // (which contain generated file paths like "Generated C:\...\back_of_shirt.pdf")
         if (context.currentPhase !== 'import_backs') {
-          const resultText = toolResults
-            .filter((b): b is import('./llm-client').ToolResultBlock => b.type === 'tool_result')
-            .map(b => typeof b.content === 'string' ? b.content : '')
-            .join(' ');
-          if (resultText.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(resultText) || resultText.includes('"'))) {
-            context.currentPhase = 'import_backs';
-            this.onActivity('Detected PDF file paths in response — switching to import_backs phase', 'info');
+          const askUserCalls = response.content.filter(
+            (b): b is import('./llm-client').ToolUseBlock => b.type === 'tool_use' && b.name === 'ask_user'
+          );
+          if (askUserCalls.length > 0) {
+            // Only check the ask_user result text, not other tool results
+            const askUserIds = new Set(askUserCalls.map(b => b.id));
+            const askUserResultText = toolResults
+              .filter((b): b is import('./llm-client').ToolResultBlock =>
+                b.type === 'tool_result' && askUserIds.has(b.tool_use_id))
+              .map(b => typeof b.content === 'string' ? b.content : '')
+              .join(' ');
+            if (askUserResultText.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(askUserResultText))) {
+              context.currentPhase = 'import_backs';
+              this.onActivity('Detected PDF file paths in user response — switching to import_backs phase', 'info');
+            }
           }
         }
       }
