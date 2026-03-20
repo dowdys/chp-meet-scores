@@ -42,13 +42,23 @@ const ALWAYS_AVAILABLE_TOOLS = [
 
 const PIPELINE_OVERVIEW = `## Pipeline Overview
 You process gymnastics meet results through these phases:
+
+### Sequential phases (normal flow):
 1. **DISCOVERY** — Find the meet online, identify source/IDs, set output name, get dates
 2. **EXTRACTION** — Extract all athlete data from the identified source(s)
 3. **DATABASE** — Build the SQLite database, run quality checks, normalize gym names
 4. **OUTPUT & FINALIZE** — Generate output files, review layout with user, finalize to central DB
-5. **IMPORT BACKS** — Import designer-edited PDF backs and regenerate order forms/gym highlights (separate workflow, triggered when user provides PDF files)
 
-Use \`set_phase\` to advance. You can also go back if needed. Use \`unlock_tool\` to temporarily access a tool from another phase.`;
+### Reactive phase (activates when user provides PDF file paths):
+5. **IMPORT BACKS** — Import designer-edited PDF backs and regenerate order forms/gym highlights
+
+The IMPORT BACKS phase is NOT a step in the sequential flow. It activates **automatically** when the user provides PDF file paths (e.g., in response to an ask_user prompt). The system detects PDF paths and switches you to this phase. You do NOT need to manually call set_phase — it happens for you.
+
+If the auto-switch doesn't trigger, call \`set_phase("import_backs")\` yourself when you see the user providing PDF file paths.
+
+**IMPORTANT**: When in IMPORT BACKS phase, use the \`import_pdf_backs\` tool — do NOT manually copy files with \`run_script\`. The tool handles everything: combining pages, scaling, regenerating order forms and gym highlights.
+
+Use \`set_phase\` to advance between sequential phases. Use \`unlock_tool\` to temporarily access a tool from another phase.`;
 
 const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
   discovery: {
