@@ -62,31 +62,25 @@ const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
 Find the meet results online and prepare for extraction.
 
 ### Meet Search
-Use \`search_meets\` to find meets — it searches both MSO and ScoreCat in one call. Do NOT browse MSO website manually.
+Call \`search_meets\` ONCE. It searches both MSO and ScoreCat. Do NOT browse websites manually.
 
-Example: \`search_meets({ query: "Nevada State 2026" })\`
+**CRITICAL: Trust the results.** If \`search_meets\` returns a Women's meet from MSO for the correct state, that is almost certainly the right meet. Do NOT:
+- Spend iterations browsing MSO to "confirm" the meet
+- Search again with different keywords
+- Navigate to the meet page to verify
+- Take screenshots of the MSO website
 
-This returns structured results with meet IDs, sources, and programs. Use the meet ID with \`mso_extract\` (for MSO meets) or \`scorecat_extract\` (for ScoreCat meets) in the extraction phase.
+The meet name from MSO may not include the year (e.g., "Arkansas State Meet" instead of "2026 Arkansas State Meet") — this is normal. MSO meet names are often generic. Trust the state, program (Women), and source.
 
-### Search Priority
-1. **\`search_meets\`** — Always try this first (searches both MSO and ScoreCat)
-2. **MSO Results.All** — Search MeetScoresOnline.com (fallback if search_meets misses it)
-3. **ScoreCat Algolia** — Search via Algolia API endpoint:
-   - URL: \`https://2r102d471d.algolia.net/1/indexes/ff_meets/query\`
-   - Headers: \`x-algolia-application-id: 2R102D471D\`, \`x-algolia-api-key: f6c6022306eb2dace46c6490e7ae9984\`
-   - Body: \`{"query": "georgia state 2025"}\`
-   - ALWAYS convert Algolia \`startDate\` timestamps to human-readable dates
-4. **MyMeetScores** — Check mymeetscores.com
-5. **Web search** — Google as last resort
+**If search_meets returns the right meet:** Set the output name, ask for dates, and move to extraction. This should take 1-2 iterations total.
 
-### Women's by Default
-Default to Women's meets. Only search for Men's meets if the user explicitly requests it. If a search returns only Men's results, note it and keep searching for Women's.
+**If search_meets returns NO Women's meet for the state:** Try ONE more search with different keywords, then ask the user for help.
 
-### MSO Meet Discovery
-MSO's website search is client-side JavaScript — \`http_fetch\` to search URLs returns the homepage HTML. Instead:
-1. Use \`http_fetch\` with ScoreCat Algolia API first (structured, reliable)
-2. Use \`web_search\` (Google) to find MSO meet URLs
-3. Once you have a meet ID (e.g., 34775 from URL \`/R34775\`), use \`mso_extract\` immediately in the extraction phase — do NOT spend iterations browsing the MSO website
+### Fallback Search (only if search_meets fails)
+If \`search_meets\` returns no results:
+1. Try \`http_fetch\` with Algolia API directly
+2. Try \`web_search\` (Google) as last resort
+Do NOT browse MSO website, take screenshots, or try MyMeetScores unless search_meets completely fails.
 
 ### State Championships
 A full state championship covers all competitive levels (numbered 1-10 + Xcel Bronze through Sapphire). Most sources split these across **multiple separate meets**. Find and combine all sub-meets.
