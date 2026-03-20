@@ -426,24 +426,29 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         const toolResults = await this.executeToolCalls(response.content, context);
         context.messages.push({ role: 'user', content: toolResults });
 
-        // Auto-switch to import_backs if ask_user response contains PDF paths
-        // Only check ask_user results — NOT build_database or other tool outputs
-        // (which contain generated file paths like "Generated C:\...\back_of_shirt.pdf")
+        // Auto-switch to import_backs if ANY user-facing tool result contains PDF paths.
+        // Check ask_user results AND any tool result that looks like a user message
+        // (the user might provide PDFs via ask_user or via continueConversation).
         if (context.currentPhase !== 'import_backs') {
-          const askUserCalls = response.content.filter(
-            (b): b is import('./llm-client').ToolUseBlock => b.type === 'tool_use' && b.name === 'ask_user'
-          );
-          if (askUserCalls.length > 0) {
-            // Only check the ask_user result text, not other tool results
-            const askUserIds = new Set(askUserCalls.map(b => b.id));
-            const askUserResultText = toolResults
-              .filter((b): b is import('./llm-client').ToolResultBlock =>
-                b.type === 'tool_result' && askUserIds.has(b.tool_use_id))
-              .map(b => typeof b.content === 'string' ? b.content : '')
-              .join(' ');
-            if (askUserResultText.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(askUserResultText))) {
+          // Check ALL tool results for PDF paths from the user
+          // (ask_user results are the user's direct response)
+          const allResultText = toolResults
+            .filter((b): b is import('./llm-client').ToolResultBlock => b.type === 'tool_result')
+            .map(b => typeof b.content === 'string' ? b.content : '')
+            .join(' ');
+
+          // Only trigger on user-provided paths, not system-generated ones.
+          // User paths typically: are in quotes, come from Downloads/Desktop, or have "custom" nearby
+          const hasUserPdfPath = allResultText.includes('.pdf') &&
+            (/[A-Za-z]:\\Users\\|\/home\/|~\/|Downloads|Desktop/.test(allResultText));
+
+          if (hasUserPdfPath) {
+            // Verify this isn't a system-generated path (like "Generated C:\...\back_of_shirt.pdf")
+            const isSystemGenerated = allResultText.includes('Generated ') && allResultText.includes('back_of_shirt');
+            if (!isSystemGenerated) {
               context.currentPhase = 'import_backs';
               this.onActivity('Detected PDF file paths in user response — switching to import_backs phase', 'info');
+              console.log(`[AGENT] Auto-switch triggered. Result text: ${allResultText.substring(0, 200)}`);
             }
           }
         }
