@@ -504,6 +504,14 @@ def main():
             if args.page_size_legal is None and 'page_size_legal' in saved_layout:
                 args.page_size_legal = saved_layout['page_size_legal']
 
+            # Restore saved dates if not provided on CLI
+            if args.postmark_date == 'TBD' and 'postmark_date' in saved_layout:
+                args.postmark_date = saved_layout['postmark_date']
+            if args.online_date == 'TBD' and 'online_date' in saved_layout:
+                args.online_date = saved_layout['online_date']
+            if args.ship_date == 'TBD' and 'ship_date' in saved_layout:
+                args.ship_date = saved_layout['ship_date']
+
             # Determine legal/letter level split for gym highlights
             _legal_groups = args.page_size_legal or []
             _has_legal = any(_legal_groups)
@@ -639,9 +647,15 @@ def main():
                 print(f"ERROR generating meet_summary.txt: {e}")
                 errors.append(('summary', str(e)))
 
-            # Mark layout as imported
+            # Mark layout as imported and persist dates
             saved_layout['_source'] = 'imported'
             saved_layout['_import_date'] = datetime.datetime.now().isoformat()
+            if args.postmark_date and args.postmark_date != 'TBD':
+                saved_layout['postmark_date'] = args.postmark_date
+            if args.online_date and args.online_date != 'TBD':
+                saved_layout['online_date'] = args.online_date
+            if args.ship_date and args.ship_date != 'TBD':
+                saved_layout['ship_date'] = args.ship_date
             try:
                 with open(layout_json, 'w', encoding='utf-8') as f:
                     json.dump(saved_layout, f, indent=2)
@@ -1093,6 +1107,17 @@ def main():
     if args.page_size_legal is None and 'page_size_legal' in saved_layout:
         args.page_size_legal = saved_layout['page_size_legal']
 
+    # Restore saved dates if not provided on CLI
+    if args.postmark_date == 'TBD' and 'postmark_date' in saved_layout:
+        args.postmark_date = saved_layout['postmark_date']
+        print(f"Restored saved postmark date: {args.postmark_date}")
+    if args.online_date == 'TBD' and 'online_date' in saved_layout:
+        args.online_date = saved_layout['online_date']
+        print(f"Restored saved online date: {args.online_date}")
+    if args.ship_date == 'TBD' and 'ship_date' in saved_layout:
+        args.ship_date = saved_layout['ship_date']
+        print(f"Restored saved ship date: {args.ship_date}")
+
     # Generate outputs (all or selected)
     # Each output is wrapped in try/except so one failure doesn't block the rest
     errors = []
@@ -1167,6 +1192,13 @@ def main():
                 _sticky['level_groups'] = args.level_groups
             if args.page_size_legal is not None:
                 _sticky['page_size_legal'] = args.page_size_legal
+            # Persist dates so they survive across regenerations
+            if args.postmark_date and args.postmark_date != 'TBD':
+                _sticky['postmark_date'] = args.postmark_date
+            if args.online_date and args.online_date != 'TBD':
+                _sticky['online_date'] = args.online_date
+            if args.ship_date and args.ship_date != 'TBD':
+                _sticky['ship_date'] = args.ship_date
             with open(layout_json, 'w') as f:
                 json.dump(_sticky, f, indent=2)
         except Exception as e:
@@ -1250,73 +1282,113 @@ def main():
     if do_all or 'gym_highlights' in regen_set:
         letter_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
         legal_shirt = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
-        # Only use legal shirt for exclusion/generation when it was explicitly requested
         _has_legal = _legal_groups and os.path.exists(legal_shirt)
+        _is_imported = saved_layout.get('_source') == 'imported'
 
-        # Determine which levels belong to legal vs letter page groups
-        # so gym highlights can be filtered to only include the correct levels.
-        _legal_levels = None
-        _letter_levels = None
-        if _has_legal:
-            # We need the page_groups to split levels. Use pre if available,
-            # otherwise compute it.
-            _gh_pre = pre if pre is not None else precompute_shirt_data(
-                db_path, config.meet_name, layout=layout,
-                level_groups=args.level_groups,
-                exclude_levels=args.exclude_levels)
-            _legal_filter = _legal_groups if any(_legal_groups) else None
-            _legal_lvs = []
-            _letter_lvs = []
-            for _lbl, _lvs in _gh_pre['page_groups']:
-                # Match against both label AND actual levels, because the filter
-                # may contain group labels ("XCEL") or individual level codes ("XSA").
-                if _legal_filter is not None:
-                    _filt_upper = {f.upper() for f in _legal_filter}
-                    _label_match = any(f.upper() in _lbl.upper() for f in _legal_filter)
-                    _level_match = bool({lv.upper() for lv in _lvs} & _filt_upper)
-                    if _label_match or _level_match:
-                        _legal_lvs.extend(_lvs)
+        if _is_imported and os.path.exists(letter_shirt):
+            # IMPORTED MODE: overlay gym highlights on the actual imported PDFs
+            # This preserves the designer's fonts, colors, spacing, and layout.
+            print("Gym highlights: using imported PDF overlay mode")
+            if _has_legal and os.path.exists(legal_shirt):
+                # Both letter and legal backs exist — generate both with exclusion
+                try:
+                    gh_path = os.path.join(args.output, 'gym_highlights.pdf')
+                    tmp = _tmp_path_for(gh_path)
+                    generate_gym_highlights_from_pdf(
+                        letter_shirt, db_path, config.meet_name, tmp,
+                        exclude_shirt_path=legal_shirt,
+                        font_family=layout.font_family,
+                        accent_color=layout.accent_color)
+                    actual = _safe_move(tmp, gh_path)
+                    print(f"Generated {actual} (from imported letter PDF)")
+                except Exception as e:
+                    print(f"ERROR generating gym_highlights.pdf: {e}")
+                    errors.append(('gym_highlights', str(e)))
+                try:
+                    gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
+                    tmp = _tmp_path_for(gh_legal_path)
+                    generate_gym_highlights_from_pdf(
+                        legal_shirt, db_path, config.meet_name, tmp,
+                        exclude_shirt_path=letter_shirt,
+                        font_family=layout.font_family,
+                        accent_color=layout.accent_color)
+                    actual = _safe_move(tmp, gh_legal_path)
+                    print(f"Generated {actual} (from imported legal PDF)")
+                except Exception as e:
+                    print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
+                    errors.append(('gym_highlights_legal', str(e)))
+            else:
+                # Only letter back — generate single gym highlights
+                try:
+                    gh_path = os.path.join(args.output, 'gym_highlights.pdf')
+                    tmp = _tmp_path_for(gh_path)
+                    generate_gym_highlights_from_pdf(
+                        letter_shirt, db_path, config.meet_name, tmp,
+                        font_family=layout.font_family,
+                        accent_color=layout.accent_color)
+                    actual = _safe_move(tmp, gh_path)
+                    print(f"Generated {actual} (from imported letter PDF)")
+                except Exception as e:
+                    print(f"ERROR generating gym_highlights.pdf: {e}")
+                    errors.append(('gym_highlights', str(e)))
+        else:
+            # CODE-GENERATED MODE: standard gym highlights from database
+            _legal_levels = None
+            _letter_levels = None
+            if _has_legal:
+                _gh_pre = pre if pre is not None else precompute_shirt_data(
+                    db_path, config.meet_name, layout=layout,
+                    level_groups=args.level_groups,
+                    exclude_levels=args.exclude_levels)
+                _legal_filter = _legal_groups if any(_legal_groups) else None
+                _legal_lvs = []
+                _letter_lvs = []
+                for _lbl, _lvs in _gh_pre['page_groups']:
+                    if _legal_filter is not None:
+                        _filt_upper = {f.upper() for f in _legal_filter}
+                        _label_match = any(f.upper() in _lbl.upper() for f in _legal_filter)
+                        _level_match = bool({lv.upper() for lv in _lvs} & _filt_upper)
+                        if _label_match or _level_match:
+                            _legal_lvs.extend(_lvs)
+                        else:
+                            _letter_lvs.extend(_lvs)
                     else:
                         _letter_lvs.extend(_lvs)
-                else:
-                    _letter_lvs.extend(_lvs)
-            _legal_levels = _legal_lvs if _legal_lvs else None
-            _letter_levels = _letter_lvs if _letter_lvs else None
+                _legal_levels = _legal_lvs if _legal_lvs else None
+                _letter_levels = _letter_lvs if _letter_lvs else None
 
-        # Generate 8.5x14 gym highlights when legal was explicitly requested
-        if _has_legal:
+            if _has_legal:
+                try:
+                    gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
+                    tmp = _tmp_path_for(gh_legal_path)
+                    generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
+                                                year=args.year, state=args.state,
+                                                layout=layout,
+                                                level_groups=args.level_groups,
+                                                exclude_levels=args.exclude_levels,
+                                                page_h=PAGE_H_LEGAL,
+                                                include_levels=_legal_levels)
+                    actual = _safe_move(tmp, gh_legal_path)
+                    print(f"Generated {actual} (8.5x14)")
+                except Exception as e:
+                    print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
+                    errors.append(('gym_highlights_legal', str(e)))
+
             try:
-                gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
-                tmp = _tmp_path_for(gh_legal_path)
+                gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
+                tmp = _tmp_path_for(gym_highlights_path)
                 generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
                                             year=args.year, state=args.state,
                                             layout=layout,
                                             level_groups=args.level_groups,
                                             exclude_levels=args.exclude_levels,
-                                            page_h=PAGE_H_LEGAL,
-                                            include_levels=_legal_levels)
-                actual = _safe_move(tmp, gh_legal_path)
-                print(f"Generated {actual} (8.5x14)")
+                                            precomputed=pre,
+                                            include_levels=_letter_levels)
+                actual = _safe_move(tmp, gym_highlights_path)
+                print(f"Generated {actual}")
             except Exception as e:
-                print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
-                errors.append(('gym_highlights_legal', str(e)))
-
-        # Generate 8.5x11 gym highlights
-        try:
-            gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-            tmp = _tmp_path_for(gym_highlights_path)
-            generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                        year=args.year, state=args.state,
-                                        layout=layout,
-                                        level_groups=args.level_groups,
-                                        exclude_levels=args.exclude_levels,
-                                        precomputed=pre,
-                                        include_levels=_letter_levels)
-            actual = _safe_move(tmp, gym_highlights_path)
-            print(f"Generated {actual}")
-        except Exception as e:
-            print(f"ERROR generating gym_highlights.pdf: {e}")
-            errors.append(('gym_highlights', str(e)))
+                print(f"ERROR generating gym_highlights.pdf: {e}")
+                errors.append(('gym_highlights', str(e)))
 
     if do_all or 'summary' in regen_set:
         try:

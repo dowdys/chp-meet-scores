@@ -198,6 +198,14 @@ export class AgentLoop {
     this.onActivity(`Follow-up: ${message}`, 'info');
 
     try {
+      // Auto-switch to import_backs phase if user provides PDF file paths
+      if (message.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(message) || message.includes('"'))) {
+        if (context.currentPhase !== 'import_backs') {
+          context.currentPhase = 'import_backs';
+          this.onActivity('Detected PDF file paths — switching to import_backs phase', 'info');
+        }
+      }
+
       context.messages.push({ role: 'user', content: message });
       context.abortRequested = false;
       this.activeContext = context;

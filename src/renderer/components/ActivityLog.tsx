@@ -17,9 +17,22 @@ function formatTime(isoString: string): string {
 
 const ActivityLog: React.FC<Props> = ({ entries, isProcessing }) => {
   const logEndRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+
+  // Track whether user has scrolled up from the bottom
+  const handleScroll = () => {
+    const el = contentRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUp.current = distanceFromBottom > 50;
+  };
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only auto-scroll if user is near the bottom
+    if (!userScrolledUp.current) {
+      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [entries]);
 
   return (
@@ -28,7 +41,7 @@ const ActivityLog: React.FC<Props> = ({ entries, isProcessing }) => {
         <h3>Activity Log</h3>
         {isProcessing && <span className="spinner" />}
       </div>
-      <div className="activity-log-content">
+      <div className="activity-log-content" ref={contentRef} onScroll={handleScroll}>
         {entries.length === 0 && (
           <div className="log-empty">
             Waiting for activity...
