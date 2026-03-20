@@ -1,5 +1,12 @@
 # CHP Meet Scores — Developer Reference
 
+## Before Starting Work
+
+- Read `~/life/projects/chp-meet-scores/summary.md` for quick context on this project's current state
+- If you need specific facts (release status, known bugs, recent changes), check `~/life/projects/chp-meet-scores/items.json`
+- Read today's daily note at `~/life/memory/2026-03-20.md` (use today's actual date) to see what other sessions have been working on today
+- These files are maintained by an automated memory system — reading them helps you stay in sync with other sessions and bumps access counts to keep important facts fresh
+
 ## Overview
 Electron + React + TypeScript app that processes gymnastics meet results into championship t-shirt outputs. An AI agent (Claude) runs inside the app, using tools to find meets online, extract scores, build a SQLite database, and generate output files.
 

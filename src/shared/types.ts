@@ -42,6 +42,7 @@ export interface ElectronAPI {
   saveSettings: (settings: Partial<AppSettings>) => Promise<{ success: boolean; error?: string }>;
   browseFolder: () => Promise<{ cancelled: boolean; path?: string }>;
   browseFile: (filters?: { name: string; extensions: string[] }[]) => Promise<{ cancelled: boolean; path?: string }>;
+  browseFiles: (filters?: { name: string; extensions: string[] }[]) => Promise<{ cancelled: boolean; paths?: string[] }>;
   getOutputFiles: (meetName: string) => Promise<{ success: boolean; files: OutputFile[]; error?: string }>;
   openOutputFolder: (meetName: string) => Promise<{ success: boolean }>;
   openLogsFolder: () => Promise<{ success: boolean }>;

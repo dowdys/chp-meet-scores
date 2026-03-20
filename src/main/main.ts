@@ -364,6 +364,23 @@ function setupIPC(): void {
     return { cancelled: false, path: result.filePaths[0] };
   });
 
+  // Browse for multiple files (for PDF import — select multiple backs at once)
+  ipcMain.handle('browse-files', async (_event, filters?: { name: string; extensions: string[] }[]) => {
+    if (!mainWindow) return { cancelled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      title: 'Select PDF Files',
+      filters: filters || [
+        { name: 'PDF Files', extensions: ['pdf'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { cancelled: true };
+    }
+    return { cancelled: false, paths: result.filePaths };
+  });
+
   // Reset session — clear temp files, progress, Chrome state
   ipcMain.handle('reset-session', async () => {
     try {

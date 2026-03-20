@@ -248,14 +248,15 @@ const ProcessTab: React.FC = () => {
     }
   };
 
-  const handleBrowseIdml = async () => {
+  const handleBrowsePdf = async () => {
     if (isProcessing) return;
-    const result = await window.electronAPI.browseFile([
-      { name: 'IDML Files', extensions: ['idml'] },
+    const result = await window.electronAPI.browseFiles([
+      { name: 'PDF Files', extensions: ['pdf'] },
       { name: 'All Files', extensions: ['*'] },
     ]);
-    if (!result.cancelled && result.path) {
-      setMeetName(result.path);
+    if (!result.cancelled && result.paths && result.paths.length > 0) {
+      // Join multiple paths with spaces so the agent sees all of them
+      setMeetName(result.paths.map(p => `"${p}"`).join(' '));
     }
   };
 
@@ -294,11 +295,11 @@ const ProcessTab: React.FC = () => {
           )}
           <button
             className="import-button"
-            onClick={handleBrowseIdml}
+            onClick={handleBrowsePdf}
             disabled={isProcessing}
-            title="Import a finalized IDML file from InDesign"
+            title="Import designer-edited PDF backs from InDesign (select one or more)"
           >
-            Import IDML
+            Import PDF
           </button>
           <button
             className="reset-button"

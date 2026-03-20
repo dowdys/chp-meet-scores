@@ -194,9 +194,14 @@ def _write_idml(output_path, year, state,
         spreads.append(spread_xml)
     else:
         for label, group_levels in page_groups:
-            # Filter page groups when generating legal-size subset
+            # Filter page groups when generating legal-size subset.
+            # Match against both label AND actual levels, because the filter
+            # may contain group labels ("XCEL") or individual level codes ("XSA").
             if page_group_filter is not None:
-                if not any(f.upper() in label.upper() for f in page_group_filter):
+                filter_upper = {f.upper() for f in page_group_filter}
+                label_match = any(f.upper() in label.upper() for f in page_group_filter)
+                level_match = bool({lv.upper() for lv in group_levels} & filter_upper)
+                if not label_match and not level_match:
                     continue
             page_stories = []
             page_items = []

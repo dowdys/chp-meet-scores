@@ -21,6 +21,7 @@ from python.core.layout_engine import precompute_shirt_data, clean_name_for_shir
 from python.core.rendering_utils import draw_star_polygon as _draw_star
 from python.core.pdf_generator import (
     add_shirt_back_pages, add_shirt_back_pages_from_pdf,
+    _search_by_word_proximity,
 )
 from python.core.order_form_idml import get_state_template
 
@@ -124,13 +125,32 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                 for athlete_name, _le in gym_athletes[gym]:
                     all_athlete_names.add(clean_name_for_shirt(athlete_name))
 
-            # Pre-scan: search each page for every athlete name
+            # Pre-scan: search each page for every athlete name.
+            # First pass: full name search on all pages for all athletes.
+            # Second pass: for athletes with ZERO hits anywhere, try prefix fallback
+            # (handles names hyphenated across line breaks).
+            _no_hits = set()
             for page_idx in range(len(shirt_doc)):
                 src_page = shirt_doc[page_idx]
                 for name in all_athlete_names:
                     hits = src_page.search_for(name)
                     if hits:
                         name_page_hits.setdefault(name, []).append((page_idx, hits))
+            # Find athletes with zero hits across all pages — likely hyphenated
+            # in the PDF (soft hyphen splits long names across lines).
+            # Fallback: search for individual words and verify proximity.
+            _no_hits = all_athlete_names - set(name_page_hits.keys())
+            if _no_hits:
+                logger.info("Order form pre-scan: %d names not found, trying word-proximity fallback", len(_no_hits))
+                for page_idx in range(len(shirt_doc)):
+                    src_page = shirt_doc[page_idx]
+                    for name in list(_no_hits):
+                        if name in name_page_hits:
+                            continue
+                        hits = _search_by_word_proximity(src_page, name)
+                        if hits:
+                            name_page_hits.setdefault(name, []).append((page_idx, hits))
+                            logger.info("  Found '%s' via word proximity on page %d", name, page_idx + 1)
         else:
             _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
             logger.info("Order form backs: using code-generated path (%d page groups)", _pg_count)

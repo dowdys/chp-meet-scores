@@ -5,6 +5,85 @@ import { getDataDir } from '../paths';
 import { requireString, optionalString } from './validation';
 
 export const searchToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
+  search_meets: async (args) => {
+    const query = requireString(args, 'query');
+    const stateFilter = optionalString(args, 'state')?.toLowerCase();
+    const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
+
+    // 1. Search Algolia (ScoreCat)
+    try {
+      const algoliaResp = await fetch('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
+        method: 'POST',
+        headers: {
+          'x-algolia-application-id': '2R102D471D',
+          'x-algolia-api-key': 'f6c6022306eb2dace46c6490e7ae9984',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+      const algoliaData = await algoliaResp.json() as { hits?: Array<Record<string, unknown>> };
+      for (const hit of algoliaData.hits || []) {
+        if (stateFilter && (hit.state as string | undefined)?.toLowerCase() !== stateFilter) continue;
+        const startDate = hit.startDate ? new Date(hit.startDate as number).toISOString().split('T')[0] : 'unknown';
+        results.push({
+          name: hit.name as string,
+          id: (hit.meet_id || hit.objectID) as string,
+          source: 'scorecat',
+          state: (hit.state as string) || '',
+          program: (hit.program as string) || 'unknown',
+          date: startDate,
+        });
+      }
+    } catch (e) {
+      // Algolia failed, continue with MSO
+    }
+
+    // 2. Search MSO Results.All
+    try {
+      const msoResp = await fetch('https://www.meetscoresonline.com/Results.All', {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      const html = await msoResp.text();
+      // Parse meet-container divs: data-meetid, data-state, data-filter-by
+      const regex = /data-meetid="(\d+)"\s+data-state="([^"]+)"\s+data-filter-by="([^"]+)"/g;
+      let match;
+      const queryLower = query.toLowerCase();
+      while ((match = regex.exec(html)) !== null) {
+        const [, meetId, state, filterBy] = match;
+        if (stateFilter && state.toLowerCase() !== stateFilter) continue;
+        if (!filterBy.toLowerCase().includes(queryLower.split(' ')[0])) continue;
+        // Check if this matches the query
+        const queryWords = queryLower.split(/\s+/);
+        const matchCount = queryWords.filter(w => filterBy.toLowerCase().includes(w)).length;
+        if (matchCount >= Math.ceil(queryWords.length * 0.5)) {
+          // Extract meet name from filterBy (it's like "2026 nevada state championships henderson nv wom")
+          const isWomen = filterBy.includes('wom');
+          const isMen = filterBy.includes('men');
+          results.push({
+            name: filterBy.split(/\s{2,}/)[0].replace(/\b\w/g, c => c.toUpperCase()).trim(),
+            id: meetId,
+            source: 'mso',
+            state: state.toUpperCase(),
+            program: isMen ? 'Men' : isWomen ? 'Women' : 'unknown',
+            date: 'check MSO',
+          });
+        }
+      }
+    } catch (e) {
+      // MSO failed
+    }
+
+    if (results.length === 0) {
+      return `No meets found matching "${query}". Try a different query.`;
+    }
+
+    // Format results
+    const lines = results.map((r, i) =>
+      `${i + 1}. ${r.name}\n   Source: ${r.source} | ID: ${r.id} | State: ${r.state} | Program: ${r.program} | Date: ${r.date}`
+    );
+    return `Found ${results.length} meets matching "${query}":\n\n${lines.join('\n\n')}`;
+  },
+
   http_fetch: async (args) => {
     try {
       const url = requireString(args, 'url');

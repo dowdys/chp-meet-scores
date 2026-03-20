@@ -211,9 +211,14 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
     doc = fitz.open()
 
     for label, group_levels in page_groups:
-        # Filter page groups when generating legal-size subset
+        # Filter page groups when generating legal-size subset.
+        # Match against both label AND actual levels, because the filter
+        # may contain group labels ("XCEL") or individual level codes ("XSA").
         if page_group_filter is not None:
-            if not any(f.upper() in label.upper() for f in page_group_filter):
+            filter_upper = {f.upper() for f in page_group_filter}
+            label_match = any(f.upper() in label.upper() for f in page_group_filter)
+            level_match = bool({lv.upper() for lv in group_levels} & filter_upper)
+            if not label_match and not level_match:
                 continue
         page = doc.new_page(width=PAGE_W, height=_page_h)
 
@@ -512,9 +517,8 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     doc = fitz.open()
 
-    # Gym highlights layout: shifted down to accommodate gym name below title
-    gh_gym_name_y = p_title2_y + round(t2l * 0.8) + 3
-    gh_oval_y = gh_gym_name_y + 21
+    # Gym highlights layout: no extra space needed since gym name is in corners
+    gh_oval_y = p_title2_y + round(t2l * 0.8) + 3
     gh_headers_y = gh_oval_y + 24
     gh_names_start = gh_headers_y + 16
 
@@ -547,10 +551,18 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
                              f'{s_prefix} {state.upper()}',
                              t2l, t2s, font=s_fbold)
 
-            # Gym name centered below title in accent color
-            _draw_small_caps(page, PAGE_W / 2, gh_gym_name_y,
-                             gym_display, gym_name_large, gym_name_small,
-                             color=s_accent, font=s_fbold)
+            # Gym name in both top corners with large font
+            _corner_y = 18
+            _margin = 12
+            gym_w_actual = fitz.get_text_length(gym_display, fontname=s_fbold, fontsize=gym_name_large)
+            # Top-left
+            page.insert_text(fitz.Point(_margin, _corner_y),
+                             gym_display, fontname=s_fbold, fontsize=gym_name_large,
+                             color=s_accent)
+            # Top-right (right-aligned)
+            page.insert_text(fitz.Point(PAGE_W - _margin - gym_w_actual, _corner_y),
+                             gym_display, fontname=s_fbold, fontsize=gym_name_large,
+                             color=s_accent)
 
             # Oval with group label (shifted down)
             _draw_oval(page, label, gh_oval_y, color=s_accent, font=s_fbold)
@@ -598,6 +610,57 @@ def generate_gym_highlights_pdf(db_path, meet_name, output_path,
 
     doc.save(output_path)
     doc.close()
+
+
+def _search_by_word_proximity(page, full_name, quads=False):
+    """Search for a name that may be hyphenated/split across lines.
+
+    Searches for each word individually, verifies proximity, and handles
+    soft-hyphen splits by checking word prefixes.
+    """
+    words = full_name.split()
+    if not words:
+        return []
+
+    anchor_hits = []
+    for w in words:
+        hits = page.search_for(w, quads=quads)
+        if hits:
+            anchor_hits = hits
+            break
+
+    if not anchor_hits:
+        return []
+
+    for anchor in anchor_hits:
+        ax = anchor[0].x0 if quads else anchor.x0
+        ay = anchor[0].y0 if quads else anchor.y0
+
+        nearby_text = ""
+        for block in page.get_text("dict")["blocks"]:
+            if block.get("type") != 0:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    sx, sy = span["origin"]
+                    if abs(sx - ax) < 40 and abs(sy - ay) < 20:
+                        nearby_text += span["text"].replace('\xad', '') + " "
+
+        nearby_lower = nearby_text.lower()
+        matched = 0
+        for w in words:
+            if w.lower() in nearby_lower:
+                matched += 1
+            elif len(w) > 4:
+                for plen in range(len(w) - 1, max(len(w) // 2, 3), -1):
+                    if w[:plen].lower() in nearby_lower:
+                        matched += 1
+                        break
+
+        if matched >= max(len(words) - 1, 1):
+            return [anchor]
+
+    return []
 
 
 def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_path,
@@ -654,7 +717,8 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
         doc.close()
         return
 
-    # Pre-compute text search hits for each name on each source page
+    # Pre-compute text search hits for each name on each source page.
+    # First pass: full name. Second pass: prefix fallback for names with zero hits.
     page_name_quads = []
     for pi in range(len(shirt_doc)):
         src = shirt_doc[pi]
@@ -664,6 +728,22 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
             if quads:
                 hits[name] = quads
         page_name_quads.append(hits)
+
+    # Find names with zero hits across all pages — likely hyphenated.
+    # Fallback: word-proximity search handles any word being split.
+    _found_names = set()
+    for hits in page_name_quads:
+        _found_names.update(hits.keys())
+    _missing = set(name_to_gym.keys()) - _found_names
+    if _missing:
+        for pi in range(len(shirt_doc)):
+            src = shirt_doc[pi]
+            for name in list(_missing):
+                if name in page_name_quads[pi]:
+                    continue
+                quads = _search_by_word_proximity(src, name, quads=True)
+                if quads:
+                    page_name_quads[pi][name] = quads
 
     doc = fitz.open()
 
@@ -689,51 +769,26 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
                 annot.set_colors(stroke=(1, 1, 0))
                 annot.update()
 
-            # Draw gym name between title and oval with a white background
-            # for breathing room. Find the title bottom and oval top.
+            # Draw gym name in BOTH top corners with a large font
             gym_display = gym.upper()
-            gym_fs = 10
+            gym_fs = 14  # larger font for corners
+            gym_font = fitz.Font(_fitz_bold_key)
             tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
-            while tw > pw - 60 and gym_fs > 7:
+            # Scale down if gym name is very long
+            while tw > pw * 0.4 and gym_fs > 9:
                 gym_fs -= 0.5
                 tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
 
-            # Find the title bottom and oval top from page content
-            title_bottom_y = 57  # fallback
-            oval_top_y = 70      # fallback
-            for d in page.get_drawings():
-                if d.get('fill') and d['rect'].y0 > 30 and d['rect'].y0 < 150:
-                    fill = d['fill']
-                    if fill and len(fill) >= 3 and fill[0] > 0.5 and fill[1] < 0.3:
-                        oval_top_y = d['rect'].y0
-                        break
-            # Search for the title2 baseline (largest text near y=40-60)
-            for b in page.get_text('dict')['blocks']:
-                if 'lines' not in b:
-                    continue
-                for line in b['lines']:
-                    for span in line['spans']:
-                        sy = span['origin'][1]
-                        if 40 < sy < 65 and span['size'] >= 15:
-                            title_bottom_y = max(title_bottom_y, sy + span['size'] * 0.3)
+            # Position: top of page, in both corners
+            _corner_y = 18  # near the top
+            _margin = 12    # inset from page edge
 
-            # Draw white background rect to create space between title and oval
-            gap_top = title_bottom_y + 1
-            gap_bottom = oval_top_y
-            if gap_bottom - gap_top < gym_fs + 4:
-                # Not enough space -- extend by blanking into the oval top
-                gap_bottom = gap_top + gym_fs + 6
-            bg_rect = fitz.Rect(pw / 2 - tw / 2 - 8, gap_top,
-                                pw / 2 + tw / 2 + 8, gap_bottom)
-            page.draw_rect(bg_rect, fill=WHITE, color=WHITE, width=0)
-
-            # Center gym name in the gap
-            # Use TextWriter with explicit Font -- insert_text() loses font
-            # identity after show_pdf_page() overlay (PyMuPDF known issue).
-            gym_name_y = gap_top + (gap_bottom - gap_top) / 2 + gym_fs * 0.35
             gym_tw = fitz.TextWriter(page.rect)
-            gym_font = fitz.Font(_fitz_bold_key)
-            gym_tw.append(fitz.Point(pw / 2 - tw / 2, gym_name_y),
+            # Top-left corner
+            gym_tw.append(fitz.Point(_margin, _corner_y),
+                          gym_display, font=gym_font, fontsize=gym_fs)
+            # Top-right corner (right-aligned)
+            gym_tw.append(fitz.Point(pw - _margin - tw, _corner_y),
                           gym_display, font=gym_font, fontsize=gym_fs)
             gym_tw.write_text(page, color=_accent)
 

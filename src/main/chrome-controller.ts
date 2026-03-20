@@ -296,7 +296,12 @@ class ChromeController {
           if (!settled) {
             settled = true;
             clearTimeout(timer);
-            reject(err);
+            // Provide actionable error for common CDP issue
+            if (err instanceof Error && err.message?.includes('Execution context was destroyed')) {
+              reject(new Error('Page context was destroyed (the page navigated away or was refreshed). You must call chrome_navigate to a URL first, then retry your script.'));
+            } else {
+              reject(err);
+            }
           }
         }
       );

@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('browse-file', filters);
   },
 
+  browseFiles: (filters?: { name: string; extensions: string[] }[]) => {
+    return ipcRenderer.invoke('browse-files', filters);
+  },
+
   getOutputFiles: (meetName: string) => {
     return ipcRenderer.invoke('get-output-files', meetName);
   },

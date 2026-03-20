@@ -8,11 +8,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { shell } from 'electron';
-import Database from 'better-sqlite3';
 import { ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import { getStagingDbPath } from './tools/python-tools';
 import { getDataDir, getOutputDir, getProjectRoot } from './paths';
+import { WorkflowPhase, getToolHomePhase, getAllPhases, getPhaseDefinition } from './workflow-phases';
+import { requireString, requireArray, optionalString } from './tools/validation';
 
 // --- Types ---
 
@@ -31,6 +32,12 @@ export interface AgentContext {
   iterationCount: number;
   /** Index into messages[] up to which the process log has been written (for append-only logging). */
   lastLoggedMessageIndex?: number;
+  /** Current workflow phase */
+  currentPhase: WorkflowPhase;
+  /** Tools temporarily unlocked from other phases */
+  unlockedTools: string[];
+  /** Set to true after an IDML import — prevents build_database from running */
+  idmlImported?: boolean;
 }
 
 export interface ProgressData {
@@ -40,6 +47,8 @@ export interface ProgressData {
   meet_name: string;
   timestamp: string;
   data_files?: Array<{ path: string; description: string }>;
+  current_phase?: WorkflowPhase;
+  idml_imported?: boolean;
 }
 
 // --- Helper functions ---
@@ -56,138 +65,25 @@ function getSkillsDir(): string {
   return path.join(getProjectRoot(), 'skills');
 }
 
-// --- Tool implementations ---
-
-export async function toolRunPython(
-  meetName: string,
-  args: string,
-  context: { outputName?: string },
-  onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void
-): Promise<string> {
-  // Convert Windows paths to WSL paths only when running under WSL/Linux.
+/**
+ * Convert Windows paths to WSL paths when running under Linux/WSL.
+ */
+function convertWindowsPaths(input: string): string {
   if (process.platform === 'linux') {
-    args = args.replace(/([A-Za-z]):\\([\w\\. -]+)/g, (_match, drive, rest) => {
+    return input.replace(/([A-Za-z]):\\([\w\\. -]+)/g, (_match, drive, rest) => {
       return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/g, '/')}`;
     });
   }
+  return input;
+}
 
-  // Split args respecting quoted strings
-  const argParts = (args.match(/(?:[^\s"]+|"[^"]*")+/g) || [])
-    .map(a => a.replace(/^"(.*)"$/, '$1'));
-
-  // ALWAYS enforce --db and --output to the correct paths.
-  const stripFlags = ['--db', '--output'];
-  for (const flag of stripFlags) {
-    const idx = argParts.indexOf(flag);
-    if (idx !== -1) {
-      argParts.splice(idx, 2);
-    }
-  }
-
-  // Check if this is an --import-idml call
-  const importIdx = argParts.indexOf('--import-idml');
-  if (importIdx !== -1 && importIdx + 1 < argParts.length) {
-    // IDML import mode: pre-read metadata to get meet name, use central DB
-    const idmlPath = argParts[importIdx + 1];
-    let outputMeetName = 'IDML Import';
-
-    // Extract metadata from IDML to identify the meet
-    const dataDir = getDataDir();
-    const metaScriptPath = path.join(dataDir, `tmp_idml_meta_${Date.now()}.py`);
-    const metaCode = [
-      'import zipfile, json, os, sys',
-      'from xml.etree import ElementTree as ET',
-      'idml_path = os.environ.get("IDML_PATH", "")',
-      'meta = {}',
-      'try:',
-      '    with zipfile.ZipFile(idml_path, "r") as zf:',
-      '        for name in zf.namelist():',
-      '            if name.startswith("Stories/") and name.endswith(".xml"):',
-      '                xml = zf.read(name).decode("utf-8")',
-      '                if "CHP_METADATA" in xml:',
-      '                    root = ET.fromstring(xml)',
-      '                    for c in root.iter("Content"):',
-      '                        t = c.text or ""',
-      '                        if t.startswith("CHP_METADATA:"):',
-      '                            meta = json.loads(t[len("CHP_METADATA:"):])',
-      '                            break',
-      '                    if meta: break',
-      'except Exception:',
-      '    pass',
-      'print(json.dumps(meta))',
-    ].join('\n');
-    fs.writeFileSync(metaScriptPath, metaCode, 'utf8');
-
-    try {
-      const metaResult = await pythonManager.runScript(
-        'process_meet.py',
-        ['--exec-script', metaScriptPath],
-        undefined,
-        { IDML_PATH: idmlPath },
-        10000
-      );
-      const metaJson = JSON.parse(metaResult.stdout.trim() || '{}');
-      if (metaJson.meet_name) {
-        outputMeetName = metaJson.meet_name;
-        context.outputName = outputMeetName;
-        onActivity(`IDML metadata: meet="${metaJson.meet_name}", state="${metaJson.state || '?'}"`, 'info');
-      } else {
-        onActivity('No embedded metadata found in IDML — using fallback folder', 'warning');
-      }
-    } catch {
-      onActivity('Could not read IDML metadata — using fallback folder', 'warning');
-    }
-
-    try { fs.unlinkSync(metaScriptPath); } catch { /* ignore */ }
-
-    // Prefer central DB, but fall back to staging DB if central doesn't have this meet.
-    let dbPathForImport = getDbPath();
-    const centralExists = fs.existsSync(dbPathForImport);
-    let centralHasMeet = false;
-    if (centralExists) {
-      try {
-        const checkDb = new Database(dbPathForImport, { readonly: true });
-        const row = checkDb.prepare('SELECT COUNT(*) as cnt FROM winners WHERE meet_name = ?').get(outputMeetName) as { cnt: number } | undefined;
-        centralHasMeet = (row?.cnt ?? 0) > 0;
-        checkDb.close();
-      } catch { /* table might not exist */ }
-    }
-    if (!centralHasMeet) {
-      const dataDir = getDataDir();
-      const stagingFiles = fs.readdirSync(dataDir)
-        .filter(f => f.startsWith('staging_') && f.endsWith('.db'))
-        .sort()
-        .reverse();
-      for (const sf of stagingFiles) {
-        const sfPath = path.join(dataDir, sf);
-        try {
-          const sDb = new Database(sfPath, { readonly: true });
-          const row = sDb.prepare('SELECT COUNT(*) as cnt FROM winners WHERE meet_name = ?').get(outputMeetName) as { cnt: number } | undefined;
-          sDb.close();
-          if ((row?.cnt ?? 0) > 0) {
-            dbPathForImport = sfPath;
-            onActivity(`Using staging DB for import: ${sf}`, 'info');
-            break;
-          }
-        } catch { /* skip unreadable DBs */ }
-      }
-    }
-    argParts.push('--db', dbPathForImport);
-    argParts.push('--output', getOutputDir(outputMeetName));
-  } else {
-    // Check if --regenerate is in args — use central DB for regeneration
-    const isRegenerate = argParts.includes('--regenerate');
-    const outputMeetName = meetName;
-    if (isRegenerate) {
-      const stagingPath = getStagingDbPath();
-      const centralPath = getDbPath();
-      argParts.push('--db', (fs.existsSync(stagingPath) ? stagingPath : centralPath));
-    } else {
-      argParts.push('--db', getStagingDbPath());
-    }
-    argParts.push('--output', getOutputDir(outputMeetName));
-  }
-
+/**
+ * Run process_meet.py with the given args and return stdout.
+ */
+async function runPython(
+  argParts: string[],
+  onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void
+): Promise<string> {
   const result = await pythonManager.runScript('process_meet.py', argParts, (line) => {
     onActivity(`[python] ${line}`, 'info');
   });
@@ -198,6 +94,238 @@ export async function toolRunPython(
   return result.stdout || 'Script completed successfully (no output).';
 }
 
+// --- Phase management tools ---
+
+export function toolSetPhase(
+  phase: WorkflowPhase,
+  reason: string,
+  context: AgentContext
+): string {
+  const validPhases = getAllPhases();
+  if (!validPhases.includes(phase)) {
+    return `Error: Invalid phase "${phase}". Valid phases: ${validPhases.join(', ')}`;
+  }
+
+  const oldPhase = context.currentPhase;
+  context.currentPhase = phase;
+  context.unlockedTools = []; // Clear unlocked tools on phase change
+  context.onActivity(`Phase: ${oldPhase} → ${phase} (${reason})`, 'info');
+
+  const phaseDef = getPhaseDefinition(phase);
+  return `Transitioned to phase: ${phase} — ${phaseDef.description}\n\nAvailable tools for this phase are now active. Previous unlocked tools have been cleared.`;
+}
+
+export function toolUnlockTool(
+  toolName: string,
+  reason: string,
+  context: AgentContext
+): string {
+  const homePhase = getToolHomePhase(toolName);
+  if (homePhase === undefined) {
+    return `Error: Tool "${toolName}" does not exist. Check the spelling and try again.`;
+  }
+  if (homePhase === null) {
+    return `Tool "${toolName}" is already available in all phases.`;
+  }
+
+  if (context.unlockedTools.includes(toolName)) {
+    return `Tool "${toolName}" is already unlocked.`;
+  }
+
+  context.unlockedTools.push(toolName);
+  context.onActivity(`Unlocked tool: ${toolName} (${reason})`, 'info');
+  return `Tool "${toolName}" (from ${homePhase} phase) is now available in the current phase.`;
+}
+
+// --- Split tool implementations ---
+
+/**
+ * build_database: Parse extracted data and build SQLite database.
+ * Replaces run_python --source ... --data ... --state ... --meet ...
+ */
+export async function toolBuildDatabase(
+  args: Record<string, unknown>,
+  context: AgentContext
+): Promise<string> {
+  // Enforce outputName is set
+  if (!context.outputName) {
+    return 'Error: You must call set_output_name first to set a clean folder name before building the database.';
+  }
+
+  // Enforce IDML protection
+  if (context.idmlImported) {
+    return 'Error: Cannot run build_database after an IDML import — this would overwrite the designer\'s edits. Use regenerate_output for specific outputs instead.';
+  }
+
+  const source = requireString(args, 'source');
+  const dataPath = convertWindowsPaths(requireString(args, 'data_path'));
+  const state = requireString(args, 'state');
+  const meetName = requireString(args, 'meet_name');
+
+  const argParts: string[] = [
+    '--source', source,
+    '--data', dataPath,
+    '--state', state,
+    '--meet', meetName,
+  ];
+
+  const association = optionalString(args, 'association');
+  if (association) argParts.push('--association', association);
+  if (args.year !== undefined && args.year !== null) argParts.push('--year', String(args.year));
+  const gymMap = optionalString(args, 'gym_map');
+  if (gymMap) argParts.push('--gym-map', convertWindowsPaths(gymMap));
+  const divisionOrder = optionalString(args, 'division_order');
+  if (divisionOrder) argParts.push('--division-order', divisionOrder);
+
+  // Date params
+  const postmarkDate = optionalString(args, 'postmark_date');
+  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
+  const onlineDate = optionalString(args, 'online_date');
+  if (onlineDate) argParts.push('--online-date', onlineDate);
+  const shipDate = optionalString(args, 'ship_date');
+  if (shipDate) argParts.push('--ship-date', shipDate);
+
+  // Always use staging DB for full pipeline
+  argParts.push('--db', getStagingDbPath());
+  argParts.push('--output', getOutputDir(context.outputName));
+
+  return runPython(argParts, context.onActivity);
+}
+
+/**
+ * regenerate_output: Regenerate specific outputs from existing database.
+ * Replaces run_python --regenerate ...
+ */
+export async function toolRegenerateOutput(
+  args: Record<string, unknown>,
+  context: AgentContext
+): Promise<string> {
+  const state = requireString(args, 'state');
+  const meetName = requireString(args, 'meet_name');
+  const outputs = requireArray(args, 'outputs') as string[];
+
+  // Guard: prevent regenerating shirt/all after IDML import (destroys designer edits)
+  if (context.idmlImported && outputs.some(o => o === 'shirt' || o === 'all')) {
+    return 'Error: Cannot regenerate shirt or all outputs after an IDML import — this would overwrite the designer\'s edits. Safe outputs after import: order_forms, gym_highlights, summary.';
+  }
+
+  const argParts: string[] = [
+    '--state', state,
+    '--meet', meetName,
+    '--regenerate', outputs.join(','),
+  ];
+
+  // Layout params
+  const layoutFlags: Array<[string, string]> = [
+    ['line_spacing', '--line-spacing'],
+    ['level_gap', '--level-gap'],
+    ['max_fill', '--max-fill'],
+    ['min_font_size', '--min-font-size'],
+    ['max_font_size', '--max-font-size'],
+    ['max_shirt_pages', '--max-shirt-pages'],
+    ['level_groups', '--level-groups'],
+    ['page_size_legal', '--page-size-legal'],
+    ['exclude_levels', '--exclude-levels'],
+    ['accent_color', '--accent-color'],
+    ['font_family', '--font-family'],
+    ['title1_size', '--title1-size'],
+    ['title2_size', '--title2-size'],
+    ['header_size', '--header-size'],
+    ['divider_size', '--divider-size'],
+    ['copyright', '--copyright'],
+    ['sport', '--sport'],
+    ['title_prefix', '--title-prefix'],
+    ['division_order', '--division-order'],
+    ['name_sort', '--name-sort'],
+    ['gym_map', '--gym-map'],
+  ];
+
+  for (const [key, flag] of layoutFlags) {
+    if (args[key] !== undefined && args[key] !== null) {
+      const value = String(args[key]);
+      if (key === 'page_size_legal') {
+        // --page-size-legal uses nargs='*', so split comma-separated values into separate args
+        argParts.push(flag, ...value.split(',').map(v => v.trim()).filter(Boolean));
+      } else if (key === 'gym_map') {
+        argParts.push(flag, convertWindowsPaths(value));
+      } else {
+        argParts.push(flag, value);
+      }
+    }
+  }
+
+  // Date params
+  const postmarkDate = optionalString(args, 'postmark_date');
+  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
+  const onlineDate = optionalString(args, 'online_date');
+  if (onlineDate) argParts.push('--online-date', onlineDate);
+  const shipDate = optionalString(args, 'ship_date');
+  if (shipDate) argParts.push('--ship-date', shipDate);
+
+  // Force flag
+  if (args.force) argParts.push('--force');
+
+  // Use staging DB if available, otherwise central
+  const stagingPath = getStagingDbPath();
+  const centralPath = getDbPath();
+  argParts.push('--db', fs.existsSync(stagingPath) ? stagingPath : centralPath);
+  argParts.push('--output', getOutputDir(context.outputName || meetName));
+
+  return runPython(argParts, context.onActivity);
+}
+
+/**
+ * import_pdf_backs: Import designer-edited PDF backs from InDesign.
+ * Accepts any number of PDFs. System auto-detects letter vs legal from page size.
+ * For order forms, legal pages are scaled to letter unless a letter equivalent exists.
+ */
+export async function toolImportPdfBacks(
+  args: Record<string, unknown>,
+  context: AgentContext
+): Promise<string> {
+  const pdfPaths = requireArray(args, 'pdf_paths') as string[];
+  const state = requireString(args, 'state');
+  const meetName = requireString(args, 'meet_name');
+
+  if (pdfPaths.length === 0) {
+    return 'Error: pdf_paths must contain at least one PDF file path.';
+  }
+
+  // Set output name from meet_name
+  context.outputName = meetName;
+
+  // Convert all paths and pass as repeated --import-pdf args
+  const argParts: string[] = [];
+  for (const p of pdfPaths) {
+    argParts.push('--import-pdf', convertWindowsPaths(p));
+  }
+
+  argParts.push('--state', state);
+  argParts.push('--meet', meetName);
+
+  // Date params
+  const postmarkDate = optionalString(args, 'postmark_date');
+  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
+  const onlineDate = optionalString(args, 'online_date');
+  if (onlineDate) argParts.push('--online-date', onlineDate);
+  const shipDate = optionalString(args, 'ship_date');
+  if (shipDate) argParts.push('--ship-date', shipDate);
+
+  // DB and output paths
+  const centralPath = getDbPath();
+  argParts.push('--db', centralPath);
+  argParts.push('--output', getOutputDir(meetName));
+
+  const result = await runPython(argParts, context.onActivity);
+
+  // Set import protection flag
+  context.idmlImported = true;
+
+  return result;
+}
+
+// --- Existing tool implementations ---
+
 export async function toolRenderPdfPage(
   pdfPath: string | undefined,
   pageNumber: number | undefined,
@@ -207,7 +335,7 @@ export async function toolRenderPdfPage(
   const resolvedPath = pdfPath || path.join(getOutputDir(meetName), 'back_of_shirt.pdf');
 
   if (!fs.existsSync(resolvedPath)) {
-    return `Error: PDF file not found at ${resolvedPath}. Generate the PDF first with run_python.`;
+    return `Error: PDF file not found at ${resolvedPath}. Generate the PDF first with regenerate_output.`;
   }
 
   try {
@@ -226,7 +354,7 @@ export async function toolRenderPdfPage(
     const base64Data = result.stdout.trim();
     const textPart: TextContentPart = {
       type: 'text',
-      text: `Rendered page ${page} of ${resolvedPath} (200 DPI). Inspect the layout — if names are too small, spacing too tight/loose, or the page is too full/empty, re-run run_python with adjusted --line-spacing, --level-gap, --max-fill, or --min-font-size values.`,
+      text: `Rendered page ${page} of ${resolvedPath} (200 DPI). Inspect the layout — if adjustments are needed, use regenerate_output with adjusted layout parameters.`,
     };
     const imagePart: ImageContentPart = {
       type: 'image',
@@ -327,41 +455,6 @@ export async function toolLoadSkill(skillName: string, context: AgentContext): P
   return `--- Skill: ${skillName} ---\n\n${content}`;
 }
 
-export async function toolLoadSkillDetail(detailName: string, context: AgentContext): Promise<string> {
-  if (!/^[a-zA-Z0-9_-]+$/.test(detailName)) {
-    return 'Error: invalid skill name.';
-  }
-  const detailKey = `details/${detailName}`;
-  if (context.loadedSkills.includes(detailKey)) {
-    return `Detail skill "${detailName}" is already loaded.`;
-  }
-
-  const detailPath = path.join(getSkillsDir(), 'details', `${detailName}.md`);
-  if (!fs.existsSync(detailPath)) {
-    return `Error: Detail skill "${detailName}" not found at ${detailPath}.`;
-  }
-
-  const content = fs.readFileSync(detailPath, 'utf-8');
-  context.loadedSkills.push(detailKey);
-
-  return `--- Detail Skill: ${detailName} ---\n\n${content}`;
-}
-
-export async function toolSaveDraftSkill(platformName: string, content: string): Promise<string> {
-  const draftsDir = path.join(getSkillsDir(), 'drafts');
-  if (!fs.existsSync(draftsDir)) {
-    fs.mkdirSync(draftsDir, { recursive: true });
-  }
-
-  const filePath = path.join(draftsDir, `${platformName}.md`);
-  const resolvedDraft = path.resolve(filePath);
-  if (!resolvedDraft.startsWith(path.resolve(draftsDir))) {
-    return 'Error: platform name must not escape the drafts directory.';
-  }
-  fs.writeFileSync(filePath, content, 'utf-8');
-  return `Draft skill saved to ${filePath}`;
-}
-
 export async function toolSaveProgress(
   context: AgentContext,
   summary: string,
@@ -384,6 +477,8 @@ export async function toolSaveProgress(
     meet_name: context.meetName,
     timestamp: new Date().toISOString(),
     data_files: dataFiles,
+    current_phase: context.currentPhase,
+    idml_imported: context.idmlImported || undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -432,6 +527,8 @@ export async function autoSaveProgress(
     loaded_skills: context.loadedSkills,
     meet_name: context.meetName,
     timestamp: new Date().toISOString(),
+    current_phase: context.currentPhase,
+    idml_imported: context.idmlImported || undefined,
   };
 
   const filePath = getProgressFilePath();

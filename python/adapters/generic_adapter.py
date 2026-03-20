@@ -66,17 +66,17 @@ class GenericAdapter(BaseAdapter):
             all_athletes = []
             for fpath in sorted(glob.glob(os.path.join(data_path, '*.json'))):
                 all_athletes.extend(self._parse_single_file(fpath))
-            return all_athletes
+            return self._deduplicate(all_athletes)
 
         # If it looks like a glob pattern, expand it
         if '*' in data_path or '?' in data_path:
             all_athletes = []
             for fpath in sorted(glob.glob(data_path)):
                 all_athletes.extend(self._parse_single_file(fpath))
-            return all_athletes
+            return self._deduplicate(all_athletes)
 
         # Single file
-        return self._parse_single_file(data_path)
+        return self._deduplicate(self._parse_single_file(data_path))
 
     def _parse_single_file(self, data_path: str) -> list[dict]:
         """Parse a single data file."""
@@ -142,9 +142,10 @@ class GenericAdapter(BaseAdapter):
                 continue
 
             # Strip MSO event annotation suffixes from names
-            # e.g. "Alley Perez IES V,Be,Fx" -> "Alley Perez", "Ani Sabounjian UB" -> "Ani Sabounjian"
+            # Handles: "Alley Perez IES V,Be,Fx", "Kenzie PrevendarVT,BB,FX",
+            # "Megan Gentry VT, BB,", "Bella Estrada VT,", "Raygan Jones  BB"
             mapped['name'] = re.sub(
-                r'\s+(?:IES\s+)?(?:V|UB|Be|Fl|Fx|FX)(?:,(?:V|UB|Be|Fl|Fx|FX))*\s*$',
+                r'\s*(?:IES\s+)?(?:VT|UB|BB|FX|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*[,\s]*$',
                 '', str(mapped['name'])
             ).strip()
 
@@ -227,6 +228,32 @@ class GenericAdapter(BaseAdapter):
             })
 
         return athletes
+
+    @staticmethod
+    def _deduplicate(athletes: list[dict]) -> list[dict]:
+        """Remove duplicate athletes based on (name, gym, session, level, division).
+
+        When multiple JSON files in a directory contain the same athletes
+        (e.g. stale extract files from previous runs), this prevents them
+        from being doubled in the database.
+        """
+        seen = set()
+        unique = []
+        before = len(athletes)
+        for a in athletes:
+            key = (a.get('name', ''), a.get('gym', ''),
+                   a.get('session', ''), a.get('level', ''),
+                   a.get('division', ''))
+            if key not in seen:
+                seen.add(key)
+                unique.append(a)
+        after = len(unique)
+        if before != after:
+            import logging
+            logging.getLogger(__name__).warning(
+                "DEDUP: Removed %d duplicate athletes (%d -> %d)",
+                before - after, before, after)
+        return unique
 
     @staticmethod
     def _clean_prefix(raw: str, prefix: str) -> str:

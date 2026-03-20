@@ -87,6 +87,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             DB_PATH: dbPath,
             DATA_DIR: dataDir,
             STAGING_DB_PATH: currentStagingDbPath || '',
+            PYTHONUTF8: '1',
           },
           timeout
         );
@@ -142,7 +143,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       }
 
       if (!stagingPath || !fs.existsSync(stagingPath)) {
-        return 'Error: No staging database found. Run run_python first to create staging data.';
+        return 'Error: No staging database found. If you just ran import_idml, finalize_meet is not needed — IDML imports write directly to the central database. If you ran build_database, the staging DB may have already been finalized or cleaned up.';
       }
 
       const centralPath = getDbPath();
