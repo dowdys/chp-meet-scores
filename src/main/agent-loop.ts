@@ -425,6 +425,18 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         context.messages.push({ role: 'assistant', content: response.content });
         const toolResults = await this.executeToolCalls(response.content, context);
         context.messages.push({ role: 'user', content: toolResults });
+
+        // Auto-switch to import_backs if ask_user response contains PDF paths
+        if (context.currentPhase !== 'import_backs') {
+          const resultText = toolResults
+            .filter((b): b is import('./llm-client').ToolResultBlock => b.type === 'tool_result')
+            .map(b => typeof b.content === 'string' ? b.content : '')
+            .join(' ');
+          if (resultText.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(resultText) || resultText.includes('"'))) {
+            context.currentPhase = 'import_backs';
+            this.onActivity('Detected PDF file paths in response — switching to import_backs phase', 'info');
+          }
+        }
       }
 
       if (iterations % 5 === 0) {
