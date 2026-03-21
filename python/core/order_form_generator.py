@@ -42,6 +42,47 @@ TEMPLATE_PDF = os.path.join(TEMPLATE_DIR, 'order_form_template.pdf')
 STICKER_EVENT_ORDER = ['Vault', 'Bars', 'Beam', 'Floor', 'AA']
 
 
+def _format_date(date_str: str) -> str:
+    """Format a date string to 'April 4, 2026' style.
+
+    Handles: '2026-04-04', 'April 4, 2026', 'april 4', '4/4/2026', 'Apr 4, 2026', 'TBD'
+    """
+    if not date_str or date_str.upper() == 'TBD':
+        return 'TBD'
+    import re
+    from datetime import datetime
+
+    date_str = date_str.strip()
+
+    # Already in good format like "April 4, 2026" (full month name, not abbreviated)
+    if re.match(r'^(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}$', date_str):
+        return date_str
+
+    # Try common formats
+    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%B %d, %Y', '%B %d %Y',
+                '%b %d, %Y', '%b %d %Y', '%m-%d-%Y'):
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            return dt.strftime('%B %-d, %Y') if hasattr(dt, 'strftime') else date_str
+        except (ValueError, AttributeError):
+            continue
+
+    # Windows strftime doesn't support %-d, use %d and strip leading zero
+    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%B %d, %Y', '%B %d %Y',
+                '%b %d, %Y', '%b %d %Y', '%m-%d-%Y'):
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            formatted = dt.strftime('%B %d, %Y')
+            # Remove leading zero from day: "April 04, 2026" → "April 4, 2026"
+            formatted = re.sub(r'(\w+ )0(\d,)', r'\1\2', formatted)
+            return formatted
+        except ValueError:
+            continue
+
+    # If nothing worked, return as-is
+    return date_str
+
+
 def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              year: str = '2026', state: str = '',
                              state_abbrev: str = '',
@@ -62,6 +103,11 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     The template is customized per-state: correct logo, abbreviation, and
     dates are baked in. Only the athlete sticker label is added per-page.
     """
+    # Format dates to "April 4, 2026" style regardless of input format
+    postmark_date = _format_date(postmark_date)
+    online_date = _format_date(online_date)
+    ship_date = _format_date(ship_date)
+
     gym_athletes = _get_gym_athletes(db_path, meet_name)
     if not gym_athletes:
         doc = fitz.open()
