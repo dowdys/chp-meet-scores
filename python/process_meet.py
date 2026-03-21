@@ -87,22 +87,37 @@ def _tmp_path_for(output_path):
 def _safe_move(tmp_path, final_path):
     """Move tmp_path → final_path, handling Windows file-locking gracefully.
 
-    Retries once after 2 seconds (handles OneDrive sync locks).
-    If still locked (open in a PDF viewer), saves as <name>_NEW.<ext>
-    so the user's work is never lost. Returns the actual path used.
+    Strategy: try os.replace first (atomic). If that fails due to OneDrive
+    or file locks, fall back to shutil.copy2 which overwrites file contents
+    without requiring exclusive access. Only uses _NEW pattern as last resort.
     """
+    import time
+    # Strategy 1: atomic replace (fastest, works when file isn't locked)
     try:
         os.replace(tmp_path, final_path)
         return final_path
     except PermissionError:
-        # Retry after 2 seconds — OneDrive sync locks are usually brief
-        import time
-        time.sleep(2)
+        pass
+
+    # Strategy 2: wait for OneDrive sync, then try again
+    time.sleep(2)
+    try:
+        os.replace(tmp_path, final_path)
+        return final_path
+    except PermissionError:
+        pass
+
+    # Strategy 3: copy contents over existing file (works even with OneDrive sync)
+    try:
+        import shutil
+        shutil.copy2(tmp_path, final_path)
         try:
-            os.replace(tmp_path, final_path)
-            return final_path
-        except PermissionError:
-            pass  # Fall through to _NEW pattern
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return final_path
+    except PermissionError:
+        pass  # Fall through to _NEW pattern
         dir_name = os.path.dirname(final_path)
         base, ext = os.path.splitext(os.path.basename(final_path))
         new_path = os.path.join(dir_name, f'{base}_NEW{ext}')
@@ -313,6 +328,16 @@ def main():
         _LETTER_W, _LETTER_H = 612.0, 792.0
         _LEGAL_THRESHOLD = 800  # pages taller than this are "legal"
         errors = []
+
+        # Clean up any stale _NEW files from previous failed imports
+        if os.path.exists(args.output):
+            for f in os.listdir(args.output):
+                if '_NEW.' in f:
+                    try:
+                        os.remove(os.path.join(args.output, f))
+                        print(f"Cleaned up stale file: {f}")
+                    except OSError:
+                        pass
 
         # Step 0: Correct meet name case from DB (before creating any files)
         # The agent might pass "2026 NEVADA STATE CHAMPIONSHIPS" but the DB has
