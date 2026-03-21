@@ -8,6 +8,7 @@ const SettingsTab: React.FC = () => {
     model: 'claude-sonnet-4-6',
     githubToken: '',
     outputDir: '',
+    perplexityApiKey: '',
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);

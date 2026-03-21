@@ -73,8 +73,65 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       // MSO failed
     }
 
+    // 3. Perplexity fallback — if no state championship found, ask Perplexity
+    if (results.length === 0 || !results.some(r => r.name.toLowerCase().includes('state'))) {
+      try {
+        const { configStore } = await import('../config-store');
+        const pplxKey = configStore.get('perplexityApiKey');
+        if (pplxKey) {
+          const pplxResp = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${pplxKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'sonar',
+              messages: [{
+                role: 'user',
+                content: `What is the MeetScoresOnline.com meet ID (the numeric ID from the URL like meetscoresonline.com/R{ID}) for the ${query} gymnastics meet? Also check ScoreCat (results.scorecatonline.com) if it's not on MSO. Just give me the meet ID and source.`,
+              }],
+            }),
+          });
+          const pplxData = await pplxResp.json() as { choices?: Array<{ message?: { content?: string } }> };
+          const pplxText = pplxData?.choices?.[0]?.message?.content || '';
+          if (pplxText) {
+            // Parse MSO meet IDs from response
+            const msoIds = pplxText.match(/\/R(\d{4,6})/g)?.map(m => m.replace('/R', '')) || [];
+            const numericIds = pplxText.match(/\b(\d{4,6})\b/g) || [];
+            const allIds = [...new Set([...msoIds, ...numericIds])];
+
+            // Verify each found ID via MSO API
+            for (const meetId of allIds.slice(0, 3)) {
+              try {
+                const verifyResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                  body: `p_meetid=${meetId}&query_name=lookup_scores`,
+                });
+                const verifyData = await verifyResp.json() as { results?: Array<{ result?: { row?: unknown[] } }> };
+                const rows = verifyData?.results?.[0]?.result?.row || [];
+                if (Array.isArray(rows) && rows.length > 0) {
+                  results.push({
+                    name: `${query} (found via Perplexity)`,
+                    id: meetId,
+                    source: 'mso',
+                    state: stateFilter?.toUpperCase() || '',
+                    program: 'Women',
+                    date: 'verified',
+                  });
+                }
+              } catch { /* skip unverifiable IDs */ }
+            }
+          }
+        }
+      } catch (e) {
+        // Perplexity failed — fall through silently
+      }
+    }
+
     if (results.length === 0) {
-      return `No meets found matching "${query}". Try a different query.`;
+      return `No meets found matching "${query}". Try a different query or use web_search for archived meets.`;
     }
 
     // Format results

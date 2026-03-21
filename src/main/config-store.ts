@@ -8,6 +8,7 @@ export interface AppConfig {
   model: string;
   githubToken: string;
   outputDir: string;
+  perplexityApiKey: string;
 }
 
 const defaults: AppConfig = {
@@ -16,10 +17,11 @@ const defaults: AppConfig = {
   model: 'claude-sonnet-4-6',
   githubToken: '',
   outputDir: '',
+  perplexityApiKey: '',
 };
 
 /** Keys that contain sensitive values and should be encrypted at rest. */
-const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken']);
+const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken', 'perplexityApiKey']);
 
 class ConfigStore {
   private store: Store<AppConfig>;
@@ -114,11 +116,12 @@ class ConfigStore {
       model: this.get('model'),
       githubToken: this.get('githubToken'),
       outputDir: this.get('outputDir'),
+      perplexityApiKey: this.get('perplexityApiKey'),
     };
   }
 
   setAll(settings: Partial<AppConfig>): void {
-    const validKeys: (keyof AppConfig)[] = ['apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir'];
+    const validKeys: (keyof AppConfig)[] = ['apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir', 'perplexityApiKey'];
     for (const key of validKeys) {
       if (key in settings && settings[key] !== undefined) {
         this.set(key, settings[key] as AppConfig[typeof key]);

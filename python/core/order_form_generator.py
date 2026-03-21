@@ -206,9 +206,35 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
         backs_found = 0
         backs_missing = 0
 
-        for gym in gyms:
-            athletes = gym_athletes[gym]
-            for athlete_name, level_events in athletes:
+        # Sort athletes by back page, then alphabetically by gym within each page.
+        # This groups all athletes on the same shirt back together.
+        if use_pdf_overlay and shirt_doc and shirt_doc.page_count > 1:
+            # Build page→gym→athletes mapping
+            page_gym_athletes = {}  # {page_idx: {gym: [(name, level_events)]}}
+            for gym in gyms:
+                for athlete_name, level_events in gym_athletes[gym]:
+                    clean = clean_name_for_shirt(athlete_name)
+                    # Find which page this athlete is on
+                    athlete_page = 0  # default to first page
+                    if clean in name_page_hits:
+                        # Use the first page they appear on
+                        athlete_page = name_page_hits[clean][0][0]
+                    page_gym_athletes.setdefault(athlete_page, {}).setdefault(gym, []).append(
+                        (athlete_name, level_events))
+            # Iterate by page order, then gym alphabetically
+            _sorted_athletes = []
+            for page_idx in sorted(page_gym_athletes.keys()):
+                for gym in sorted(page_gym_athletes[page_idx].keys()):
+                    for athlete_name, level_events in page_gym_athletes[page_idx][gym]:
+                        _sorted_athletes.append((gym, athlete_name, level_events))
+        else:
+            # No multi-page sorting needed — just alphabetical by gym
+            _sorted_athletes = []
+            for gym in gyms:
+                for athlete_name, level_events in gym_athletes[gym]:
+                    _sorted_athletes.append((gym, athlete_name, level_events))
+
+        for gym, athlete_name, level_events in _sorted_athletes:
                 pages_before = len(doc)
 
                 # Copy state-specific template page

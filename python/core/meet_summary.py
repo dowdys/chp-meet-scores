@@ -121,6 +121,43 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
             cnt = cur.fetchone()[0]
             lines.append(f'  {EVENT_DISPLAY[event]:15s}  {cnt} unique winners')
         lines.append('')
+
+        # --- Winners per gym ---
+        lines.append('WINNERS PER GYM')
+        lines.append('-' * 40)
+        cur.execute('''SELECT gym, COUNT(DISTINCT name) as cnt
+                       FROM winners WHERE meet_name = ?
+                       GROUP BY gym ORDER BY gym''',
+                    (meet_name,))
+        gym_rows = cur.fetchall()
+        for gym, cnt in gym_rows:
+            lines.append(f'  {gym:30s}  {cnt} unique winners')
+        lines.append('')
+
+        # --- Winners per level per gym ---
+        lines.append('WINNERS PER LEVEL PER GYM')
+        lines.append('-' * 40)
+        cur.execute('''SELECT gym, level, COUNT(DISTINCT name) as cnt
+                       FROM winners WHERE meet_name = ?
+                       GROUP BY gym, level
+                       ORDER BY gym, CASE
+                         WHEN level IN ('XB','XS','XG','XP','XD','XSA') THEN 0
+                         ELSE 1 END,
+                         CASE level
+                           WHEN 'XSA' THEN 1 WHEN 'XD' THEN 2 WHEN 'XP' THEN 3
+                           WHEN 'XG' THEN 4 WHEN 'XS' THEN 5 WHEN 'XB' THEN 6
+                           ELSE CAST(level AS INTEGER) + 10 END''',
+                    (meet_name,))
+        current_gym = None
+        for gym, level, cnt in cur.fetchall():
+            if gym != current_gym:
+                if current_gym is not None:
+                    lines.append('')
+                lines.append(f'  {gym}')
+                current_gym = gym
+            display = XCEL_MAP.get(level, f'Level {level}') if level in XCEL_MAP else f'Level {level}'
+            lines.append(f'    {display:20s}  {cnt} winners')
+        lines.append('')
     finally:
         conn.close()
 

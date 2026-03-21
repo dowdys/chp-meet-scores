@@ -22,6 +22,7 @@ export interface AppSettings {
   model: string;
   githubToken: string;
   outputDir: string;
+  perplexityApiKey: string;
 }
 
 export interface AskUserRequest {

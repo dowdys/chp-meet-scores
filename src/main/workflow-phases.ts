@@ -172,7 +172,14 @@ When calling \`build_database\`, ALWAYS include the deadline dates if you have t
 These appear on the order forms. If you don't pass them, they default to "TBD".
 
 ### Staging Database
-\`build_database\` writes to a staging database. Run quality checks against staging data. When satisfied, advance to output_finalize phase. \`finalize_meet\` (in output_finalize) merges staging → central.
+\`build_database\` builds the database ONLY — it does NOT generate output files (PDFs, IDMLs). This is by design: you should run quality checks BEFORE generating outputs.
+
+**Workflow:**
+1. Call \`build_database\` → parses data, normalizes gyms, builds results + winners tables
+2. Run quality checks on the staging data (load data_quality skill)
+3. Fix any issues found (gym normalization, data cleanup)
+4. Advance to output_finalize phase
+5. Call \`regenerate_output\` with outputs: ["all"] to generate all files
 
 \`query_db\` automatically queries the staging database during processing.`,
   },

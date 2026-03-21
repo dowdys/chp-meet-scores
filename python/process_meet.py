@@ -1064,7 +1064,15 @@ def main():
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
     else:
         regen_set = set()
-        do_all = True  # Full pipeline generates everything
+        do_all = False  # Full pipeline builds DB only — outputs generated via regenerate_output
+
+        # Reset sticky params for new meets — prevents leaking from previous meets
+        # (e.g., Nevada's level_groups and page_size_legal applied to Mississippi)
+        _layout_dir = os.environ.get('DATA_DIR') or os.path.dirname(os.path.abspath(db_path))
+        _layout_json = os.path.join(_layout_dir, 'shirt_layout.json')
+        if os.path.exists(_layout_json):
+            os.remove(_layout_json)
+            print("Reset sticky params (shirt_layout.json) for new meet")
 
         # Select adapter
         if args.source == 'scorecat':
