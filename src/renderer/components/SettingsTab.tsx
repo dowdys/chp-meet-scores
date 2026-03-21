@@ -12,6 +12,7 @@ const SettingsTab: React.FC = () => {
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);
+  const [showPerplexityKey, setShowPerplexityKey] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
@@ -197,6 +198,26 @@ const SettingsTab: React.FC = () => {
             onClick={() => setShowGithubToken(!showGithubToken)}
           >
             {showGithubToken ? 'Hide' : 'Show'}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>Perplexity API Key</h3>
+        <p className="setting-description">Used to find archived meets not listed on MSO (optional). Get a key at perplexity.ai</p>
+        <div className="input-with-toggle">
+          <input
+            type={showPerplexityKey ? 'text' : 'password'}
+            className="settings-input"
+            placeholder="pplx-..."
+            value={settings.perplexityApiKey}
+            onChange={e => updateSetting('perplexityApiKey', e.target.value)}
+          />
+          <button
+            className="toggle-button"
+            onClick={() => setShowPerplexityKey(!showPerplexityKey)}
+          >
+            {showPerplexityKey ? 'Hide' : 'Show'}
           </button>
         </div>
       </div>
