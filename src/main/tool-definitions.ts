@@ -162,6 +162,19 @@ export function getToolDefinitions(): ToolDefinition[] {
       },
     },
 
+    {
+      name: 'lookup_meet',
+      description: 'Look up a specific meet by its exact source ID. Returns metadata (name, dates, location, athlete count). You must know the exact ID — this is NOT a search tool.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          source: { type: 'string', enum: ['mso'], description: 'Data source (currently only "mso" supported)' },
+          meet_id: { type: 'string', description: 'The exact meet ID from the source (e.g., "34508" for MSO)' },
+        },
+        required: ['source', 'meet_id'],
+      },
+    },
+
     // --- Database tools ---
     {
       name: 'build_database',
@@ -169,7 +182,7 @@ export function getToolDefinitions(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
-          source: { type: 'string', enum: ['scorecat', 'mso_pdf', 'mso_html', 'generic'], description: 'Data source format' },
+          source: { type: 'string', enum: ['scorecat', 'generic'], description: 'Data format: "generic" for mso_extract JSON, "scorecat" for scorecat_extract JSON' },
           data_path: { type: 'string', description: 'Path to the extracted data file' },
           state: { type: 'string', description: 'State name (e.g., Iowa, Maryland)' },
           meet_name: { type: 'string', description: 'Meet name (e.g., 2025 Iowa State Championships)' },
@@ -177,9 +190,12 @@ export function getToolDefinitions(): ToolDefinition[] {
           year: { type: 'number', description: 'Meet year (auto-detected if omitted)' },
           gym_map: { type: 'string', description: 'Path to gym name mapping JSON file' },
           division_order: { type: 'string', description: 'Comma-separated divisions youngest-to-oldest (use when UNKNOWN_DIVISIONS appears)' },
-          postmark_date: { type: 'string', description: 'Postmark deadline date' },
-          online_date: { type: 'string', description: 'Online ordering deadline date' },
-          ship_date: { type: 'string', description: 'Shipping date' },
+          postmark_date: { type: 'string', description: 'Postmark deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          online_date: { type: 'string', description: 'Online ordering deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          ship_date: { type: 'string', description: 'Shipping date (format: "April 4, 2025" — full month name, day, and year)' },
+          source_id: { type: 'string', description: 'Source meet ID (e.g., MSO meet ID "34508", ScoreCat Algolia ID)' },
+          source_name: { type: 'string', description: 'Canonical name from the source (e.g., MSO\'s "2025 Mississippi State Championship")' },
+          meet_dates: { type: 'string', description: 'Meet dates for metadata (e.g., "Mar 14-16, 2025")' },
         },
         required: ['source', 'data_path', 'state', 'meet_name'],
       },
@@ -206,9 +222,9 @@ export function getToolDefinitions(): ToolDefinition[] {
           level_groups: { type: 'string', description: 'Semicolon-separated groups, comma-separated levels: "XSA,XD;10,9,8"' },
           page_size_legal: { type: 'string', description: 'Group name(s) for 8.5x14 version. Generates separate _8.5x14.pdf.' },
           exclude_levels: { type: 'string', description: 'Comma-separated levels to exclude from shirt' },
-          postmark_date: { type: 'string', description: 'Postmark deadline date' },
-          online_date: { type: 'string', description: 'Online ordering deadline date' },
-          ship_date: { type: 'string', description: 'Shipping date' },
+          postmark_date: { type: 'string', description: 'Postmark deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          online_date: { type: 'string', description: 'Online ordering deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          ship_date: { type: 'string', description: 'Shipping date (format: "April 4, 2025" — full month name, day, and year)' },
           accent_color: { type: 'string', description: 'Hex color for accents (default #FF0000)' },
           font_family: { type: 'string', enum: ['serif', 'sans-serif'], description: 'Font family (serif=Times, sans-serif=Helvetica)' },
           title1_size: { type: 'number', description: 'Title line 1 font size (default 18)' },
@@ -239,9 +255,9 @@ export function getToolDefinitions(): ToolDefinition[] {
           },
           state: { type: 'string', description: 'State name' },
           meet_name: { type: 'string', description: 'Meet name' },
-          postmark_date: { type: 'string', description: 'Postmark deadline date' },
-          online_date: { type: 'string', description: 'Online ordering deadline date' },
-          ship_date: { type: 'string', description: 'Shipping date' },
+          postmark_date: { type: 'string', description: 'Postmark deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          online_date: { type: 'string', description: 'Online ordering deadline date (format: "April 4, 2025" — full month name, day, and year)' },
+          ship_date: { type: 'string', description: 'Shipping date (format: "April 4, 2025" — full month name, day, and year)' },
         },
         required: ['pdf_paths', 'state', 'meet_name'],
       },

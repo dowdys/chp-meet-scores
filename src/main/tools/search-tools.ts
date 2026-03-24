@@ -4,10 +4,34 @@ import * as path from 'path';
 import { getDataDir } from '../paths';
 import { requireString, optionalString } from './validation';
 
+// State name → 2-letter abbreviation mapping (lowercase keys)
+const STATE_ABBREVS: Record<string, string> = {
+  alabama: 'al', alaska: 'ak', arizona: 'az', arkansas: 'ar', california: 'ca',
+  colorado: 'co', connecticut: 'ct', delaware: 'de', florida: 'fl', georgia: 'ga',
+  hawaii: 'hi', idaho: 'id', illinois: 'il', indiana: 'in', iowa: 'ia',
+  kansas: 'ks', kentucky: 'ky', louisiana: 'la', maine: 'me', maryland: 'md',
+  massachusetts: 'ma', michigan: 'mi', minnesota: 'mn', mississippi: 'ms',
+  missouri: 'mo', montana: 'mt', nebraska: 'ne', nevada: 'nv', 'new hampshire': 'nh',
+  'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny', 'north carolina': 'nc',
+  'north dakota': 'nd', ohio: 'oh', oklahoma: 'ok', oregon: 'or', pennsylvania: 'pa',
+  'rhode island': 'ri', 'south carolina': 'sc', 'south dakota': 'sd', tennessee: 'tn',
+  texas: 'tx', utah: 'ut', vermont: 'vt', virginia: 'va', washington: 'wa',
+  'west virginia': 'wv', wisconsin: 'wi', wyoming: 'wy',
+};
+
+/** Normalize a state input to its 2-letter abbreviation (lowercase). */
+function normalizeState(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  // Already an abbreviation (2 letters)?
+  if (lower.length === 2 && /^[a-z]{2}$/.test(lower)) return lower;
+  return STATE_ABBREVS[lower] || lower;
+}
+
 export const searchToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   search_meets: async (args) => {
     const query = requireString(args, 'query');
-    const stateFilter = optionalString(args, 'state')?.toLowerCase();
+    const rawState = optionalString(args, 'state');
+    const stateFilter = rawState ? normalizeState(rawState) : undefined;
     const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
 
     // 1. Search Algolia (ScoreCat)
@@ -23,7 +47,8 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       });
       const algoliaData = await algoliaResp.json() as { hits?: Array<Record<string, unknown>> };
       for (const hit of algoliaData.hits || []) {
-        if (stateFilter && (hit.state as string | undefined)?.toLowerCase() !== stateFilter) continue;
+        const hitState = (hit.state as string | undefined) || '';
+        if (stateFilter && normalizeState(hitState) !== stateFilter) continue;
         const startDate = hit.startDate ? new Date(hit.startDate as number).toISOString().split('T')[0] : 'unknown';
         results.push({
           name: hit.name as string,
@@ -38,25 +63,24 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       // Algolia failed, continue with MSO
     }
 
-    // 2. Search MSO Results.All
-    try {
-      const msoResp = await fetch('https://www.meetscoresonline.com/Results.All', {
+    // 2. Search MSO Results.All (current season + query year's season if different)
+    const searchMsoPage = async (url: string) => {
+      const msoResp = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
       });
       const html = await msoResp.text();
-      // Parse meet-container divs: data-meetid, data-state, data-filter-by
       const regex = /data-meetid="(\d+)"\s+data-state="([^"]+)"\s+data-filter-by="([^"]+)"/g;
       let match;
       const queryLower = query.toLowerCase();
+      const seenIds = new Set(results.map(r => r.id));
       while ((match = regex.exec(html)) !== null) {
         const [, meetId, state, filterBy] = match;
+        if (seenIds.has(meetId)) continue;
         if (stateFilter && state.toLowerCase() !== stateFilter) continue;
         if (!filterBy.toLowerCase().includes(queryLower.split(' ')[0])) continue;
-        // Check if this matches the query
         const queryWords = queryLower.split(/\s+/);
         const matchCount = queryWords.filter(w => filterBy.toLowerCase().includes(w)).length;
         if (matchCount >= Math.ceil(queryWords.length * 0.5)) {
-          // Extract meet name from filterBy (it's like "2026 nevada state championships henderson nv wom")
           const isWomen = filterBy.includes('wom');
           const isMen = filterBy.includes('men');
           results.push({
@@ -67,6 +91,26 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
             program: isMen ? 'Men' : isWomen ? 'Women' : 'unknown',
             date: 'check MSO',
           });
+          seenIds.add(meetId);
+        }
+      }
+    };
+
+    try {
+      // Always search the current/default season page
+      await searchMsoPage('https://www.meetscoresonline.com/Results.All');
+
+      // If the query contains a year that falls in a previous season, also search that page.
+      // MSO season format: meet year N → season "{N-1}-{N}" (e.g., 2025 → "2024-2025")
+      const yearMatch = query.match(/\b(20\d{2})\b/);
+      if (yearMatch) {
+        const meetYear = parseInt(yearMatch[1], 10);
+        const now = new Date();
+        // Current MSO season: if we're in Aug+ it's currentYear-nextYear, otherwise lastYear-currentYear
+        const currentSeasonEnd = now.getMonth() >= 7 ? now.getFullYear() + 1 : now.getFullYear();
+        if (meetYear !== currentSeasonEnd) {
+          const seasonStr = `${meetYear - 1}-${meetYear}`;
+          await searchMsoPage(`https://www.meetscoresonline.com/Results.All.${seasonStr}`);
         }
       }
     } catch (e) {
@@ -139,6 +183,66 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       `${i + 1}. ${r.name}\n   Source: ${r.source} | ID: ${r.id} | State: ${r.state} | Program: ${r.program} | Date: ${r.date}`
     );
     return `Found ${results.length} meets matching "${query}":\n\n${lines.join('\n\n')}`;
+  },
+
+  lookup_meet: async (args) => {
+    try {
+      const source = requireString(args, 'source');
+      const meetId = requireString(args, 'meet_id');
+
+      if (source !== 'mso') {
+        return `Error: lookup_meet currently only supports source "mso". Got: "${source}"`;
+      }
+
+      // Fetch meet metadata via MSO lookup_meet API
+      const metaResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        body: `p_meetid=${meetId}&p_eventid=1&query_name=lookup_meet`,
+      });
+      const metaData = await metaResp.json() as { results?: Array<{ result?: { row?: Array<Record<string, string>> } }> };
+      const rows = metaData?.results?.[0]?.result?.row || [];
+
+      if (rows.length === 0) {
+        return `No meet found for MSO ID ${meetId}. Verify the ID is correct.`;
+      }
+
+      const m = rows[0];
+
+      // Also check athlete count via lookup_scores
+      let athleteCount = 0;
+      try {
+        const scoresResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: `p_meetid=${meetId}&query_name=lookup_scores`,
+        });
+        const scoresData = await scoresResp.json() as { results?: Array<{ result?: { row?: unknown[] } }> };
+        athleteCount = scoresData?.results?.[0]?.result?.row?.length || 0;
+      } catch { /* non-fatal */ }
+
+      const lines = [
+        `MSO Meet #${meetId}:`,
+        `  Name: ${m.MeetName || 'unknown'}`,
+        `  Dates: ${m.meetfulldate_long || 'unknown'}`,
+        `  Location: ${m.MeetCity || ''}, ${m.MeetState || ''}`,
+        `  Facility: ${m.MeetFacility || 'unknown'}`,
+        `  Host: ${m.HostClub || 'unknown'}`,
+        `  Director: ${m.MeetDirector || 'unknown'}`,
+        `  Status: ${m.StatusText || 'unknown'}`,
+        `  Type: ${m.EventType || 'unknown'}`,
+        `  Athletes: ${athleteCount > 0 ? athleteCount : 'unknown'}`,
+      ];
+
+      if (athleteCount > 0) {
+        lines.push('');
+        lines.push(`This meet has data available. Use mso_extract with meet_ids: ["${meetId}"] to extract.`);
+      }
+
+      return lines.join('\n');
+    } catch (err) {
+      return `Error looking up meet: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 
   http_fetch: async (args) => {

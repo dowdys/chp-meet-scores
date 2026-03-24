@@ -6,17 +6,13 @@ Launch the GMS app in dev mode on Windows for testing. Code lives in WSL, built 
 ## Steps
 
 ### 1. Build & Sync
+**ALWAYS use the sync script** — never use `cp -r` manually. `cp -r` silently fails to overwrite Python files on the WSL→Windows mount due to file locking/caching. The script uses `rsync` which handles this correctly.
+
 ```bash
-cd /home/goduk/chp-meet-scores
-npm run build
-find python -name __pycache__ -exec rm -rf {} + 2>/dev/null
-cp -r dist/ /mnt/c/Users/goduk/chp-meet-scores-dev/dist/
-cp -r python/ /mnt/c/Users/goduk/chp-meet-scores-dev/python/
-cp -r skills/ /mnt/c/Users/goduk/chp-meet-scores-dev/skills/
-cp package.json /mnt/c/Users/goduk/chp-meet-scores-dev/package.json
+bash sync-to-windows.sh
 ```
 
-Or use the shortcut: `bash sync-to-windows.sh`
+This builds, clears Python cache, syncs via rsync, kills old instances, and launches. It is the ONLY reliable way to deploy changes.
 
 ### 2. Kill any existing instances
 ```bash

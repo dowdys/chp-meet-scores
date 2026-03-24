@@ -437,30 +437,32 @@ def main():
                         break
 
             if legal_pdfs and not _has_existing_letter_for_legal:
-                src = fitz.open(lp)
-                for i in range(src.page_count):
-                    src_page = src[i]
-                    scale_y = _LETTER_H / src_page.rect.height
-                    new_pg = combined.new_page(width=_LETTER_W, height=_LETTER_H)
-                    # Visual: rasterized image stretched to fill
-                    pix = src_page.get_pixmap(dpi=300)
-                    new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), pixmap=pix,
-                                        keep_proportion=False)
-                    # Searchable: invisible text layer with scaled positions
-                    for block in src_page.get_text("dict")["blocks"]:
-                        if block.get("type") != 0:
-                            continue
-                        for line in block["lines"]:
-                            for span in line["spans"]:
-                                text = span["text"].strip()
-                                if not text:
-                                    continue
-                                x = span["origin"][0]
-                                y = span["origin"][1] * scale_y
-                                fs = span["size"] * scale_y
-                                new_pg.insert_text(fitz.Point(x, y), text,
-                                                   fontsize=max(fs, 1), render_mode=3)
-                src.close()
+                for legal_path in legal_pdfs:
+                    src = fitz.open(legal_path)
+                    for i in range(src.page_count):
+                        src_page = src[i]
+                        scale_y = _LETTER_H / src_page.rect.height
+                        new_pg = combined.new_page(width=_LETTER_W, height=_LETTER_H)
+                        # Visual: rasterized image stretched to fill
+                        pix = src_page.get_pixmap(dpi=300)
+                        new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), pixmap=pix,
+                                            keep_proportion=False)
+                        del pix  # Free ~25MB pixmap immediately
+                        # Searchable: invisible text layer with scaled positions
+                        for block in src_page.get_text("dict")["blocks"]:
+                            if block.get("type") != 0:
+                                continue
+                            for line in block["lines"]:
+                                for span in line["spans"]:
+                                    text = span["text"].strip()
+                                    if not text:
+                                        continue
+                                    x = span["origin"][0]
+                                    y = span["origin"][1] * scale_y
+                                    fs = span["size"] * scale_y
+                                    new_pg.insert_text(fitz.Point(x, y), text,
+                                                       fontsize=max(fs, 1), render_mode=3)
+                    src.close()
             # Then: add letter pages — imported if available, else keep existing
             if letter_pdfs:
                 for lp in letter_pdfs:
@@ -682,6 +684,9 @@ def main():
                                          online_date=args.online_date,
                                          ship_date=args.ship_date,
                                          layout=import_layout,
+                                         name_sort=import_layout.name_sort,
+                                         level_groups=args.level_groups,
+                                         exclude_levels=args.exclude_levels,
                                          shirt_pdf_path=_main_shirt)
                 actual = _safe_move(tmp, order_path)
                 print(f"Generated {actual}")
@@ -728,315 +733,13 @@ def main():
             print("\nDone!")
             sys.exit(0)
 
-    # --import-idml mode: convert finalized IDML to PDF and regenerate dependents
+    # --import-idml mode: DEPRECATED — use --import-pdf instead
     if args.import_idml:
-        if not os.path.exists(args.import_idml):
-            print(f"Error: IDML file not found: {args.import_idml}")
-            sys.exit(1)
-
-        print(f"Importing IDML: {args.import_idml}")
-        # Generate to temp first, then detect page size
-        _tmp_import = os.path.join(args.output, '_import_tmp.pdf')
-        metadata = idml_to_pdf(args.import_idml, _tmp_import)
-        imported_page_h = metadata.get('page_h', 792)
-        is_legal_import = imported_page_h > 800  # 1008 for legal vs 792 for letter
-
-        _main_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
-
-        if is_legal_import:
-            # Legal-size IDML → save as back_of_shirt_8.5x14.pdf
-            pdf_path = os.path.join(args.output, 'back_of_shirt_8.5x14.pdf')
-            os.replace(_tmp_import, pdf_path)
-            print(f"Generated {pdf_path} (8.5x14 legal)")
-
-            # Also update back_of_shirt.pdf to include this page (for order forms).
-            # Order forms read ALL pages from back_of_shirt.pdf and match athletes to pages.
-            # If back_of_shirt.pdf exists (from a prior letter-size import), insert this
-            # legal page as page 1. If it doesn't exist, create it from the legal page.
-            # Update back_of_shirt.pdf with a SCALED-DOWN letter-size version
-            # of the legal page. Order forms are always letter size.
-            try:
-                import fitz
-                _LETTER_W, _LETTER_H = 612.0, 792.0
-                legal_doc = fitz.open(pdf_path)
-                if os.path.exists(_main_shirt):
-                    existing = fitz.open(_main_shirt)
-                    # Remove any old scaled-legal pages (keep only native letter pages)
-                    # We identify old scaled pages by checking if they were at the start
-                    # Simple approach: rebuild from scratch
-                    combined = fitz.open()
-                    # Scale legal pages: rasterize + invisible text for searchability
-                    for i in range(legal_doc.page_count):
-                        _sp = legal_doc[i]
-                        _sy = _LETTER_H / _sp.rect.height
-                        new_pg = combined.new_page(width=_LETTER_W, height=_LETTER_H)
-                        pix = _sp.get_pixmap(dpi=300)
-                        new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), pixmap=pix,
-                                        keep_proportion=False)
-                        for blk in _sp.get_text("dict")["blocks"]:
-                            if blk.get("type") != 0: continue
-                            for ln in blk["lines"]:
-                                for spn in ln["spans"]:
-                                    t = spn["text"].strip()
-                                    if t:
-                                        new_pg.insert_text(fitz.Point(spn["origin"][0], spn["origin"][1]*_sy),
-                                                           t, fontsize=max(spn["size"]*_sy, 1), render_mode=3)
-                    # Then append existing letter-size pages
-                    for i in range(existing.page_count):
-                        if existing[i].rect.height <= 800:
-                            combined.insert_pdf(existing, from_page=i, to_page=i)
-                    _tmp = _main_shirt + '.tmp'
-                    combined.save(_tmp)
-                    _pc = combined.page_count
-                    combined.close()
-                    existing.close()
-                    legal_doc.close()
-                    os.replace(_tmp, _main_shirt)
-                    print(f"Updated {_main_shirt} — scaled legal to letter (now {_pc} pages)")
-                else:
-                    # No existing letter PDF — create scaled version
-                    combined = fitz.open()
-                    for i in range(legal_doc.page_count):
-                        _sp = legal_doc[i]
-                        _sy = _LETTER_H / _sp.rect.height
-                        new_pg = combined.new_page(width=_LETTER_W, height=_LETTER_H)
-                        pix = _sp.get_pixmap(dpi=300)
-                        new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), pixmap=pix,
-                                        keep_proportion=False)
-                        for blk in _sp.get_text("dict")["blocks"]:
-                            if blk.get("type") != 0: continue
-                            for ln in blk["lines"]:
-                                for spn in ln["spans"]:
-                                    t = spn["text"].strip()
-                                    if t:
-                                        new_pg.insert_text(fitz.Point(spn["origin"][0], spn["origin"][1]*_sy),
-                                                           t, fontsize=max(spn["size"]*_sy, 1), render_mode=3)
-                    combined.save(_main_shirt)
-                    combined.close()
-                    legal_doc.close()
-                    print(f"Created {_main_shirt} from legal import (scaled to letter)")
-            except Exception as e:
-                print(f"Warning: Could not update {_main_shirt} with legal page: {e}")
-        else:
-            # Standard letter-size IDML → save as back_of_shirt.pdf
-            pdf_path = _main_shirt
-
-            # If back_of_shirt.pdf already exists with a legal page from a prior import,
-            # replace only the letter-size pages, keeping the legal page.
-            try:
-                import fitz
-                if os.path.exists(_main_shirt):
-                    existing = fitz.open(_main_shirt)
-                    has_legal = any(existing[i].rect.height > 800 for i in range(existing.page_count))
-                    if has_legal:
-                        # Remove existing letter-size pages
-                        pages_to_remove = [i for i in range(existing.page_count)
-                                           if existing[i].rect.height <= 800]
-                        for idx in reversed(pages_to_remove):
-                            existing.delete_page(idx)
-                        # Append the new letter-size page
-                        new_letter = fitz.open(_tmp_import)
-                        existing.insert_pdf(new_letter, from_page=0, to_page=new_letter.page_count - 1)
-                        existing.save(existing.name, incremental=False, deflate=True)
-                        _pc = existing.page_count
-                        existing.close()
-                        new_letter.close()
-                        os.remove(_tmp_import)
-                        print(f"Updated {pdf_path} — replaced letter pages (now {_pc} pages)")
-                    else:
-                        existing.close()
-                        os.replace(_tmp_import, pdf_path)
-                        print(f"Generated {pdf_path}")
-                else:
-                    os.replace(_tmp_import, pdf_path)
-                    print(f"Generated {pdf_path}")
-            except Exception as e:
-                # Fallback: just replace
-                os.replace(_tmp_import, pdf_path)
-                print(f"Generated {pdf_path} (fallback: {e})")
-
-        # Regenerate order forms and gym highlights using the existing DB
-        # Verify the meet actually has data in the DB
-        has_meet_data = False
-        if os.path.exists(db_path):
-            try:
-                conn = sqlite3.connect(db_path)
-                count = conn.execute(
-                    'SELECT COUNT(*) FROM winners WHERE meet_name = ?',
-                    (config.meet_name,)
-                ).fetchone()[0]
-                conn.close()
-                has_meet_data = count > 0
-                if has_meet_data:
-                    print(f"Found {count} winners for '{config.meet_name}' in database")
-                else:
-                    print(f"No winners found for '{config.meet_name}' in database")
-            except Exception as e:
-                print(f"Warning: Could not query database: {e}")
-
-        if has_meet_data:
-            # Load sticky layout params (stored in data dir, not output folder)
-            _layout_dir = os.environ.get('DATA_DIR') or os.path.dirname(os.path.abspath(db_path))
-            layout_json = os.path.join(_layout_dir, 'shirt_layout.json')
-            saved_layout = {}
-            if os.path.exists(layout_json):
-                try:
-                    with open(layout_json, 'r') as f:
-                        saved_layout = json.load(f)
-                except (json.JSONDecodeError, OSError):
-                    pass
-            # Build LayoutParams from saved + CLI overrides
-            import_layout = LayoutParams.from_sticky_dict(saved_layout)
-            _IMPORT_FIELDS = ['line_spacing', 'level_gap', 'max_fill',
-                              'min_font_size', 'max_font_size', 'max_shirt_pages',
-                              'title1_size', 'title2_size',
-                              'copyright', 'accent_color',
-                              'font_family', 'sport', 'title_prefix',
-                              'header_size', 'divider_size']
-            for param in _IMPORT_FIELDS:
-                cli_val = getattr(args, param, None)
-                if cli_val is not None:
-                    setattr(import_layout, param, cli_val)
-            import_layout.name_sort = args.name_sort
-
-            errors = []
-
-            # Gym highlights - always code-generated for proper gym name spacing
-            # Restore level_groups and page_size_legal from sticky params if not on CLI
-            if args.level_groups is None and 'level_groups' in saved_layout:
-                args.level_groups = saved_layout['level_groups']
-            if args.page_size_legal is None and 'page_size_legal' in saved_layout:
-                args.page_size_legal = saved_layout['page_size_legal']
-
-            # Determine legal/letter level split for gym highlights
-            _legal_groups = args.page_size_legal or []
-            _has_legal_gh = any(_legal_groups)
-
-            # Resolve legal group names to actual level codes using page_groups
-            _import_legal_levels = None
-            _import_letter_levels = None
-            if _has_legal_gh:
-                _gh_pre = precompute_shirt_data(db_path, config.meet_name,
-                                                layout=import_layout,
-                                                level_groups=args.level_groups,
-                                                exclude_levels=args.exclude_levels)
-                _legal_lvs = []
-                _letter_lvs = []
-                _legal_filter = _legal_groups
-                for _lbl, _lvs in _gh_pre['page_groups']:
-                    _filt_upper = {f.upper() for f in _legal_filter}
-                    _label_match = any(f.upper() in _lbl.upper() for f in _legal_filter)
-                    _level_match = bool({lv.upper() for lv in _lvs} & _filt_upper)
-                    if _label_match or _level_match:
-                        _legal_lvs.extend(_lvs)
-                    else:
-                        _letter_lvs.extend(_lvs)
-                _import_legal_levels = _legal_lvs if _legal_lvs else None
-                _import_letter_levels = _letter_lvs if _letter_lvs else None
-
-            try:
-                gym_highlights_path = os.path.join(args.output, 'gym_highlights.pdf')
-                tmp = _tmp_path_for(gym_highlights_path)
-
-                if _import_letter_levels is not None:
-                    # Letter version: only letter levels
-                    generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                                year=args.year, state=args.state,
-                                                layout=import_layout,
-                                                level_groups=args.level_groups,
-                                                include_levels=_import_letter_levels)
-                else:
-                    generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                                year=args.year, state=args.state,
-                                                layout=import_layout,
-                                                level_groups=args.level_groups,
-                                                exclude_levels=args.exclude_levels)
-
-                actual = _safe_move(tmp, gym_highlights_path)
-                print(f"Generated {actual}")
-            except Exception as e:
-                print(f"ERROR generating gym_highlights.pdf: {e}")
-                errors.append(('gym_highlights', str(e)))
-
-            # Legal-size gym highlights when legal groups configured
-            if _import_legal_levels:
-                try:
-                    gh_legal_path = os.path.join(args.output, 'gym_highlights_8.5x14.pdf')
-                    tmp = _tmp_path_for(gh_legal_path)
-                    generate_gym_highlights_pdf(db_path, config.meet_name, tmp,
-                                                year=args.year, state=args.state,
-                                                layout=import_layout,
-                                                level_groups=args.level_groups,
-                                                include_levels=_import_legal_levels,
-                                                page_h=1008)
-                    actual = _safe_move(tmp, gh_legal_path)
-                    print(f"Generated {actual} (8.5x14)")
-                except Exception as e:
-                    print(f"ERROR generating gym_highlights_8.5x14.pdf: {e}")
-                    errors.append(('gym_highlights_legal', str(e)))
-
-            # Order forms use back_of_shirt.pdf which now contains ALL pages
-            _order_shirt = os.path.join(args.output, 'back_of_shirt.pdf')
-            try:
-                order_pdf_path = os.path.join(args.output, 'order_forms.pdf')
-                tmp = _tmp_path_for(order_pdf_path)
-                generate_order_forms_pdf(db_path, config.meet_name, tmp,
-                                         year=args.year, state=args.state,
-                                         state_abbrev=args.state_abbrev,
-                                         postmark_date=args.postmark_date,
-                                         online_date=args.online_date,
-                                         ship_date=args.ship_date,
-                                         layout=import_layout,
-                                         shirt_pdf_path=_order_shirt)
-                actual = _safe_move(tmp, order_pdf_path)
-                print(f"Generated {actual}")
-            except Exception as e:
-                print(f"ERROR generating order_forms.pdf: {e}")
-                errors.append(('order_forms', str(e)))
-
-            # Meet summary
-            try:
-                summary_path = os.path.join(args.output, 'meet_summary.txt')
-                generate_meet_summary(db_path, config.meet_name, summary_path,
-                                      layout=import_layout,
-                                      level_groups=args.level_groups,
-                                      exclude_levels=args.exclude_levels)
-                print(f"Generated {summary_path}")
-            except Exception as e:
-                print(f"ERROR generating meet_summary.txt: {e}")
-                errors.append(('summary', str(e)))
-
-            # Copy the imported IDML to the output folder for round-tripping
-            try:
-                idml_dest = os.path.join(args.output, 'back_of_shirt.idml')
-                shutil.copy2(args.import_idml, idml_dest)
-                print(f"Copied {idml_dest}")
-            except Exception as e:
-                print(f"ERROR copying IDML: {e}")
-                errors.append(('idml_copy', str(e)))
-
-            # Mark layout as imported so --regenerate won't destroy designer edits
-            saved_layout['_source'] = 'imported'
-            saved_layout['_import_path'] = str(args.import_idml)
-            saved_layout['_import_date'] = datetime.datetime.now().isoformat()
-            with open(layout_json, 'w') as f:
-                json.dump(saved_layout, f, indent=2)
-
-            if errors:
-                print(f"\nDone with {len(errors)} error(s):")
-                for name, msg in errors:
-                    print(f"  - {name}: {msg}")
-                sys.exit(1)
-        else:
-            if not os.path.exists(db_path):
-                print(f"Note: Database not found at {db_path}. "
-                      "Only the shirt PDF was generated (no order forms or gym highlights).")
-            else:
-                print(f"Note: No data for '{config.meet_name}' in database. "
-                      "Only the shirt PDF was generated (no order forms or gym highlights).")
-
-        print("\nDone!")
-        sys.exit(0)
+        print("Error: --import-idml is deprecated. Use --import-pdf instead.")
+        print("Export your edited backs as PDF from InDesign, then use import_pdf_backs.")
+        sys.exit(1)
+        # Dead code removed — the old --import-idml body (~300 lines) was deleted.
+        # The --import-pdf code path handles all PDF back import functionality.
 
     # --regenerate mode: skip parsing/DB build, just regenerate specified outputs
     regen = args.regenerate
@@ -1077,11 +780,8 @@ def main():
         # Select adapter
         if args.source == 'scorecat':
             adapter = ScoreCatAdapter()
-        elif args.source == 'mso_pdf':
-            adapter = PdfAdapter()
-        elif args.source == 'mso_html':
-            adapter = HtmlAdapter(strip_parenthetical=args.strip_parenthetical)
-        elif args.source == 'generic':
+        elif args.source in ('generic', 'mso_pdf', 'mso_html'):
+            # mso_pdf and mso_html are legacy — treat as generic for backwards compatibility
             adapter = GenericAdapter()
         else:
             print(f"Unknown source type: {args.source}")

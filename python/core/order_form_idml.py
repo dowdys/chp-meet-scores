@@ -100,11 +100,11 @@ def _strip_year(date_str):
 # ─────────────────────────────────────────────────────
 
 def customize_idml(state, postmark_date, online_date, ship_date,
-                   output_path, logo_dir=None, template_path=None):
+                   output_path, logo_dir=None, template_path=None, year='2026'):
     """Generate a state-specific IDML from the master template.
 
-    Modifies story XML to swap state abbreviation and dates,
-    updates the logo link to reference the state's logo PDF.
+    Modifies story XML to swap state abbreviation, dates, and year.
+    Updates the logo link to reference the state's logo PDF.
     Places the logo PDF alongside the output IDML.
 
     Returns the output IDML path.
@@ -142,6 +142,13 @@ def customize_idml(state, postmark_date, online_date, ship_date,
         short_ship = _strip_year(ship_date)
         xml = xml.replace('April 4', short_postmark)
         xml = xml.replace('April 20', short_ship)
+        contents[story_key] = xml.encode('utf-8')
+
+    # --- Modify Story_uf5: "2026 State Champion!" → correct year ---
+    story_key = 'Stories/Story_uf5.xml'
+    if story_key in contents and year != '2026':
+        xml = contents[story_key].decode('utf-8')
+        xml = xml.replace('2026', str(year))
         contents[story_key] = xml.encode('utf-8')
 
     # --- Modify Story_u6bb: pasteboard notes ---
@@ -250,7 +257,7 @@ def _apply_text_replacements(page, state, postmark_date, online_date, ship_date)
 
 
 def get_state_template(state, postmark_date='TBD', online_date='TBD',
-                       ship_date='TBD', logo_dir=None, template_path=None):
+                       ship_date='TBD', logo_dir=None, template_path=None, year='2026'):
     """Create a state-specific template PDF in memory.
 
     Returns a fitz.Document that can be used as the template for
@@ -271,7 +278,7 @@ def get_state_template(state, postmark_date='TBD', online_date='TBD',
             fd2, tmp_pdf = tempfile.mkstemp(suffix='.pdf')
             os.close(fd2)
             customize_idml(state, postmark_date, online_date, ship_date,
-                           tmp_idml, logo_dir, idml_template)
+                           tmp_idml, logo_dir, idml_template, year=year)
             idml_to_pdf(tmp_idml, tmp_pdf)
             os.unlink(tmp_idml)
             tmp_idml = None

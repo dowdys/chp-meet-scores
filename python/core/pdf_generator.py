@@ -276,8 +276,10 @@ def generate_shirt_pdf(db_path: str, meet_name: str, output_path: str,
         # Copyright footer
         _draw_copyright(page, text=s_copyright, font=s_freg, page_h=_page_h)
 
-    doc.save(output_path)
-    doc.close()
+    try:
+        doc.save(output_path)
+    finally:
+        doc.close()
 
 
 # --- Drawing functions (kept here as they are PDF-specific rendering) ---
@@ -664,6 +666,29 @@ def _search_by_word_proximity(page, full_name, quads=False):
                         break
 
         if matched >= max(len(words) - 1, 1):
+            # Build a bounding rect covering ALL matched words, not just the anchor.
+            # Search for each word individually and union the rectangles.
+            all_rects = []
+            for w in words:
+                word_hits = page.search_for(w, quads=quads)
+                for wh in word_hits:
+                    wr = wh.rect if hasattr(wh, 'rect') else wh
+                    wx = wr.x0 if hasattr(wr, 'x0') else wr.ul.x
+                    wy = wr.y0 if hasattr(wr, 'y0') else wr.ul.y
+                    # Only include hits near the anchor
+                    if abs(wx - ax) < 200 and abs(wy - ay) < 20:
+                        all_rects.append(wr)
+            if all_rects:
+                # Union all nearby word rects into one bounding rect
+                if quads:
+                    # For quads, return the list as-is (highlight annot handles multiple)
+                    return all_rects
+                else:
+                    x0 = min(r.x0 for r in all_rects)
+                    y0 = min(r.y0 for r in all_rects)
+                    x1 = max(r.x1 for r in all_rects)
+                    y1 = max(r.y1 for r in all_rects)
+                    return [fitz.Rect(x0, y0, x1, y1)]
             return [anchor]
 
     return []

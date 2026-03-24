@@ -79,17 +79,42 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
         sessions = [r[0] for r in cur.fetchall()]
         lines.append(f'Sessions:  {len(sessions)}  ({", ".join(sessions)})')
 
-        # Solo sessions
+        # Solo sessions — distinguish excluded (out-of-session) from kept (sole competitor)
         cur.execute('''SELECT session, level, division, COUNT(DISTINCT name) as cnt
                        FROM results WHERE meet_name = ?
                        GROUP BY session, level, division HAVING cnt = 1''',
                     (meet_name,))
         solos = cur.fetchall()
-        if solos:
-            lines.append(f'Solo-session groups (excluded from winners):  {len(solos)}')
-            for sess, lvl, div, _ in solos:
+
+        # Find which level+division combos have real competition elsewhere
+        cur.execute('''SELECT level, division
+                       FROM results WHERE meet_name = ?
+                       GROUP BY session, level, division
+                       HAVING COUNT(DISTINCT name) >= 2''',
+                    (meet_name,))
+        has_competition = {(r[0], r[1]) for r in cur.fetchall()}
+
+        excluded_solos = [(s, l, d) for s, l, d, _ in solos if (l, d) in has_competition]
+        kept_solos = [(s, l, d) for s, l, d, _ in solos if (l, d) not in has_competition]
+
+        if excluded_solos:
+            lines.append(f'Solo-session groups (excluded from winners):  {len(excluded_solos)}')
+            for sess, lvl, div in excluded_solos:
                 lines.append(f'  Session {sess}, Level {lvl}, Division {div}')
-        else:
+
+        if kept_solos:
+            lines.append(f'⚠️ Sole-competitor edge cases (included as winners):  {len(kept_solos)}')
+            for sess, lvl, div in kept_solos:
+                cur.execute('''SELECT name, gym FROM results
+                              WHERE meet_name = ? AND session = ? AND level = ? AND division = ?''',
+                            (meet_name, sess, lvl, div))
+                row = cur.fetchone()
+                if row:
+                    lines.append(f'  {row[0]} ({row[1]}) — Session {sess}, Level {lvl}, Division {div}')
+                    lines.append(f'    Only athlete at this level/division. Won all events by default.')
+                    lines.append(f'    Verify with meet director if they should be on the championship shirt.')
+
+        if not excluded_solos and not kept_solos:
             lines.append('Solo-session groups:  None')
         lines.append('')
 

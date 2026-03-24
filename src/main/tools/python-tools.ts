@@ -31,6 +31,24 @@ export function resetStagingDb(): void {
     }
   }
   currentStagingDbPath = null;
+
+  // Clean up orphaned staging files older than 24 hours
+  try {
+    const dataDir = getDataDir();
+    if (fs.existsSync(dataDir)) {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (const f of fs.readdirSync(dataDir)) {
+        if (f.startsWith('staging_') && f.endsWith('.db')) {
+          const ts = parseInt(f.replace('staging_', '').replace('.db', ''), 10) || 0;
+          if (ts > 0 && ts < cutoff) {
+            try { fs.unlinkSync(path.join(dataDir, f)); } catch { /* ignore */ }
+          }
+        }
+      }
+    }
+  } catch {
+    // Non-fatal: skip cleanup if data dir is inaccessible
+  }
 }
 
 // NOTE: run_python is intentionally NOT here. It needs meet context (meetName) for
@@ -70,7 +88,22 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       const code = requireString(args, 'code');
       const timeout = optionalNumber(args, 'timeout') ?? 30000;
       const dataDir = getDataDir();
-      const dbPath = getDbPath();
+      const centralDbPath = getDbPath();
+
+      // During processing, point DB_PATH at the staging DB so agent scripts
+      // can't accidentally write to the central DB. The staging DB is the
+      // working copy; central is only written to by finalize_meet.
+      const stagingPath = currentStagingDbPath;
+      let dbPath: string;
+      if (stagingPath && fs.existsSync(stagingPath)) {
+        dbPath = stagingPath;
+      } else {
+        dbPath = centralDbPath;
+        // If we're falling through to central during a processing phase, warn
+        if (stagingPath) {
+          console.warn('run_script: staging DB expected but not found, falling back to central DB');
+        }
+      }
 
       // Write code to a temp file
       const timestamp = Date.now();
@@ -85,6 +118,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
           undefined,
           {
             DB_PATH: dbPath,
+            CENTRAL_DB_PATH: centralDbPath,
             DATA_DIR: dataDir,
             STAGING_DB_PATH: currentStagingDbPath || '',
             PYTHONUTF8: '1',
@@ -131,12 +165,15 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       // Find staging DB: use module-level path, or fall back to scanning data dir
       let stagingPath = currentStagingDbPath;
       if (!stagingPath || !fs.existsSync(stagingPath)) {
-        // Fallback: find most recent staging_*.db in data dir
+        // Fallback: find most recent staging_*.db by numeric timestamp (not alphabetical)
         const dataDir = getDataDir();
         const stagingFiles = fs.readdirSync(dataDir)
           .filter(f => f.startsWith('staging_') && f.endsWith('.db'))
-          .sort()
-          .reverse();
+          .sort((a, b) => {
+            const tsA = parseInt(a.replace('staging_', '').replace('.db', ''), 10) || 0;
+            const tsB = parseInt(b.replace('staging_', '').replace('.db', ''), 10) || 0;
+            return tsB - tsA; // Most recent first
+          });
         if (stagingFiles.length > 0) {
           stagingPath = path.join(dataDir, stagingFiles[0]);
         }
@@ -165,11 +202,26 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             ).all(stateRow.state) as { meet_name: string; cnt: number }[];
 
             if (existingMeets.length > 0) {
-              const warnings = existingMeets.map((m) =>
-                `  "${m.meet_name}" (${m.cnt} athletes)`
-              ).join('\n');
-              duplicateWarning = `Note: ${stateRow.state} already has meets in the database:\n${warnings}\n` +
-                `Adding: "${meetName}". If this is a duplicate, use the same meet name to overwrite.\n`;
+              // Check for same state + year under a different name (likely duplicate)
+              const meetYear = meetName.match(/\b(20\d{2})\b/)?.[1] || '';
+              const sameYearDifferentName = existingMeets.filter(m =>
+                m.meet_name !== meetName && meetYear && m.meet_name.includes(meetYear)
+              );
+
+              if (sameYearDifferentName.length > 0) {
+                const dupes = sameYearDifferentName.map(m =>
+                  `  "${m.meet_name}" (${m.cnt} athletes)`
+                ).join('\n');
+                duplicateWarning = `⚠️ WARNING: ${stateRow.state} ${meetYear} already exists under a DIFFERENT name:\n${dupes}\n` +
+                  `You are adding: "${meetName}". This may create duplicate data. ` +
+                  `If this is the same meet, use the existing name to overwrite it instead.\n\n`;
+              } else {
+                const warnings = existingMeets.map((m) =>
+                  `  "${m.meet_name}" (${m.cnt} athletes)`
+                ).join('\n');
+                duplicateWarning = `Note: ${stateRow.state} already has meets in the database:\n${warnings}\n` +
+                  `Adding: "${meetName}". If this is a duplicate, use the same meet name to overwrite.\n`;
+              }
               console.log(duplicateWarning);
             }
           } finally {
@@ -201,6 +253,18 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
           );
           CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
             ON winners(meet_name, name, gym, session, level, division, event);
+          CREATE TABLE IF NOT EXISTS meets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meet_name TEXT UNIQUE,
+            source TEXT,
+            source_id TEXT,
+            source_name TEXT,
+            state TEXT,
+            association TEXT,
+            year TEXT,
+            dates TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+          );
         `);
 
         // Attach staging DB
@@ -231,8 +295,35 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
                event, score, is_tie
                FROM staging.winners WHERE meet_name = ?`
             ).run(meetName);
-          } catch {
-            // Winners table might not exist in staging if processing didn't complete fully
+          } catch (err) {
+            // Only tolerate "table doesn't exist" — anything else is real data loss
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('no such table')) {
+              console.warn('finalize_meet: staging has no winners table (incomplete processing)');
+            } else {
+              throw err; // Re-throw — will roll back the transaction
+            }
+          }
+
+          // Copy meets metadata from staging to central (only if staging has the table and data)
+          try {
+            const hasMeetsRow = centralDb.prepare(
+              `SELECT COUNT(*) as cnt FROM staging.meets WHERE meet_name = ?`
+            ).get(meetName) as { cnt: number } | undefined;
+            if (hasMeetsRow && hasMeetsRow.cnt > 0) {
+              centralDb.prepare('DELETE FROM meets WHERE meet_name = ?').run(meetName);
+              centralDb.prepare(
+                `INSERT OR REPLACE INTO meets (meet_name, source, source_id, source_name, state, association, year, dates, created_at)
+                 SELECT meet_name, source, source_id, source_name, state, association, year, dates, created_at
+                 FROM staging.meets WHERE meet_name = ?`
+              ).run(meetName);
+            }
+          } catch (err) {
+            // Tolerate missing table, but log other errors
+            const msg = err instanceof Error ? err.message : String(err);
+            if (!msg.includes('no such table')) {
+              console.warn('finalize_meet: meets metadata copy error:', msg);
+            }
           }
 
           return { results: resultCount.changes, winners: winnerCount.changes };

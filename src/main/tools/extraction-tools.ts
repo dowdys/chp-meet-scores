@@ -116,6 +116,30 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
       const sizeKB = (fileSize / 1024).toFixed(1);
       const totalAthletes = parsed.athletes.length;
 
+      // Fetch canonical meet metadata via lookup_meet API
+      const meetMeta: Record<string, string> = {};
+      for (const meetId of meetIds) {
+        try {
+          const metaResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: `p_meetid=${meetId}&p_eventid=1&query_name=lookup_meet`,
+          });
+          const metaData = await metaResp.json() as { results?: Array<{ result?: { row?: Array<Record<string, string>> } }> };
+          const metaRows = metaData?.results?.[0]?.result?.row || [];
+          if (metaRows.length > 0) {
+            const m = metaRows[0];
+            meetMeta[meetId] = [
+              `MSO canonical name: ${m.MeetName || 'unknown'}`,
+              `Dates: ${m.meetfulldate_long || 'unknown'}`,
+              `Location: ${m.MeetCity || ''}, ${m.MeetState || ''}`,
+              `Host: ${m.HostClub || 'unknown'}`,
+              `Status: ${m.StatusText || 'unknown'}`,
+            ].join('\n    ');
+          }
+        } catch { /* Non-fatal: skip metadata fetch */ }
+      }
+
       // Build summary with level distribution
       const lines: string[] = [];
       lines.push(`MSO extraction complete. ${totalAthletes} athletes saved to ${filePath} (${sizeKB} KB raw).`);
@@ -123,6 +147,9 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
       lines.push('Per-meet counts:');
       for (const [id, count] of Object.entries(parsed.counts)) {
         lines.push(`  meetId ${id}: ${count} athletes`);
+        if (meetMeta[id]) {
+          lines.push(`    ${meetMeta[id]}`);
+        }
       }
 
       lines.push(...formatLevelDistribution(parsed.athletes));

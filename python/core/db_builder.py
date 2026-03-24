@@ -59,9 +59,31 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
         # Covering index for winner determination queries (WHERE meet_name + session + level + division)
         cur.execute('CREATE INDEX IF NOT EXISTS idx_results_meet_sld ON results(meet_name, session, level, division)')
 
-        # Delete existing data for this meet first (clean slate for full re-runs),
-        # then INSERT OR REPLACE as safety net for edge-case duplicates within the data
-        cur.execute('DELETE FROM results WHERE meet_name = ?', (config.meet_name,))
+        # Meets metadata table — tracks source info and standardized names
+        cur.execute('''CREATE TABLE IF NOT EXISTS meets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meet_name TEXT UNIQUE,
+            source TEXT,
+            source_id TEXT,
+            source_name TEXT,
+            state TEXT,
+            association TEXT,
+            year TEXT,
+            dates TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )''')
+
+        # Clean slate: delete ALL data in staging DB (not just this meet name).
+        # The staging DB is single-meet by design. A previous build_database call
+        # with a wrong source type could have left garbled records under a different
+        # or empty meet_name that wouldn't be cleaned by a meet_name-specific DELETE.
+        cur.execute('DELETE FROM results')
+        # Winners and meets tables may not exist yet on first run — only delete if they do
+        for table in ('winners', 'meets'):
+            try:
+                cur.execute(f'DELETE FROM {table}')
+            except Exception:
+                pass  # Table doesn't exist yet — will be created later
 
         for a in athletes:
             cur.execute('''INSERT OR REPLACE INTO results
@@ -98,7 +120,7 @@ def _create_winners_table(cur, meet_name: str):
         division TEXT,
         event TEXT,
         score REAL,
-        is_tie INTEGER
+        is_tie INTEGER DEFAULT 0
     )''')
     cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
         ON winners(meet_name, name, gym, session, level, division, event)''')
@@ -145,10 +167,20 @@ def _find_solo_sessions(cur, meet_name: str) -> set:
         if (level, division) in has_competition:
             excluded.add((session, level, division))
 
+    # Report both excluded and kept solo athletes
+    kept_solos = [(s, l, d) for s, l, d in solo_groups if (s, l, d) not in excluded]
     if excluded:
-        kept = len(solo_groups) - len(excluded)
-        print(f"  Solo sessions: {len(excluded)} out-of-session group(s) excluded, "
-              f"{kept} legitimate solo division(s) kept")
+        print(f"  Solo sessions: {len(excluded)} out-of-session group(s) excluded")
+    if kept_solos:
+        print(f"  ⚠️ EDGE CASE: {len(kept_solos)} athlete(s) competing alone at their level/division "
+              f"(no other athletes in that division at the entire meet):")
+        for s, l, d in kept_solos:
+            cur.execute('SELECT name, gym FROM results WHERE meet_name = ? AND session = ? AND level = ? AND division = ?',
+                        (meet_name, s, l, d))
+            row = cur.fetchone()
+            if row:
+                print(f"    {row[0]} ({row[1]}) — S{s} L{l} Div {d}")
+        print(f"  These athletes won all events by default. Verify with user if they should be on the shirt.")
     return excluded
 
 

@@ -9,24 +9,52 @@ function getCentralDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
 }
 
+// Current workflow phase — set by the agent loop when phase changes.
+// DB tools use this to enforce staging-only during processing phases.
+let currentPhase: string | null = null;
+
+/** Called by the agent loop to keep db-tools aware of the current phase. */
+export function setDbToolsPhase(phase: string | null): void {
+  currentPhase = phase;
+}
+
+// import_backs is NOT included — it runs post-finalization when staging is deleted.
+// query_db during import_backs correctly falls through to central DB.
+const PROCESSING_PHASES = new Set(['database', 'output_finalize']);
+
 /**
  * Open the active database for reading.
- * During processing: uses the staging DB (if it exists).
- * In query tab (no staging): uses the central DB.
+ * During processing phases: uses staging DB (errors if it doesn't exist yet).
+ * In query tab / no phase: uses central DB.
+ * Returns { db, label } so callers can report which DB was used.
  */
-function openDb(): Database.Database {
-  // Check if a staging DB exists — prefer it during processing
+function openDb(): { db: Database.Database; label: string } {
   const stagingPath = getStagingDbPath();
-  if (fs.existsSync(stagingPath)) {
-    return new Database(stagingPath, { readonly: true });
+  const stagingExists = fs.existsSync(stagingPath);
+
+  // During processing phases, enforce staging DB
+  if (currentPhase && PROCESSING_PHASES.has(currentPhase)) {
+    if (stagingExists) {
+      return { db: new Database(stagingPath, { readonly: true }), label: 'staging' };
+    }
+    // Staging doesn't exist yet — don't silently fall through to central
+    throw new Error(
+      `Staging database not found (phase: ${currentPhase}). ` +
+      `Run build_database first to create the staging DB. ` +
+      `Path expected: ${stagingPath}`
+    );
   }
 
-  // Fall back to central DB
+  // Outside processing: prefer staging if it exists, otherwise central
+  if (stagingExists) {
+    return { db: new Database(stagingPath, { readonly: true }), label: 'staging' };
+  }
+
   const centralPath = getCentralDbPath();
   if (!fs.existsSync(centralPath)) {
     throw new Error(`Database not found. No staging database and no central database at ${centralPath}. Run a meet processing first.`);
   }
-  return new Database(centralPath, { readonly: true });
+  return { db: new Database(centralPath, { readonly: true }), label: 'central' };
 }
 
 function isSelectOnly(sql: string): boolean {
@@ -79,18 +107,18 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         return 'Error: Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other modification statements are not permitted.';
       }
 
-      const db = openDb();
+      const { db, label } = openDb();
       try {
         const stmt = db.prepare(sql);
         const rows = stmt.all() as Record<string, unknown>[];
 
         if (rows.length === 0) {
-          return 'Query returned 0 rows.';
+          return `[${label}] Query returned 0 rows.`;
         }
 
         const columns = Object.keys(rows[0]);
         const displayRows = rows.slice(0, 50);
-        let result = formatTable(columns, displayRows);
+        let result = `[${label}] ` + formatTable(columns, displayRows);
 
         if (rows.length > 50) {
           result += `\n\nShowing 50 of ${rows.length} rows.`;
@@ -115,7 +143,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         return 'Error: Only SELECT queries are allowed.';
       }
 
-      const db = openDb();
+      const { db, label } = openDb();
       try {
         const stmt = db.prepare(sql);
         const rows = stmt.all() as Record<string, unknown>[];
@@ -154,7 +182,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         }
         fs.writeFileSync(filepath, csvContent, 'utf8');
 
-        return `Saved ${rows.length} rows to ${filepath}`;
+        return `[${label}] Saved ${rows.length} rows to ${filepath}`;
       } finally {
         db.close();
       }
@@ -165,7 +193,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
 
   list_meets: async () => {
     try {
-      const db = openDb();
+      const { db, label } = openDb();
       try {
         const rows = db.prepare(
           `SELECT state, meet_name, association, COUNT(*) as result_count
@@ -179,7 +207,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         }
 
         const columns = ['state', 'meet_name', 'association', 'result_count'];
-        return `Meets in database:\n\n${formatTable(columns, rows)}`;
+        return `[${label}] Meets in database:\n\n${formatTable(columns, rows)}`;
       } finally {
         db.close();
       }
@@ -192,7 +220,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
     try {
       const meetName = requireString(args, 'meet_name');
 
-      const db = openDb();
+      const { db, label } = openDb();
       try {
         // Total results and unique athletes
         const counts = db.prepare(
@@ -231,7 +259,7 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
            WHERE meet_name = ? AND is_tie = 1`
         ).get(meetName) as Record<string, unknown> | undefined;
 
-        let summary = `Meet Summary: ${meetName}\n`;
+        let summary = `[${label}] Meet Summary: ${meetName}\n`;
         summary += `${'='.repeat(40)}\n\n`;
         summary += `Total results: ${counts.total_results}\n`;
         summary += `Unique athletes: ${counts.unique_athletes}\n`;

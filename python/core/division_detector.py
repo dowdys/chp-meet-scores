@@ -55,6 +55,36 @@ def _score_division(name: str) -> int:
     if re.match(r'^[A-Z]$', upper):
         return 10 + (ord(upper) - ord('A') + 1)
 
+    # ── Age-based divisions (e.g. "8 yrs.", "9A", "10B", "15+", "5-6", "10-11") ──
+    # These use the age number as the primary sort, with sub-letter as secondary.
+    # Score: age * 100 + letter_offset (so 8A=800+1=801, 10B=1000+2=1002, etc.)
+
+    # Pattern: "N yrs." or "N yrs"
+    m = re.match(r'^(\d+)\s*(?:YRS\.?|YEARS?)$', upper)
+    if m:
+        return int(m.group(1)) * 100
+
+    # Pattern: "NA", "NB", "10A", "10B" (age + letter, no space)
+    m = re.match(r'^(\d+)([A-Z])$', upper)
+    if m:
+        age = int(m.group(1))
+        letter_offset = ord(m.group(2)) - ord('A') + 1
+        return age * 100 + letter_offset
+
+    # Pattern: "N+" (e.g. "15+", "18+", "12+")
+    m = re.match(r'^(\d+)\+$', upper)
+    if m:
+        return int(m.group(1)) * 100 + 50  # +50 so "15+" sorts after "15A"-"15Z"
+
+    # Pattern: "N-N" or "N-NA" (age range, e.g. "5-6", "8-9", "10-11", "14-16", "7-8A")
+    m = re.match(r'^(\d+)-(\d+)([A-Z])?$', upper)
+    if m:
+        start_age = int(m.group(1))
+        end_age = int(m.group(2))
+        letter_offset = (ord(m.group(3)) - ord('A')) if m.group(3) else 0
+        # Sort by start age, with ranges sorting after individual ages
+        return start_age * 100 + 60 + (end_age - start_age) * 3 + letter_offset
+
     # ── Tier detection ──────────────────────────────────────────────
     # Map the tier prefix to its base score and figure out the remainder.
     tier_patterns = [

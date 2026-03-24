@@ -10,7 +10,9 @@ import { execFileSync } from 'child_process';
 import { shell } from 'electron';
 import { ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
+import Database from 'better-sqlite3';
 import { getStagingDbPath } from './tools/python-tools';
+import { setDbToolsPhase } from './tools/db-tools';
 import { getDataDir, getOutputDir, getProjectRoot } from './paths';
 import { WorkflowPhase, getToolHomePhase, getAllPhases, getPhaseDefinition } from './workflow-phases';
 import { requireString, requireArray, optionalString } from './tools/validation';
@@ -109,6 +111,7 @@ export function toolSetPhase(
   const oldPhase = context.currentPhase;
   context.currentPhase = phase;
   context.unlockedTools = []; // Clear unlocked tools on phase change
+  setDbToolsPhase(phase); // Keep db-tools aware of current phase for staging/central routing
   context.onActivity(`Phase: ${oldPhase} → ${phase} (${reason})`, 'info');
 
   const phaseDef = getPhaseDefinition(phase);
@@ -186,10 +189,38 @@ export async function toolBuildDatabase(
   if (shipDate) argParts.push('--ship-date', shipDate);
 
   // Always use staging DB for full pipeline
-  argParts.push('--db', getStagingDbPath());
+  const stagingPath = getStagingDbPath();
+  argParts.push('--db', stagingPath);
   argParts.push('--output', getOutputDir(context.outputName));
 
-  return runPython(argParts, context.onActivity);
+  const result = await runPython(argParts, context.onActivity);
+
+  // Populate meets metadata table in the staging DB
+  try {
+    const sourceId = optionalString(args, 'source_id') || '';
+    const sourceName = optionalString(args, 'source_name') || '';
+    const meetDates = optionalString(args, 'meet_dates') || '';
+    const yearStr = args.year !== undefined ? String(args.year) : '';
+    if (fs.existsSync(stagingPath)) {
+      const db = new Database(stagingPath);
+      db.exec(`CREATE TABLE IF NOT EXISTS meets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meet_name TEXT UNIQUE, source TEXT, source_id TEXT, source_name TEXT,
+        state TEXT, association TEXT, year TEXT, dates TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )`);
+      db.prepare(
+        `INSERT OR REPLACE INTO meets (meet_name, source, source_id, source_name, state, association, year, dates)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(meetName, source, sourceId, sourceName, state, association || 'USAG', yearStr, meetDates);
+      db.close();
+    }
+  } catch (err) {
+    // Non-fatal but log it — silent failure here causes metadata loss during finalize
+    console.warn('toolBuildDatabase: meets metadata insert failed:', err instanceof Error ? err.message : String(err));
+  }
+
+  return result;
 }
 
 /**
@@ -311,9 +342,11 @@ export async function toolImportPdfBacks(
   const shipDate = optionalString(args, 'ship_date');
   if (shipDate) argParts.push('--ship-date', shipDate);
 
-  // DB and output paths
+  // DB: use staging DB if it exists (meet not yet finalized), otherwise central
+  const stagingPath = getStagingDbPath();
   const centralPath = getDbPath();
-  argParts.push('--db', centralPath);
+  const dbPath = fs.existsSync(stagingPath) ? stagingPath : centralPath;
+  argParts.push('--db', dbPath);
   argParts.push('--output', getOutputDir(meetName));
 
   const result = await runPython(argParts, context.onActivity);

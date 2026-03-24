@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useLayoutEffect } from 'react';
 import { ActivityLogEntry } from '../types';
 
 interface Props {
@@ -16,23 +16,30 @@ function formatTime(isoString: string): string {
 }
 
 const ActivityLog: React.FC<Props> = ({ entries, isProcessing }) => {
-  const logEndRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const userScrolledUp = useRef(false);
+  // Snapshot of scroll state from the PREVIOUS render — used to decide
+  // whether to auto-scroll when new entries arrive.
+  const prevScroll = useRef({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 });
 
-  // Track whether user has scrolled up from the bottom
-  const handleScroll = () => {
+  useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUp.current = distanceFromBottom > 50;
-  };
 
-  useEffect(() => {
-    // Only auto-scroll if user is near the bottom
-    if (!userScrolledUp.current) {
-      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Was the user at (or near) the bottom BEFORE this render added new content?
+    // Compare against the previous render's dimensions, not the current ones.
+    const prev = prevScroll.current;
+    const wasAtBottom = prev.scrollHeight - prev.scrollTop - prev.clientHeight < 60;
+
+    if (wasAtBottom) {
+      el.scrollTop = el.scrollHeight;
     }
+
+    // Snapshot current state for the next render
+    prevScroll.current = {
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    };
   }, [entries]);
 
   return (
@@ -41,7 +48,7 @@ const ActivityLog: React.FC<Props> = ({ entries, isProcessing }) => {
         <h3>Activity Log</h3>
         {isProcessing && <span className="spinner" />}
       </div>
-      <div className="activity-log-content" ref={contentRef} onScroll={handleScroll}>
+      <div className="activity-log-content" ref={contentRef}>
         {entries.length === 0 && (
           <div className="log-empty">
             Waiting for activity...
@@ -53,7 +60,6 @@ const ActivityLog: React.FC<Props> = ({ entries, isProcessing }) => {
             <span className="log-message">{entry.message}</span>
           </div>
         ))}
-        <div ref={logEndRef} />
       </div>
     </div>
   );

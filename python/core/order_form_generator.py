@@ -39,13 +39,14 @@ TEMPLATE_DIR = os.path.join(_BASE_DIR, 'templates')
 TEMPLATE_PDF = os.path.join(TEMPLATE_DIR, 'order_form_template.pdf')
 
 # Event display order for sticker label
-STICKER_EVENT_ORDER = ['Vault', 'Bars', 'Beam', 'Floor', 'AA']
+STICKER_EVENT_ORDER = ['Vault', 'Bars', 'Beam', 'Floor', 'All Around']
 
 
-def _format_date(date_str: str) -> str:
+def _format_date(date_str: str, fallback_year: str = '') -> str:
     """Format a date string to 'April 4, 2026' style.
 
     Handles: '2026-04-04', 'April 4, 2026', 'april 4', '4/4/2026', 'Apr 4, 2026', 'TBD'
+    If the date has no year, uses fallback_year (the meet year).
     """
     if not date_str or date_str.upper() == 'TBD':
         return 'TBD'
@@ -58,24 +59,28 @@ def _format_date(date_str: str) -> str:
     if re.match(r'^(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}$', date_str):
         return date_str
 
-    # Try common formats
+    def _strip_leading_zero(formatted: str) -> str:
+        """Remove leading zero from day: 'April 04, 2026' → 'April 4, 2026'"""
+        return re.sub(r'(\w+ )0(\d,)', r'\1\2', formatted)
+
+    # Try common formats that include a year
     for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%B %d, %Y', '%B %d %Y',
                 '%b %d, %Y', '%b %d %Y', '%m-%d-%Y'):
         try:
             dt = datetime.strptime(date_str, fmt)
-            return dt.strftime('%B %-d, %Y') if hasattr(dt, 'strftime') else date_str
-        except (ValueError, AttributeError):
+            return _strip_leading_zero(dt.strftime('%B %d, %Y'))
+        except ValueError:
             continue
 
-    # Windows strftime doesn't support %-d, use %d and strip leading zero
-    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%B %d, %Y', '%B %d %Y',
-                '%b %d, %Y', '%b %d %Y', '%m-%d-%Y'):
+    # Try year-less formats — use the meet year as fallback
+    year = fallback_year or ''
+    for fmt in ('%B %d', '%b %d', '%B %d,', '%b %d,', '%m/%d', '%m-%d'):
         try:
-            dt = datetime.strptime(date_str, fmt)
-            formatted = dt.strftime('%B %d, %Y')
-            # Remove leading zero from day: "April 04, 2026" → "April 4, 2026"
-            formatted = re.sub(r'(\w+ )0(\d,)', r'\1\2', formatted)
-            return formatted
+            dt = datetime.strptime(date_str.rstrip(','), fmt.rstrip(','))
+            month_day = _strip_leading_zero(dt.strftime('%B %d,'))
+            if year:
+                return f'{month_day} {year}'
+            return month_day.rstrip(',')  # No year available — return without comma
         except ValueError:
             continue
 
@@ -103,10 +108,11 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     The template is customized per-state: correct logo, abbreviation, and
     dates are baked in. Only the athlete sticker label is added per-page.
     """
-    # Format dates to "April 4, 2026" style regardless of input format
-    postmark_date = _format_date(postmark_date)
-    online_date = _format_date(online_date)
-    ship_date = _format_date(ship_date)
+    # Format dates to "April 4, 2026" style regardless of input format.
+    # Use the meet year as fallback if the agent omits the year.
+    postmark_date = _format_date(postmark_date, fallback_year=year)
+    online_date = _format_date(online_date, fallback_year=year)
+    ship_date = _format_date(ship_date, fallback_year=year)
 
     gym_athletes = _get_gym_athletes(db_path, meet_name)
     if not gym_athletes:
@@ -143,6 +149,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
         postmark_date=postmark_date,
         online_date=online_date,
         ship_date=ship_date,
+        year=year,
     )
 
     doc = fitz.open()
@@ -201,7 +208,8 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
             _pg_count = len(shirt_data['page_groups']) if shirt_data else 0
             logger.info("Order form backs: using code-generated path (%d page groups)", _pg_count)
 
-        logger.info("Order forms: %d athletes across %d gyms", total_athletes, len(gyms))
+        logger.info("Order forms: %d athletes across %d gyms (expect %d 2-page forms = %d pages)",
+                     total_athletes, len(gyms), total_athletes, total_athletes * 2)
 
         backs_found = 0
         backs_missing = 0
@@ -260,7 +268,21 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                 else:
                     backs_missing += 1
                     if backs_missing <= 5:  # Only log first 5 to avoid spam
-                        logger.warning('No back pages found for "%s" (%s)', athlete_name, gym)
+                        logger.warning('No back pages found for "%s" (%s) — adding back without star', athlete_name, gym)
+                    # Fallback: add the appropriate back page WITHOUT a star.
+                    # A back without a star is better than no back at all.
+                    if use_pdf_overlay and shirt_doc and shirt_doc.page_count > 0:
+                        xcel_levels = {'XS', 'XP', 'XD', 'XSA', 'XB', 'XG'}
+                        athlete_levels = set(level_events.keys())
+                        # If any of the athlete's levels are XCEL, use page 0; otherwise page 1
+                        if athlete_levels & xcel_levels:
+                            fallback_page = 0
+                        else:
+                            fallback_page = min(1, shirt_doc.page_count - 1)
+                        src = shirt_doc[fallback_page]
+                        pw, ph = src.rect.width, src.rect.height
+                        new_pg = doc.new_page(width=pw, height=ph)
+                        new_pg.show_pdf_page(new_pg.rect, shirt_doc, fallback_page)
 
         if backs_missing > 0:
             logger.info("Order form backs: %d athletes have backs, %d athletes MISSING backs",

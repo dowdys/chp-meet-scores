@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { LLMClient, LLMMessage, ContentBlock, LLMResponse, ToolResultContent } from './llm-client';
 import { resetStagingDb } from './tools/python-tools';
+import { setDbToolsPhase } from './tools/db-tools';
 import { getDataDir } from './paths';
 import { getToolDefinitions } from './tool-definitions';
 import {
@@ -78,6 +79,7 @@ export class AgentLoop {
     try {
       const basePrompt = this.loadBasePrompt();
       resetStagingDb();
+      setDbToolsPhase('discovery'); // Initialize phase for db-tools
 
       const logsDir = path.join(getDataDir(), 'logs');
       if (!fs.existsSync(logsDir)) {
@@ -111,6 +113,7 @@ export class AgentLoop {
         context.loadedSkills = savedProgress.loaded_skills;
         if (savedProgress.current_phase) {
           context.currentPhase = savedProgress.current_phase;
+          setDbToolsPhase(savedProgress.current_phase);
         }
         if (savedProgress.idml_imported) {
           context.idmlImported = true;
@@ -224,12 +227,18 @@ export class AgentLoop {
   }
 
   async queryResults(question: string): Promise<{ success: boolean; answer: string }> {
+    // Save and restore phase so query tab doesn't clobber a running processing session
+    const savedPhase = this.activeContext?.currentPhase ?? null;
     try {
+      // Query tab should use central DB
+      setDbToolsPhase(null);
+
       const querySystem = `You are a gymnastics meet data analyst. Use the query_db tool to answer questions about meet results in the SQLite database.
 
 ## Database Schema
 **results**: id, state, meet_name, association, name, gym, session, level, division, vault (REAL), bars (REAL), beam (REAL), floor (REAL), aa (REAL), rank, num
 **winners**: id, state, meet_name, association, name, gym, session, level, division, event, score (REAL), is_tie (INTEGER)
+**meets**: id, meet_name (UNIQUE), source, source_id, source_name, state, association, year, dates, created_at — tracks where each meet's data came from
 
 Give clear, concise answers.`;
 
@@ -288,6 +297,9 @@ Give clear, concise answers.`;
       const message = err instanceof Error ? err.message : String(err);
       this.onActivity(`Query error: ${message}`, 'error');
       return { success: false, answer: message };
+    } finally {
+      // Restore processing phase so we don't clobber an active processing session
+      setDbToolsPhase(savedPhase);
     }
   }
 

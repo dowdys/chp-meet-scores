@@ -65,14 +65,15 @@ const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
     name: 'discovery',
     description: 'Find the meet online, identify source and IDs, set output name, get dates',
     tools: [
-      'search_meets', 'http_fetch', 'web_search', 'chrome_navigate', 'chrome_execute_js',
+      'search_meets', 'lookup_meet', 'http_fetch', 'web_search', 'chrome_navigate', 'chrome_execute_js',
       'chrome_screenshot', 'chrome_click', 'set_output_name',
     ],
     prompt: `## Current Phase: DISCOVERY
 Find the meet results online and prepare for extraction.
 
 ### Meet Search
-Call \`search_meets\` ONCE. It searches both MSO and ScoreCat. Do NOT browse websites manually.
+Call \`search_meets\` ONCE. It searches MSO (current + previous season pages automatically), ScoreCat (Algolia), and Perplexity as fallback. Do NOT browse websites manually.
+If you know the exact MSO meet ID, use \`lookup_meet\` to verify it and get metadata (canonical name, dates, location).
 
 **CRITICAL: Trust the results.** If \`search_meets\` returns a Women's meet from MSO for the correct state, that is almost certainly the right meet. Do NOT:
 - Spend iterations browsing MSO to "confirm" the meet
@@ -95,9 +96,18 @@ Do NOT browse MSO website, take screenshots, or try MyMeetScores unless search_m
 ### State Championships
 A full state championship covers all competitive levels (numbered 1-10 + Xcel Bronze through Sapphire). Most sources split these across **multiple separate meets**. Find and combine all sub-meets.
 
+### Meet Naming Convention
+Use this standardized format for meet names:
+\`[Association] [Gender Initial] [Sport] - [Year] [State Abbrev] - [Date(s)]\`
+Examples:
+- "USAG W Gymnastics - 2025 MS - March 14-16"
+- "USAG W Gymnastics - 2026 NV - March 14-16"
+- "AAU W Gymnastics - 2025 AL - May 2-3"
+Use the 2-letter state abbreviation (MS, NV, AL, etc.). Get dates from \`lookup_meet\` or extraction results.
+
 ### Before Leaving This Phase
-- Call \`set_output_name\` with a clean folder name (e.g., "2025 SC State Championships")
-- Use \`ask_user\` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping)
+- Call \`set_output_name\` with the standardized meet name (see naming convention above)
+- Use \`ask_user\` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Request dates with the YEAR included (e.g., "April 4, 2025").
 - If multiple meets match, present ALL to the user via \`ask_user\`
 - Once you find a meet on MSO, move directly to extraction — do NOT also search ScoreCat/MyMeetScores for the same meet
 - ALWAYS verify today's date with \`run_script\` before dismissing meets as "future"
@@ -147,6 +157,7 @@ Build the database from extracted data and verify quality.
 ### Database Schema
 **results** table: id, state, meet_name, association, name, gym, session, level, division, vault, bars, beam, floor, aa, rank, num
 **winners** table: id, state, meet_name, association, name, gym, session, level, division, event, score, is_tie
+**meets** table: id, meet_name (UNIQUE), source, source_id, source_name, state, association, year, dates, created_at — tracks where each meet's data came from
 
 ### Winner Determination Rules
 - **Winner** = highest score per session+level+division per event (always score-based, never trust source ranks)
@@ -163,19 +174,42 @@ Auto-normalized by \`build_database\` in three phases:
 
 If potential duplicates need manual mapping, create a gym-map JSON and re-run with \`gym_map\` parameter. Don't spend more than ~3 iterations on gym normalization.
 
+### Division Ordering
+After building the database, \`build_database\` reports the auto-detected division order and flags any UNKNOWN_DIVISIONS. **You must verify the division order is correct** before generating outputs. Divisions should be sorted youngest to oldest.
+
+Every state uses different division formats:
+- Age-based: "8 yrs.", "9A", "10B", "15+" (Nebraska)
+- Letter-based: "A", "B", "C", "D", "E" (Mississippi)
+- Jr/Sr: "Jr A", "Jr B", "Sr A", "Sr B" (Nevada)
+- Named: "Child", "Youth", "Junior", "Senior" (various)
+
+**If the auto-detected order looks wrong or has UNKNOWN_DIVISIONS:**
+1. Query the database: \`SELECT DISTINCT division FROM results ORDER BY division\`
+2. Look at the divisions and determine the correct youngest-to-oldest order based on context
+3. Re-run \`build_database\` with the \`division_order\` parameter set to the correct order
+4. If you're not sure about the order, ASK the user — show them the divisions and ask which order is correct
+
+**Do NOT spend multiple iterations guessing.** If the format is unfamiliar, ask the user on the first try.
+
 ### Quality Checks
-After building the database, load the \`data_quality\` skill and run checks. Batch multiple queries into a single \`run_script\` call when possible.
+After building the database and verifying division order, load the \`data_quality\` skill and run checks. Batch multiple queries into a single \`run_script\` call when possible.
 
 ### Passing Dates
 When calling \`build_database\`, ALWAYS include the deadline dates if you have them:
-- postmark_date, online_date, ship_date
+- postmark_date: format "April 4, 2025" (full month name, day, and YEAR)
+- online_date: same format
+- ship_date: same format
 These appear on the order forms. If you don't pass them, they default to "TBD".
+**IMPORTANT**: Use the MEET YEAR for deadline dates, not the current year. A 2025 meet has 2025 deadlines.
+If the user gives dates without a year, use the meet year (from the output name or extraction). Only ask if ambiguous.
 
 ### Staging Database
 \`build_database\` builds the database ONLY — it does NOT generate output files (PDFs, IDMLs). This is by design: you should run quality checks BEFORE generating outputs.
 
 **Workflow:**
 1. Call \`build_database\` → parses data, normalizes gyms, builds results + winners tables
+   - Use the SAME name for \`meet_name\` as you set with \`set_output_name\` — they must match
+   - Include \`source_id\` (e.g., MSO meet ID "34508"), \`source_name\` (canonical name from MSO), and \`meet_dates\` (e.g., "Mar 14-16, 2025") for the meets metadata table
 2. Run quality checks on the staging data (load data_quality skill)
 3. Fix any issues found (gym normalization, data cleanup)
 4. Advance to output_finalize phase

@@ -11,36 +11,46 @@ The agent operates in 4 workflow phases, each with its own tools and focused ins
 3. **DATABASE** — Build the SQLite database, run quality checks, normalize gym names
 4. **OUTPUT & FINALIZE** — Generate outputs, review with user, finalize to central DB
 
+Plus a reactive phase:
+5. **IMPORT BACKS** — Import designer-edited PDF backs (activates when user provides PDF file paths)
+
 Use `set_phase` to transition between phases. Use `unlock_tool` if you need a tool from another phase without switching.
 
 ## Key Tools
 
 | Tool | Phase | Purpose |
 |------|-------|---------|
-| `build_database` | database | Parse extracted data into SQLite (replaces old run_python --source) |
-| `regenerate_output` | output_finalize | Regenerate specific outputs from existing DB (replaces old run_python --regenerate) |
-| `import_idml` | output_finalize | Import IDML from InDesign (replaces old run_python --import-idml) |
-| `mso_extract` | extraction | Extract from MeetScoresOnline.com |
+| `search_meets` | discovery | Search MSO + ScoreCat + Perplexity for meets (season-aware) |
+| `lookup_meet` | discovery | Verify a specific meet by exact MSO ID — returns metadata |
+| `mso_extract` | extraction | Extract from MeetScoresOnline.com (direct API, no Chrome) |
 | `scorecat_extract` | extraction | Extract from ScoreCat/Firebase |
+| `build_database` | database | Parse extracted data into SQLite. Sources: "generic" (MSO JSON) or "scorecat" |
+| `regenerate_output` | output_finalize | Regenerate specific outputs from existing DB |
+| `import_pdf_backs` | import_backs | Import designer-edited PDF backs, regenerate order forms + gym highlights |
+| `finalize_meet` | output_finalize | Merge staging DB into central DB |
 | `set_phase` | always | Transition to a different workflow phase |
 | `unlock_tool` | always | Temporarily access a tool from another phase |
-| `finalize_meet` | output_finalize | Merge staging DB into central DB |
+
+## Database Schema
+
+- **results**: id, state, meet_name, association, name, gym, session, level, division, vault, bars, beam, floor, aa, rank, num
+- **winners**: id, state, meet_name, association, name, gym, session, level, division, event, score, is_tie
+- **meets**: id, meet_name (UNIQUE), source, source_id, source_name, state, association, year, dates, created_at
 
 ## Critical Rules
 
-- **After IDML import**: NEVER use `build_database` or `regenerate_output` with `shirt`/`all` — it destroys designer edits
+- **After PDF import**: NEVER use `build_database` or `regenerate_output` with `shirt`/`all` — it destroys designer edits
 - **Before `build_database`**: Must call `set_output_name` first
 - **Winner determination**: Always score-based, never trust source ranks
+- **Dates**: Use the MEET YEAR for deadline dates, not the current year
 - **UTF-8**: Enforced automatically via `PYTHONUTF8=1` environment variable
 
 ## Available Skills
 
 | Skill | When to Load |
 |-------|-------------|
-| meet_discovery | Starting a new meet |
+| meet_discovery | Starting a new meet (reference only — search_meets is primary) |
 | scorecat_extraction | Reference for ScoreCat edge cases |
-| mso_pdf_extraction | MSO uses Report Builder (no JSON API) |
-| mso_html_extraction | Reference for MSO HTML format |
 | database_building | Building SQLite DB |
 | output_generation | Generating deliverables |
 | data_quality | Validating data before output |
