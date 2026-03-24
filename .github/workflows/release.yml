@@ -18,7 +18,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=${GITHUB_REF#refs/tags/}
-          gh release create "$TAG" --draft --title "$TAG" --notes "Release $TAG" || true
+          # Delete any existing release for this tag (manual or stale) so we start clean.
+          # This prevents the "empty published release" problem where a manual release
+          # coexists with the CI draft and the manual one has no assets.
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" --draft --title "$TAG" --notes "Release $TAG"
 
   build-windows:
     needs: [create-release]
@@ -224,4 +228,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=${GITHUB_REF#refs/tags/}
+          # Verify critical assets exist before publishing
+          ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          if [ "$ASSET_COUNT" -lt 3 ]; then
+            echo "ERROR: Only $ASSET_COUNT assets found — expected at least latest.yml + .exe + .dmg"
+            echo "Assets present:"
+            gh release view "$TAG" --json assets --jq '.assets[].name'
+            exit 1
+          fi
+          echo "Verified $ASSET_COUNT assets. Publishing release..."
           gh release edit "$TAG" --draft=false
