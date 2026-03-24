@@ -401,6 +401,18 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         const finalMessage = textBlocks.map((b) => b.text).join('\n');
         context.messages.push({ role: 'assistant', content: response.content });
 
+        // After a context prune, the agent's first response often summarizes prior work
+        // using words like "complete" and "ready" — always nudge it to continue.
+        if (context.justPruned) {
+          context.justPruned = false;
+          this.onActivity('Continuing after phase transition...', 'info');
+          context.messages.push({
+            role: 'user',
+            content: 'You just transitioned to a new phase. Please proceed with the work for this phase — call the appropriate tools now.',
+          });
+          continue;
+        }
+
         const lowerText = finalMessage.toLowerCase();
         const planPatterns = /\blet me (now |then )?(run|call|use|execute|extract|generate|regenerate)\b|\bnext.{0,20}(build_database|regenerate_output|import_idml|run_script|scorecat_extract|mso_extract|query_db)\b|\bi'll (now |then )?(run|call|use|execute|extract|generate)\b/.test(lowerText);
         const completionPatterns = /\bdone\b|\bcomplete\b|\bfinished\b|\bno (more|further)\b|\breview\b|\bready\b|\bgenerated\b|\bsuccessfully\b/.test(lowerText);
@@ -434,6 +446,7 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       }
 
       if (response.stop_reason === 'tool_use') {
+        const phaseBeforeTools = context.currentPhase;
         context.messages.push({ role: 'assistant', content: response.content });
         const toolResults = await this.executeToolCalls(response.content, context);
         context.messages.push({ role: 'user', content: toolResults });
@@ -463,6 +476,11 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
               console.log(`[AGENT] Auto-switch triggered. Result text: ${allResultText.substring(0, 200)}`);
             }
           }
+        }
+
+        // Prune context on phase transition — condense prior work into a compact handoff
+        if (context.currentPhase !== phaseBeforeTools) {
+          await this.pruneContextForPhaseTransition(context, phaseBeforeTools);
         }
       }
 
@@ -563,48 +581,80 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     }
   }
 
+  // Tools that are safe to run concurrently (read-only, no shared mutable state)
+  private static readonly PARALLELIZABLE_TOOLS = new Set([
+    'render_pdf_page',
+    'query_db',
+    'query_db_to_file',
+    'list_output_files',
+    'list_meets',
+    'get_meet_summary',
+    'read_file',
+    'list_skills',
+    'open_file',
+  ]);
+
   private async executeToolCalls(
     content: ContentBlock[],
     context: AgentContext
   ): Promise<ContentBlock[]> {
     const toolCalls = content.filter((b): b is import('./llm-client').ToolUseBlock => b.type === 'tool_use');
+
+    // If all tools in this batch are parallelizable, run them concurrently
+    const canParallelize = toolCalls.length > 1 &&
+      toolCalls.every(call => AgentLoop.PARALLELIZABLE_TOOLS.has(call.name));
+
+    if (canParallelize) {
+      console.log(`[AGENT] Running ${toolCalls.length} tools in parallel: ${toolCalls.map(c => c.name).join(', ')}`);
+      const results = await Promise.all(
+        toolCalls.map(call => this.executeSingleTool(call, context))
+      );
+      return results;
+    }
+
+    // Otherwise, run sequentially (preserves ordering for stateful tools)
     const results: ContentBlock[] = [];
-
     for (const call of toolCalls) {
-      const toolName = call.name;
-      const toolArgs = call.input;
-      const toolId = call.id;
+      results.push(await this.executeSingleTool(call, context));
+    }
+    return results;
+  }
 
-      if (toolName === 'ask_user' && context.logPath) {
-        saveProcessLog(context, {
-          success: false,
-          message: `IN PROGRESS — waiting for user response (iteration ${context.iterationCount})`,
-        });
-      }
+  private async executeSingleTool(
+    call: import('./llm-client').ToolUseBlock,
+    context: AgentContext
+  ): Promise<ContentBlock> {
+    const toolName = call.name;
+    const toolArgs = call.input;
+    const toolId = call.id;
 
-      this.onActivity(`[${context.currentPhase}] Running tool: ${toolName}...`, 'info');
-      console.log(`[AGENT] Running tool: ${toolName} args=${JSON.stringify(toolArgs).substring(0, 200)}`);
-
-      let result: ToolResultContent;
-      try {
-        result = await this.executeTool(toolName, toolArgs, context);
-        const textPreview = toolResultText(result);
-        const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
-        this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        result = `Error: ${errMsg}`;
-        this.onActivity(`Tool ${toolName} failed: ${errMsg}`, 'error');
-      }
-
-      results.push({
-        type: 'tool_result',
-        tool_use_id: toolId,
-        content: result,
+    if (toolName === 'ask_user' && context.logPath) {
+      saveProcessLog(context, {
+        success: false,
+        message: `IN PROGRESS — waiting for user response (iteration ${context.iterationCount})`,
       });
     }
 
-    return results;
+    this.onActivity(`[${context.currentPhase}] Running tool: ${toolName}...`, 'info');
+    console.log(`[AGENT] Running tool: ${toolName} args=${JSON.stringify(toolArgs).substring(0, 200)}`);
+
+    let result: ToolResultContent;
+    try {
+      result = await this.executeTool(toolName, toolArgs, context);
+      const textPreview = toolResultText(result);
+      const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
+      this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      result = `Error: ${errMsg}`;
+      this.onActivity(`Tool ${toolName} failed: ${errMsg}`, 'error');
+    }
+
+    return {
+      type: 'tool_result',
+      tool_use_id: toolId,
+      content: result,
+    };
   }
 
   private async executeTool(
@@ -662,6 +712,244 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       default:
         return `Error: Unknown tool "${name}"`;
     }
+  }
+
+  // Tools whose arguments contain key facts worth preserving in a phase handoff
+  private static readonly HANDOFF_TOOL_ARGS: Record<string, string[]> = {
+    search_meets: ['query', 'state'],
+    lookup_meet: ['source', 'meet_id'],
+    mso_extract: ['meet_ids'],
+    scorecat_extract: ['meet_ids'],
+    build_database: ['source', 'data_path', 'state', 'meet_name', 'postmark_date', 'online_date', 'ship_date', 'division_order', 'source_id', 'source_name', 'meet_dates'],
+    set_output_name: ['name'],
+    regenerate_output: ['state', 'meet_name', 'outputs'],
+    import_pdf_backs: ['pdf_paths', 'state', 'meet_name'],
+  };
+
+  /**
+   * Condense the message history into a compact handoff when transitioning phases.
+   * Runs two extraction strategies in parallel:
+   *   1. Automated: tool arguments, ask_user Q&A, file paths, agent text
+   *   2. LLM-generated: a lightweight model summarizes the full conversation
+   * Then combines both into a single handoff message.
+   */
+  private async pruneContextForPhaseTransition(context: AgentContext, fromPhase: string): Promise<void> {
+    const messages = [...context.messages]; // snapshot before we mutate
+
+    // Start LLM summary in parallel (best-effort, 15s timeout)
+    const llmSummaryPromise = Promise.race([
+      this.generateLLMSummary(messages),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 15000)),
+    ]);
+
+    // --- Automated extraction (synchronous) ---
+    const agentTexts: string[] = [];
+    const askUserExchanges: string[] = [];
+    const keyFiles: Set<string> = new Set();
+    const toolArgSnapshots: string[] = [];
+    const filePattern = /(?:\/[\w./_-]+\.(?:json|pdf|db|idml|txt|csv))/g;
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (typeof msg.content === 'string') continue;
+
+      if (msg.role === 'assistant') {
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            agentTexts.push(block.text);
+          }
+          // Extract key arguments from important tool calls
+          if (block.type === 'tool_use') {
+            const keysToCapture = AgentLoop.HANDOFF_TOOL_ARGS[block.name];
+            if (keysToCapture) {
+              const args = block.input as Record<string, unknown>;
+              const captured: string[] = [];
+              for (const key of keysToCapture) {
+                if (args[key] !== undefined && args[key] !== null) {
+                  captured.push(`${key}: ${JSON.stringify(args[key])}`);
+                }
+              }
+              if (captured.length > 0) {
+                toolArgSnapshots.push(`${block.name}(${captured.join(', ')})`);
+              }
+            }
+          }
+        }
+      }
+
+      if (msg.role === 'user') {
+        for (const block of msg.content) {
+          if (block.type !== 'tool_result') continue;
+          const resultText = typeof block.content === 'string' ? block.content : '';
+
+          // Extract file paths from tool results
+          const matches = resultText.match(filePattern);
+          if (matches) matches.forEach(f => keyFiles.add(f));
+
+          // Capture ask_user Q&A — find the matching tool_use in the preceding assistant message
+          const prevMsg = i > 0 ? messages[i - 1] : null;
+          if (prevMsg && prevMsg.role === 'assistant' && typeof prevMsg.content !== 'string') {
+            const matchingToolUse = prevMsg.content.find(
+              (b): b is import('./llm-client').ToolUseBlock =>
+                b.type === 'tool_use' && b.id === block.tool_use_id && b.name === 'ask_user'
+            );
+            if (matchingToolUse) {
+              const question = String((matchingToolUse.input as Record<string, unknown>).question || '');
+              askUserExchanges.push(`Q: ${question}\nA: ${resultText}`);
+            }
+          }
+        }
+      }
+    }
+
+    // Await the LLM summary (may be null if it failed or timed out)
+    const llmSummary = await llmSummaryPromise;
+
+    // Use the last few agent text blocks as automated summary (capped)
+    const recentTexts = agentTexts.slice(-3);
+    let autoSummary = recentTexts.join('\n\n');
+    if (autoSummary.length > 2000) {
+      autoSummary = autoSummary.slice(-2000);
+    }
+
+    // --- Build the handoff message ---
+    const parts: string[] = [
+      `[Phase handoff: ${fromPhase} → ${context.currentPhase}]`,
+      '',
+      `You are processing meet "${context.meetName}".`,
+    ];
+    if (context.outputName) parts.push(`Output name: "${context.outputName}"`);
+    if (context.state) parts.push(`State: ${context.state}`);
+    parts.push('');
+
+    if (toolArgSnapshots.length > 0) {
+      parts.push('Key tool calls from prior phases:');
+      for (const snap of toolArgSnapshots) parts.push(`  ${snap}`);
+      parts.push('');
+    }
+
+    if (askUserExchanges.length > 0) {
+      parts.push('User responses from prior phases:');
+      parts.push(...askUserExchanges);
+      parts.push('');
+    }
+
+    if (llmSummary) {
+      parts.push('Context summary:');
+      parts.push(llmSummary);
+      parts.push('');
+    }
+
+    parts.push('Agent notes from prior phases:');
+    parts.push(autoSummary);
+
+    if (keyFiles.size > 0) {
+      parts.push('');
+      parts.push('Key files on disk:');
+      for (const f of keyFiles) parts.push(`  ${f}`);
+    }
+
+    parts.push('');
+    parts.push('Continue working in the current phase. Use read_file or query_db to access data from earlier phases if needed.');
+
+    const handoff = parts.join('\n');
+
+    // Replace messages and clear loaded skills
+    const oldMessageCount = context.messages.length;
+    context.messages = [{ role: 'user', content: handoff }];
+    context.loadedSkills = [];
+    context.justPruned = true; // Prevent next end_turn from exiting the loop
+
+    const handoffTokenEstimate = Math.round(handoff.length / 4);
+    console.log(
+      `[AGENT] Context pruned: ${oldMessageCount} messages → 1 handoff (~${handoffTokenEstimate} tokens). ` +
+      `LLM summary: ${llmSummary ? 'yes' : 'skipped'}. Tool snapshots: ${toolArgSnapshots.length}.`
+    );
+    this.onActivity(
+      `Context pruned for ${fromPhase} → ${context.currentPhase} transition (${oldMessageCount} messages → compact handoff)`,
+      'info'
+    );
+  }
+
+  /**
+   * Generate a concise summary of the conversation using a lightweight LLM.
+   * Uses qwen on OpenRouter or haiku on Anthropic/subscription.
+   * Returns null on any failure (best-effort).
+   */
+  private async generateLLMSummary(messages: LLMMessage[]): Promise<string | null> {
+    try {
+      const { configStore } = await import('./config-store');
+      const provider = configStore.get('apiProvider');
+      const apiKey = configStore.get('apiKey');
+
+      // Subscription provider doesn't need an API key (uses OAuth)
+      if (provider !== 'subscription' && !apiKey) return null;
+
+      const model = provider === 'openrouter'
+        ? 'qwen/qwen3.5-35b-a3b'
+        : 'claude-haiku-4-5-20251001';
+
+      const condensed = this.buildCondensedConversation(messages);
+      if (!condensed) return null;
+
+      const summaryClient = new LLMClient({ provider, apiKey, model });
+      const response = await summaryClient.sendMessage({
+        system: [
+          'You are summarizing an agent conversation for a phase-transition handoff.',
+          'Extract and state ALL key facts concisely: meet name, data source and IDs, state,',
+          'deadline dates, athlete counts, level distribution, division ordering, any issues or',
+          'user preferences. Be specific — include numbers, IDs, and exact values.',
+          'Keep it under 300 words. No preamble.',
+        ].join(' '),
+        messages: [{ role: 'user', content: condensed }],
+        tools: [],
+      });
+
+      const textBlocks = response.content.filter(
+        (b): b is import('./llm-client').TextBlock => b.type === 'text'
+      );
+      const summary = textBlocks.map(b => b.text).join('\n');
+      console.log(`[AGENT] LLM summary generated (${summary.length} chars, model: ${model})`);
+      return summary || null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[AGENT] LLM summary failed (non-fatal): ${msg.substring(0, 200)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Build a condensed text representation of the conversation for the summary model.
+   * Includes agent text, tool names + key args, and truncated tool results.
+   */
+  private buildCondensedConversation(messages: LLMMessage[]): string {
+    const parts: string[] = [];
+
+    for (const msg of messages) {
+      if (typeof msg.content === 'string') {
+        parts.push(`[${msg.role}] ${msg.content}`);
+        continue;
+      }
+
+      for (const block of msg.content) {
+        if (block.type === 'text') {
+          parts.push(`[${msg.role}] ${block.text}`);
+        } else if (block.type === 'tool_use') {
+          const argsStr = JSON.stringify(block.input);
+          parts.push(`[tool: ${block.name}] ${argsStr.substring(0, 400)}`);
+        } else if (block.type === 'tool_result') {
+          const text = typeof block.content === 'string' ? block.content : '[non-text content]';
+          parts.push(`[result] ${text.substring(0, 500)}`);
+        }
+      }
+    }
+
+    let result = parts.join('\n');
+    // Cap at ~10K chars to keep the summary model's input reasonable
+    if (result.length > 10000) {
+      result = result.slice(-10000);
+    }
+    return result;
   }
 
   private async doAutoSaveProgress(context: AgentContext): Promise<void> {

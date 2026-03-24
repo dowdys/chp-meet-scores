@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
 import { requireString, optionalString } from './validation';
+import { fetchWithRetry } from './retry';
 
 // State name → 2-letter abbreviation mapping (lowercase keys)
 const STATE_ABBREVS: Record<string, string> = {
@@ -36,7 +37,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
 
     // 1. Search Algolia (ScoreCat)
     try {
-      const algoliaResp = await fetch('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
+      const algoliaResp = await fetchWithRetry('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
         method: 'POST',
         headers: {
           'x-algolia-application-id': '2R102D471D',
@@ -65,7 +66,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
 
     // 2. Search MSO Results.All (current season + query year's season if different)
     const searchMsoPage = async (url: string) => {
-      const msoResp = await fetch(url, {
+      const msoResp = await fetchWithRetry(url, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
       });
       const html = await msoResp.text();
@@ -123,7 +124,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
         const { configStore } = await import('../config-store');
         const pplxKey = configStore.get('perplexityApiKey');
         if (pplxKey) {
-          const pplxResp = await fetch('https://api.perplexity.ai/chat/completions', {
+          const pplxResp = await fetchWithRetry('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${pplxKey}`,
@@ -148,7 +149,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
             // Verify each found ID via MSO API
             for (const meetId of allIds.slice(0, 3)) {
               try {
-                const verifyResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+                const verifyResp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                   body: `p_meetid=${meetId}&query_name=lookup_scores`,
@@ -195,7 +196,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       }
 
       // Fetch meet metadata via MSO lookup_meet API
-      const metaResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+      const metaResp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
         body: `p_meetid=${meetId}&p_eventid=1&query_name=lookup_meet`,
@@ -212,7 +213,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       // Also check athlete count via lookup_scores
       let athleteCount = 0;
       try {
-        const scoresResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+        const scoresResp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
           body: `p_meetid=${meetId}&query_name=lookup_scores`,
@@ -265,7 +266,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
         options.body = body;
       }
 
-      const response = await fetch(url, options);
+      const response = await fetchWithRetry(url, options);
       const text = await response.text();
 
       // Auto-save large responses to file to keep agent context small

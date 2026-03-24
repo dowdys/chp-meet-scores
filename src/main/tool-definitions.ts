@@ -183,7 +183,7 @@ export function getToolDefinitions(): ToolDefinition[] {
         type: 'object',
         properties: {
           source: { type: 'string', enum: ['scorecat', 'generic'], description: 'Data format: "generic" for mso_extract JSON, "scorecat" for scorecat_extract JSON' },
-          data_path: { type: 'string', description: 'Path to the extracted data file' },
+          data_path: { type: 'string', description: 'Path to extracted data file(s). For multiple sources, pass comma-separated paths: "file1.json,file2.json"' },
           state: { type: 'string', description: 'State name (e.g., Iowa, Maryland)' },
           meet_name: { type: 'string', description: 'Meet name (e.g., 2025 Iowa State Championships)' },
           association: { type: 'string', description: 'USAG or AAU (default: USAG)' },

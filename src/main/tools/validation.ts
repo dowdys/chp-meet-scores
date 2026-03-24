@@ -17,7 +17,14 @@ export function optionalString(args: Record<string, unknown>, key: string): stri
 }
 
 export function requireArray(args: Record<string, unknown>, key: string): unknown[] {
-  const val = args[key];
+  let val = args[key];
+  // LLMs sometimes serialize arrays as JSON strings (e.g. "[\"order_forms\"]")
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) val = parsed;
+    } catch { /* not valid JSON — fall through to error */ }
+  }
   if (!Array.isArray(val)) throw new Error(`Expected array for '${key}', got ${typeof val}`);
   return val;
 }

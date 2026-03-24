@@ -84,8 +84,13 @@ function formatTable(columns: string[], rows: Record<string, unknown>[]): string
     return Math.max(col.length, ...values.map(v => v.length));
   });
 
-  // Cap each column at 40 chars for readability
-  const cappedWidths = widths.map(w => Math.min(w, 40));
+  // Cap columns for readability, but give meet_name extra room to avoid truncation
+  // that causes the agent to use wrong names in subsequent tool calls
+  const cappedWidths = widths.map((w, i) => {
+    const col = columns[i].toLowerCase();
+    if (col === 'meet_name' || col === 'name') return Math.min(w, 80);
+    return Math.min(w, 40);
+  });
 
   const header = columns.map((col, i) => col.padEnd(cappedWidths[i])).join(' | ');
   const separator = cappedWidths.map(w => '-'.repeat(w)).join('-+-');

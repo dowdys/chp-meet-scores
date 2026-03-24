@@ -40,6 +40,8 @@ export interface AgentContext {
   unlockedTools: string[];
   /** Set to true after an IDML import — prevents build_database from running */
   idmlImported?: boolean;
+  /** Set to true after context pruning — forces the next end_turn to nudge instead of exit */
+  justPruned?: boolean;
 }
 
 export interface ProgressData {
@@ -161,13 +163,18 @@ export async function toolBuildDatabase(
   }
 
   const source = requireString(args, 'source');
-  const dataPath = convertWindowsPaths(requireString(args, 'data_path'));
   const state = requireString(args, 'state');
   const meetName = requireString(args, 'meet_name');
 
+  // data_path: single path or comma-separated paths for multi-source builds
+  const rawDataPath = String(args.data_path);
+  const dataPaths: string[] = rawDataPath.includes(',')
+    ? rawDataPath.split(',').map(p => convertWindowsPaths(p.trim()))
+    : [convertWindowsPaths(rawDataPath)];
+
   const argParts: string[] = [
     '--source', source,
-    '--data', dataPath,
+    ...dataPaths.flatMap(p => ['--data', p]),
     '--state', state,
     '--meet', meetName,
   ];

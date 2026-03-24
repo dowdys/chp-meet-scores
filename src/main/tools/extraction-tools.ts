@@ -3,6 +3,26 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir } from '../paths';
 import { requireArray } from './validation';
+import { fetchWithRetry } from './retry';
+
+/**
+ * Decode HTML entities from MSO API responses.
+ */
+export function decodeHtml(html: string): string {
+  if (!html) return '';
+  return html.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)))
+             .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+             .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
+}
+
+/**
+ * Strip MSO event annotations from athlete names.
+ * e.g., "Jane Smith VT,BB,FX" → "Jane Smith"
+ */
+export function cleanName(raw: string): string {
+  const decoded = decodeHtml(raw);
+  return decoded.replace(/\s*(?:IES\s+)?(?:VT|UB|BB|FX|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*[,\s]*$/, '').trim();
+}
 
 /**
  * Build formatted level distribution lines from an array of athlete records.
@@ -50,7 +70,7 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
 
       for (const meetId of meetIds) {
         try {
-          const resp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+          const resp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
             body: `p_meetid=${meetId}&query_name=lookup_scores`,
@@ -62,20 +82,6 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
             errors.push({ meetId, error: 'No rows returned from API' });
             counts[meetId] = 0;
             continue;
-          }
-
-          // Decode HTML entities
-          function decodeHtml(html: string): string {
-            if (!html) return '';
-            return html.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)))
-                       .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-                       .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
-          }
-
-          // Strip MSO event annotations from names
-          function cleanName(raw: string): string {
-            const decoded = decodeHtml(raw);
-            return decoded.replace(/\s*(?:IES\s+)?(?:VT|UB|BB|FX|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*[,\s]*$/, '').trim();
           }
 
           const mapped = rows.map(r => ({
@@ -120,7 +126,7 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
       const meetMeta: Record<string, string> = {};
       for (const meetId of meetIds) {
         try {
-          const metaResp = await fetch('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
+          const metaResp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
             body: `p_meetid=${meetId}&p_eventid=1&query_name=lookup_meet`,

@@ -97,6 +97,12 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
 
         conn.commit()
 
+        # Normalize division case: merge "JR A"/"Jr A"/"JRA" variants.
+        # When combining MSO + ScoreCat data, the same division may appear
+        # with different casing (MSO: "JR A", ScoreCat: "Jr A").
+        _normalize_division_case(cur, config.meet_name)
+        conn.commit()
+
         # Always use score-based winner determination — ranks from data sources
         # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
         # to tied athletes instead of giving both rank 1)
@@ -104,6 +110,42 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
     finally:
         conn.close()
     return db_path
+
+
+def _normalize_division_case(cur, meet_name: str):
+    """Merge division variants that differ only by case (e.g., JR A / Jr A / JRA).
+
+    When combining data from multiple sources (MSO + ScoreCat), the same division
+    may appear with different casing. This picks a canonical form for each group
+    and updates all records to match.
+    """
+    cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?', (meet_name,))
+    all_divs = [r[0] for r in cur.fetchall() if r[0]]
+
+    # Group by uppercased key with spaces stripped
+    groups = {}  # UPPER_NO_SPACES -> [original forms]
+    for div in all_divs:
+        key = div.strip().upper().replace(' ', '')
+        groups.setdefault(key, []).append(div)
+
+    merged = 0
+    for key, variants in groups.items():
+        if len(variants) <= 1:
+            continue
+        # Pick canonical: prefer version with spaces ("Jr A" over "JRA"),
+        # then prefer mixed case over ALL CAPS
+        canonical = sorted(variants, key=lambda v: (-len(v), v == v.upper(), v))[0]
+        for variant in variants:
+            if variant != canonical:
+                cur.execute('UPDATE results SET division = ? WHERE meet_name = ? AND division = ?',
+                            (canonical, meet_name, variant))
+                count = cur.rowcount
+                if count > 0:
+                    merged += count
+                    print(f"  Division merged: \"{variant}\" → \"{canonical}\" ({count} rows)")
+
+    if merged:
+        print(f"  Total division merges: {merged} rows")
 
 
 def _create_winners_table(cur, meet_name: str):

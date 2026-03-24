@@ -87,9 +87,10 @@ const ProcessTab: React.FC = () => {
     };
   }, []);
 
-  // Detect if this is a multi-select question (3+ options that look like meet names)
+  // Use checkbox UI for 2+ options (allows selecting option + typing additional text).
+  // Excluded: resume/start-fresh prompts which work better as simple buttons.
   const isMultiSelect = pendingQuestion
-    && pendingQuestion.options.length >= 3
+    && pendingQuestion.options.length >= 2
     && !pendingQuestion.options.some(o => o.toLowerCase().includes('start fresh') || o.toLowerCase().includes('resume'));
 
   const handleChoiceClick = (choice: string) => {
