@@ -46,9 +46,6 @@ export interface AgentContext {
   postmarkDate?: string;
   onlineDate?: string;
   shipDate?: string;
-  /** Tracks search_meets calls to limit re-searching. Also stores last results for caching. */
-  searchMeetsCallCount?: number;
-  lastSearchResults?: string;
   /** Set when search_meets finds a clear match — gates discovery tools */
   discoveryMatchFound?: boolean;
 }
@@ -263,10 +260,16 @@ export async function toolRegenerateOutput(
   context: AgentContext
 ): Promise<string> {
   const state = requireString(args, 'state');
-  const meetName = requireString(args, 'meet_name');
+  let meetName = requireString(args, 'meet_name');
 
   // Backfill context.state
   context.state = state;
+
+  // Auto-correct meet_name to match outputName (prevent folder split)
+  if (context.outputName && meetName !== context.outputName) {
+    meetName = context.outputName;
+  }
+
   const outputs = requireArray(args, 'outputs') as string[];
 
   // Guard: prevent regenerating shirt/all after IDML import (destroys designer edits)

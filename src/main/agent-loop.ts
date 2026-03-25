@@ -45,6 +45,8 @@ export type { AgentContext };
  */
 function switchPhase(context: AgentContext, phase: WorkflowPhase): void {
   context.currentPhase = phase;
+  context.unlockedTools = [];
+  context.discoveryMatchFound = false;
   setDbToolsPhase(phase);
 }
 
@@ -404,7 +406,10 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
       // Gate discovery tools after a clear match — prevent re-searching
       if (context.currentPhase === 'discovery' && context.discoveryMatchFound) {
-        const GATED_AFTER_MATCH = new Set(['search_meets', 'lookup_meet', 'web_search', 'http_fetch']);
+        const GATED_AFTER_MATCH = new Set([
+          'search_meets', 'lookup_meet', 'web_search', 'http_fetch',
+          'chrome_navigate', 'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
+        ]);
         phaseTools = phaseTools.filter(t => !GATED_AFTER_MATCH.has(t.name));
       }
 
@@ -685,14 +690,13 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
 
-      // Cache search_meets results and detect clear matches
+      // Detect clear match from search_meets — gate discovery tools
       if (toolName === 'search_meets' && typeof result === 'string') {
-        context.lastSearchResults = result;
-        // Detect clear match: exactly one Women's result for the target state
+        const hasResults = !result.includes('No meets found');
         const womenMatches = (result.match(/Program: Women/gi) || []).length;
-        if (womenMatches === 1 && !result.includes('No meets found')) {
+        if (hasResults && womenMatches >= 1) {
           context.discoveryMatchFound = true;
-          this.onActivity('Clear match found — discovery tools gated, proceed to set name and dates.', 'info');
+          this.onActivity('Match found — search/browse tools gated, proceed to set name and dates.', 'info');
         }
       }
     } catch (err) {
@@ -713,15 +717,6 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     args: Record<string, unknown>,
     context: AgentContext
   ): Promise<ToolResultContent> {
-    // Limit search_meets to avoid wasted iterations re-searching
-    if (name === 'search_meets') {
-      const callCount = context.searchMeetsCallCount || 0;
-      if (callCount > 0 && context.lastSearchResults) {
-        return `Already searched. Here are the previous results:\n${context.lastSearchResults}\n\nUse these results to proceed — call set_output_name, ask_user for dates, then set_phase to extraction.`;
-      }
-      context.searchMeetsCallCount = callCount + 1;
-    }
-
     // Validate finalize_meet meet_name matches context.outputName
     if (name === 'finalize_meet' && context.outputName) {
       const fmName = typeof args.meet_name === 'string' ? args.meet_name : '';
