@@ -296,18 +296,18 @@ Use \`list_meets\` to see available meets. Try to match the meet automatically:
 - Only use \`ask_user\` when there are MULTIPLE plausible matches or ZERO matches
 
 ### Step 2: Import the PDFs
-Use \`import_pdf_backs\` with:
-- \`pdf_paths\`: array of all PDF file paths the user provided
-- \`state\`: from the meet data
-- \`meet_name\`: the EXACT name from the database (case matters!)
+Call \`import_pdf_backs\` immediately with \`pdf_paths\`, \`state\`, and \`meet_name\`. Do NOT ask the user any questions before calling — everything is auto-detected:
+- **Page sizes**: Auto-detected from PDF dimensions (letter vs legal). Do NOT ask the user.
+- **Deadline dates**: Auto-injected from previous build. Do NOT ask the user.
+- **meet_name**: Auto-corrected to match the output name. Use the name from \`list_meets\`.
 
-The tool automatically:
+The tool automatically handles everything:
 - Detects letter vs legal size from page dimensions
 - Copies originals to correct locations (back_of_shirt.pdf, back_of_shirt_8.5x14.pdf)
 - Creates combined back_of_shirt.pdf with all pages at letter size (legal pages scaled for order forms)
 - Regenerates order_forms.pdf (embeds imported PDF pages with red star overlay)
 - Regenerates gym_highlights.pdf with correct letter/legal level splits
-- Regenerates meet_summary.txt
+- Regenerates meet_summary.txt with dates from previous build
 
 ### Step 3: Show Results
 Use \`open_file\` to show the user:
@@ -322,6 +322,7 @@ If the user provides custom PDFs for SOME page groups but not others, that's fin
 - Solution: import only the letter PDF → the code-generated Xcel page stays in back_of_shirt.pdf for order forms. Import the legal PDF separately → goes to back_of_shirt_8.5x14.pdf for printing.
 
 ### CRITICAL RULES
+- NEVER ask the user about page sizes, dates, or other details — the tool auto-detects and auto-injects everything
 - NEVER ask the user what changes they made — the PDFs contain all changes
 - NEVER manually manipulate PDFs with \`run_script\` — use import_pdf_backs
 - NEVER use \`build_database\` or \`regenerate_output\` after import — they destroy designer edits

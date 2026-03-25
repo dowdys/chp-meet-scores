@@ -351,10 +351,16 @@ export async function toolImportPdfBacks(
 ): Promise<string> {
   const pdfPaths = requireArray(args, 'pdf_paths') as string[];
   const state = requireString(args, 'state');
-  const meetName = requireString(args, 'meet_name');
+  let meetName = requireString(args, 'meet_name');
 
   // Backfill context.state
   context.state = state;
+
+  // Auto-correct meet_name to match outputName (prevent folder split)
+  if (context.outputName && meetName !== context.outputName) {
+    console.log(`[AGENT] import_pdf_backs meet_name "${meetName}" auto-corrected to "${context.outputName}"`);
+    meetName = context.outputName;
+  }
 
   if (pdfPaths.length === 0) {
     return 'Error: pdf_paths must contain at least one PDF file path.';

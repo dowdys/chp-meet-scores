@@ -352,6 +352,7 @@ All tool outputs are saved to the data/ directory. Use read_file to read files. 
 - "All levels" for a USAG meet means BOTH numbered levels AND Xcel divisions
 - AAU meets do NOT have Xcel — they have their own level structure
 - A state championship typically covers all competitive levels; most sources split these across multiple separate meets
+- Not all states offer every level — some states skip Level 1 or Level 5. This is normal and does not mean data is missing
 - Men's gymnastics has different events (floor, pommel horse, rings, vault, parallel bars, high bar) and different level structures
 
 ## Iteration Budget
