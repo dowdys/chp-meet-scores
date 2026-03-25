@@ -95,6 +95,55 @@ body {
   gap: 12px;
 }
 
+.meet-selectors {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+.meet-select {
+  padding: 10px 12px;
+  font-size: 15px;
+  border: 2px solid #bdc3c7;
+  border-radius: 8px;
+  outline: none;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.meet-select:focus {
+  border-color: #3498db;
+}
+
+.meet-select:disabled {
+  background: #ecf0f1;
+  cursor: default;
+}
+
+.meet-select-state {
+  min-width: 160px;
+}
+
+.meet-details-input {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 15px;
+  border: 2px solid #bdc3c7;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.meet-details-input:focus {
+  border-color: #3498db;
+}
+
+.meet-details-input:disabled {
+  background: #ecf0f1;
+}
+
 .meet-input {
   flex: 1;
   padding: 14px 18px;

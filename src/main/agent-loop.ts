@@ -8,7 +8,7 @@ import * as path from 'path';
 import { LLMClient, LLMMessage, ContentBlock, LLMResponse, ToolResultContent } from './llm-client';
 import { resetStagingDb } from './tools/python-tools';
 import { setDbToolsPhase } from './tools/db-tools';
-import { getDataDir } from './paths';
+import { getDataDir, getOutputDir } from './paths';
 import { getToolDefinitions } from './tool-definitions';
 import {
   AgentContext,
@@ -38,6 +38,15 @@ import { WorkflowPhase, filterToolsForPhase, buildPhasePrompt } from './workflow
 
 // Re-export AgentContext for consumers
 export type { AgentContext };
+
+/**
+ * Switch the agent's phase and keep db-tools in sync.
+ * Every phase change MUST go through this helper — never set context.currentPhase directly.
+ */
+function switchPhase(context: AgentContext, phase: WorkflowPhase): void {
+  context.currentPhase = phase;
+  setDbToolsPhase(phase);
+}
 
 // --- Types ---
 
@@ -73,6 +82,12 @@ export class AgentLoop {
   }
 
   async processMeet(meetName: string): Promise<{ success: boolean; message: string; outputName?: string }> {
+    // Prevent ghost context from previous runs
+    if (this.lastContext && this.lastContext.meetName !== meetName) {
+      console.log(`[AGENT] Clearing stale lastContext from "${this.lastContext.meetName}" (new run: "${meetName}")`);
+    }
+    this.lastContext = null;
+
     this.onActivity(`Starting agent for meet: ${meetName}`, 'info');
     let context: AgentContext | null = null;
 
@@ -112,12 +127,20 @@ export class AgentLoop {
         this.onActivity('Found saved progress, resuming...', 'info');
         context.loadedSkills = savedProgress.loaded_skills;
         if (savedProgress.current_phase) {
-          context.currentPhase = savedProgress.current_phase;
-          setDbToolsPhase(savedProgress.current_phase);
+          switchPhase(context, savedProgress.current_phase);
         }
         if (savedProgress.idml_imported) {
           context.idmlImported = true;
         }
+        if (savedProgress.output_name) {
+          context.outputName = savedProgress.output_name;
+        }
+        if (savedProgress.state) {
+          context.state = savedProgress.state;
+        }
+        if (savedProgress.postmark_date) context.postmarkDate = savedProgress.postmark_date;
+        if (savedProgress.online_date) context.onlineDate = savedProgress.online_date;
+        if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
 
         const dataDir = getDataDir();
         let fileInventory = '';
@@ -155,14 +178,14 @@ export class AgentLoop {
           const hasPdf = meetName.includes('.pdf');
           if (hasPdf) {
             // PDF import gets its own dedicated phase
-            context.currentPhase = 'import_backs';
+            switchPhase(context, 'import_backs');
             context.messages.push({
               role: 'user',
               content: `The user provided PDF file path(s): "${meetName}"\n\nYou are in the IMPORT BACKS phase. Follow the steps in order:\n1. Use list_meets to find available meets\n2. Match the meet from context (filenames, user message) — only ask if ambiguous\n3. Use import_pdf_backs with the correct meet_name and state\n4. Open the generated files for user review`,
             });
           } else {
             // IDML files — redirect to import_backs phase, tell agent to request PDFs
-            context.currentPhase = 'import_backs';
+            switchPhase(context, 'import_backs');
             context.messages.push({
               role: 'user',
               content: `The user provided IDML file path(s): "${meetName}"\n\nIDML import is no longer supported. Ask the user to export PDFs from InDesign instead (File → Export → PDF). Then use import_pdf_backs with the PDF file paths.`,
@@ -204,7 +227,7 @@ export class AgentLoop {
       // Auto-switch to import_backs phase if user provides PDF file paths
       if (message.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(message) || message.includes('"'))) {
         if (context.currentPhase !== 'import_backs') {
-          context.currentPhase = 'import_backs';
+          switchPhase(context, 'import_backs');
           this.onActivity('Detected PDF file paths — switching to import_backs phase', 'info');
         }
       }
@@ -323,6 +346,13 @@ All tool outputs are saved to the data/ directory. Use read_file to read files. 
 - run_script provides DB_PATH, DATA_DIR, STAGING_DB_PATH as environment variables
 - The Python processing code is a compiled binary — you cannot find or edit its source
 
+## Gymnastics Domain Knowledge
+- USAG (USA Gymnastics) has two programs: Competitive (Levels 1-10) and Xcel (Bronze, Silver, Gold, Platinum, Diamond, Sapphire)
+- "All levels" for a USAG meet means BOTH numbered levels AND Xcel divisions
+- AAU meets do NOT have Xcel — they have their own level structure
+- A state championship typically covers all competitive levels; most sources split these across multiple separate meets
+- Men's gymnastics has different events (floor, pommel horse, rings, vault, parallel bars, high bar) and different level structures
+
 ## Iteration Budget
 You have ~100 tool call iterations. If you hit the limit, explain progress via ask_user.`;
   }
@@ -370,7 +400,13 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
       this.validateMessageSequence(context.messages);
 
-      const phaseTools = filterToolsForPhase(allTools, context.currentPhase, context.unlockedTools);
+      let phaseTools = filterToolsForPhase(allTools, context.currentPhase, context.unlockedTools);
+
+      // Gate discovery tools after a clear match — prevent re-searching
+      if (context.currentPhase === 'discovery' && context.discoveryMatchFound) {
+        const GATED_AFTER_MATCH = new Set(['search_meets', 'lookup_meet', 'web_search', 'http_fetch']);
+        phaseTools = phaseTools.filter(t => !GATED_AFTER_MATCH.has(t.name));
+      }
 
       let response: LLMResponse;
       try {
@@ -446,6 +482,10 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       }
 
       if (response.stop_reason === 'tool_use') {
+        // Agent is actively calling tools — it's working in the current phase.
+        // Consume justPruned so the eventual end_turn exits normally.
+        context.justPruned = false;
+
         const phaseBeforeTools = context.currentPhase;
         context.messages.push({ role: 'assistant', content: response.content });
         const toolResults = await this.executeToolCalls(response.content, context);
@@ -471,7 +511,7 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
             // Verify this isn't a system-generated path (like "Generated C:\...\back_of_shirt.pdf")
             const isSystemGenerated = allResultText.includes('Generated ') && allResultText.includes('back_of_shirt');
             if (!isSystemGenerated) {
-              context.currentPhase = 'import_backs';
+              switchPhase(context, 'import_backs');
               this.onActivity('Detected PDF file paths in user response — switching to import_backs phase', 'info');
               console.log(`[AGENT] Auto-switch triggered. Result text: ${allResultText.substring(0, 200)}`);
             }
@@ -644,6 +684,17 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const textPreview = toolResultText(result);
       const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
+
+      // Cache search_meets results and detect clear matches
+      if (toolName === 'search_meets' && typeof result === 'string') {
+        context.lastSearchResults = result;
+        // Detect clear match: exactly one Women's result for the target state
+        const womenMatches = (result.match(/Program: Women/gi) || []).length;
+        if (womenMatches === 1 && !result.includes('No meets found')) {
+          context.discoveryMatchFound = true;
+          this.onActivity('Clear match found — discovery tools gated, proceed to set name and dates.', 'info');
+        }
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       result = `Error: ${errMsg}`;
@@ -662,6 +713,24 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     args: Record<string, unknown>,
     context: AgentContext
   ): Promise<ToolResultContent> {
+    // Limit search_meets to avoid wasted iterations re-searching
+    if (name === 'search_meets') {
+      const callCount = context.searchMeetsCallCount || 0;
+      if (callCount > 0 && context.lastSearchResults) {
+        return `Already searched. Here are the previous results:\n${context.lastSearchResults}\n\nUse these results to proceed — call set_output_name, ask_user for dates, then set_phase to extraction.`;
+      }
+      context.searchMeetsCallCount = callCount + 1;
+    }
+
+    // Validate finalize_meet meet_name matches context.outputName
+    if (name === 'finalize_meet' && context.outputName) {
+      const fmName = typeof args.meet_name === 'string' ? args.meet_name : '';
+      if (fmName && fmName !== context.outputName) {
+        console.warn(`[AGENT] finalize_meet meet_name "${fmName}" auto-corrected to "${context.outputName}"`);
+        args = { ...args, meet_name: context.outputName };
+      }
+    }
+
     // External tool executors first
     if (this.toolExecutors[name]) {
       return this.toolExecutors[name](args);
@@ -684,9 +753,18 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       case 'import_pdf_backs':
         return toolImportPdfBacks(args, context);
 
-      case 'set_output_name':
-        context.outputName = requireString(args, 'name');
+      case 'set_output_name': {
+        const newName = requireString(args, 'name');
+        // Prevent name change when folder already has files
+        if (context.outputName && newName !== context.outputName) {
+          const oldDir = getOutputDir(context.outputName, false);
+          if (fs.existsSync(oldDir) && fs.readdirSync(oldDir).length > 0) {
+            return `Error: Cannot change output name — folder "${context.outputName}" already contains files. Use "Clear Session" to start fresh if you need a different name.`;
+          }
+        }
+        context.outputName = newName;
         return `Output folder name set to: "${context.outputName}"`;
+      }
 
       case 'render_pdf_page':
         return toolRenderPdfPage(optionalString(args, 'pdf_path'), args.page_number as number | undefined, context.outputName || context.meetName);
@@ -747,7 +825,14 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     const askUserExchanges: string[] = [];
     const keyFiles: Set<string> = new Set();
     const toolArgSnapshots: string[] = [];
+    const keyToolResults: string[] = [];
     const filePattern = /(?:\/[\w./_-]+\.(?:json|pdf|db|idml|txt|csv))/g;
+
+    // Tools whose RESULTS contain critical data (IDs, counts, file paths) that must survive pruning
+    const HANDOFF_RESULT_TOOLS = new Set([
+      'search_meets', 'lookup_meet', 'mso_extract', 'scorecat_extract',
+      'build_database', 'get_meet_summary',
+    ]);
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
@@ -786,16 +871,22 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
           const matches = resultText.match(filePattern);
           if (matches) matches.forEach(f => keyFiles.add(f));
 
-          // Capture ask_user Q&A — find the matching tool_use in the preceding assistant message
+          // Capture truncated results from key tools (meet IDs, extraction summaries, etc.)
           const prevMsg = i > 0 ? messages[i - 1] : null;
           if (prevMsg && prevMsg.role === 'assistant' && typeof prevMsg.content !== 'string') {
             const matchingToolUse = prevMsg.content.find(
               (b): b is import('./llm-client').ToolUseBlock =>
-                b.type === 'tool_use' && b.id === block.tool_use_id && b.name === 'ask_user'
+                b.type === 'tool_use' && b.id === block.tool_use_id
             );
             if (matchingToolUse) {
-              const question = String((matchingToolUse.input as Record<string, unknown>).question || '');
-              askUserExchanges.push(`Q: ${question}\nA: ${resultText}`);
+              if (matchingToolUse.name === 'ask_user') {
+                const question = String((matchingToolUse.input as Record<string, unknown>).question || '');
+                askUserExchanges.push(`Q: ${question}\nA: ${resultText}`);
+              } else if (HANDOFF_RESULT_TOOLS.has(matchingToolUse.name)) {
+                // Keep first 800 chars of result — enough for meet IDs, counts, file paths
+                const truncated = resultText.length > 800 ? resultText.substring(0, 800) + '...' : resultText;
+                keyToolResults.push(`[${matchingToolUse.name} result]: ${truncated}`);
+              }
             }
           }
         }
@@ -823,8 +914,20 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     parts.push('');
 
     if (toolArgSnapshots.length > 0) {
+      // Deduplicate — keep only the last call per tool name (e.g., 8x regenerate_output → 1)
+      const lastByTool = new Map<string, string>();
+      for (const snap of toolArgSnapshots) {
+        const toolName = snap.split('(')[0];
+        lastByTool.set(toolName, snap);
+      }
       parts.push('Key tool calls from prior phases:');
-      for (const snap of toolArgSnapshots) parts.push(`  ${snap}`);
+      for (const snap of lastByTool.values()) parts.push(`  ${snap}`);
+      parts.push('');
+    }
+
+    if (keyToolResults.length > 0) {
+      parts.push('Key tool results from prior phases:');
+      parts.push(...keyToolResults);
       parts.push('');
     }
 
@@ -849,8 +952,40 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       for (const f of keyFiles) parts.push(`  ${f}`);
     }
 
-    parts.push('');
-    parts.push('Continue working in the current phase. Use read_file or query_db to access data from earlier phases if needed.');
+    // Generate prescriptive next-step when transitioning to extraction
+    // Parse search_meets results to determine which tool to call and with what IDs
+    if (context.currentPhase === 'extraction' && keyToolResults.length > 0) {
+      const searchResult = keyToolResults.find(r => r.startsWith('[search_meets result]'));
+      if (searchResult) {
+        const msoIds: string[] = [];
+        const scorecatIds: string[] = [];
+        // Parse "Source: mso | ID: 12345" and "Source: scorecat | ID: ABC123" patterns
+        const meetPattern = /Source:\s*(mso|scorecat)\s*\|\s*ID:\s*(\S+)/gi;
+        let match;
+        while ((match = meetPattern.exec(searchResult)) !== null) {
+          const [, source, id] = match;
+          if (source.toLowerCase() === 'mso') msoIds.push(id);
+          else if (source.toLowerCase() === 'scorecat') scorecatIds.push(id);
+        }
+
+        parts.push('');
+        parts.push('## Next Step');
+        if (scorecatIds.length > 0 && msoIds.length > 0) {
+          parts.push(`This meet has data on both sources. Call both extraction tools:`);
+          parts.push(`  1. mso_extract with meet_ids: ${JSON.stringify(msoIds)}`);
+          parts.push(`  2. scorecat_extract with meet_ids: ${JSON.stringify(scorecatIds)}`);
+        } else if (scorecatIds.length > 0) {
+          parts.push(`This meet is on ScoreCat. Call: scorecat_extract with meet_ids: ${JSON.stringify(scorecatIds)}`);
+        } else if (msoIds.length > 0) {
+          parts.push(`This meet is on MSO. Call: mso_extract with meet_ids: ${JSON.stringify(msoIds)}`);
+        } else {
+          parts.push('Continue with extraction using the appropriate dedicated tool.');
+        }
+      }
+    } else {
+      parts.push('');
+      parts.push('Continue working in the current phase. Use read_file or query_db to access data from earlier phases if needed.');
+    }
 
     const handoff = parts.join('\n');
 

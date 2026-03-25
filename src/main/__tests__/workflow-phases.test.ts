@@ -49,6 +49,10 @@ describe('workflow-phases', () => {
       expect(tools).not.toContain('build_database');
       expect(tools).not.toContain('search_meets');
       expect(tools).not.toContain('finalize_meet');
+      // Chrome tools removed from extraction — available via unlock_tool only
+      expect(tools).not.toContain('chrome_navigate');
+      expect(tools).not.toContain('chrome_execute_js');
+      expect(tools).not.toContain('chrome_screenshot');
     });
 
     it('database phase has build_database but not extraction or output tools', () => {

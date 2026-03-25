@@ -42,6 +42,15 @@ export interface AgentContext {
   idmlImported?: boolean;
   /** Set to true after context pruning — forces the next end_turn to nudge instead of exit */
   justPruned?: boolean;
+  /** Deadline dates — stored from tool args, auto-injected when agent omits them */
+  postmarkDate?: string;
+  onlineDate?: string;
+  shipDate?: string;
+  /** Tracks search_meets calls to limit re-searching. Also stores last results for caching. */
+  searchMeetsCallCount?: number;
+  lastSearchResults?: string;
+  /** Set when search_meets finds a clear match — gates discovery tools */
+  discoveryMatchFound?: boolean;
 }
 
 export interface ProgressData {
@@ -53,6 +62,11 @@ export interface ProgressData {
   data_files?: Array<{ path: string; description: string }>;
   current_phase?: WorkflowPhase;
   idml_imported?: boolean;
+  output_name?: string;
+  state?: string;
+  postmark_date?: string;
+  online_date?: string;
+  ship_date?: string;
 }
 
 // --- Helper functions ---
@@ -164,10 +178,20 @@ export async function toolBuildDatabase(
 
   const source = requireString(args, 'source');
   const state = requireString(args, 'state');
-  const meetName = requireString(args, 'meet_name');
+  let meetName = requireString(args, 'meet_name');
+
+  // Backfill context.state from tool args
+  context.state = state;
+
+  // Enforce name consistency: auto-override meet_name if it doesn't match outputName
+  let nameWarning = '';
+  if (context.outputName && meetName !== context.outputName) {
+    nameWarning = `Note: meet_name "${meetName}" auto-corrected to match output name "${context.outputName}".\n`;
+    meetName = context.outputName;
+  }
 
   // data_path: single path or comma-separated paths for multi-source builds
-  const rawDataPath = String(args.data_path);
+  const rawDataPath = requireString(args, 'data_path');
   const dataPaths: string[] = rawDataPath.includes(',')
     ? rawDataPath.split(',').map(p => convertWindowsPaths(p.trim()))
     : [convertWindowsPaths(rawDataPath)];
@@ -187,13 +211,13 @@ export async function toolBuildDatabase(
   const divisionOrder = optionalString(args, 'division_order');
   if (divisionOrder) argParts.push('--division-order', divisionOrder);
 
-  // Date params
-  const postmarkDate = optionalString(args, 'postmark_date');
-  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
-  const onlineDate = optionalString(args, 'online_date');
-  if (onlineDate) argParts.push('--online-date', onlineDate);
-  const shipDate = optionalString(args, 'ship_date');
-  if (shipDate) argParts.push('--ship-date', shipDate);
+  // Date params — store on context and auto-inject from context when agent omits them
+  const postmarkDate = optionalString(args, 'postmark_date') || context.postmarkDate;
+  if (postmarkDate) { argParts.push('--postmark-date', postmarkDate); context.postmarkDate = postmarkDate; }
+  const onlineDate = optionalString(args, 'online_date') || context.onlineDate;
+  if (onlineDate) { argParts.push('--online-date', onlineDate); context.onlineDate = onlineDate; }
+  const shipDate = optionalString(args, 'ship_date') || context.shipDate;
+  if (shipDate) { argParts.push('--ship-date', shipDate); context.shipDate = shipDate; }
 
   // Always use staging DB for full pipeline
   const stagingPath = getStagingDbPath();
@@ -227,7 +251,7 @@ export async function toolBuildDatabase(
     console.warn('toolBuildDatabase: meets metadata insert failed:', err instanceof Error ? err.message : String(err));
   }
 
-  return result;
+  return nameWarning ? nameWarning + result : result;
 }
 
 /**
@@ -240,6 +264,9 @@ export async function toolRegenerateOutput(
 ): Promise<string> {
   const state = requireString(args, 'state');
   const meetName = requireString(args, 'meet_name');
+
+  // Backfill context.state
+  context.state = state;
   const outputs = requireArray(args, 'outputs') as string[];
 
   // Guard: prevent regenerating shirt/all after IDML import (destroys designer edits)
@@ -292,13 +319,13 @@ export async function toolRegenerateOutput(
     }
   }
 
-  // Date params
-  const postmarkDate = optionalString(args, 'postmark_date');
-  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
-  const onlineDate = optionalString(args, 'online_date');
-  if (onlineDate) argParts.push('--online-date', onlineDate);
-  const shipDate = optionalString(args, 'ship_date');
-  if (shipDate) argParts.push('--ship-date', shipDate);
+  // Date params — auto-inject from context when agent omits them
+  const postmarkDate = optionalString(args, 'postmark_date') || context.postmarkDate;
+  if (postmarkDate) { argParts.push('--postmark-date', postmarkDate); context.postmarkDate = postmarkDate; }
+  const onlineDate = optionalString(args, 'online_date') || context.onlineDate;
+  if (onlineDate) { argParts.push('--online-date', onlineDate); context.onlineDate = onlineDate; }
+  const shipDate = optionalString(args, 'ship_date') || context.shipDate;
+  if (shipDate) { argParts.push('--ship-date', shipDate); context.shipDate = shipDate; }
 
   // Force flag
   if (args.force) argParts.push('--force');
@@ -325,6 +352,9 @@ export async function toolImportPdfBacks(
   const state = requireString(args, 'state');
   const meetName = requireString(args, 'meet_name');
 
+  // Backfill context.state
+  context.state = state;
+
   if (pdfPaths.length === 0) {
     return 'Error: pdf_paths must contain at least one PDF file path.';
   }
@@ -341,13 +371,13 @@ export async function toolImportPdfBacks(
   argParts.push('--state', state);
   argParts.push('--meet', meetName);
 
-  // Date params
-  const postmarkDate = optionalString(args, 'postmark_date');
-  if (postmarkDate) argParts.push('--postmark-date', postmarkDate);
-  const onlineDate = optionalString(args, 'online_date');
-  if (onlineDate) argParts.push('--online-date', onlineDate);
-  const shipDate = optionalString(args, 'ship_date');
-  if (shipDate) argParts.push('--ship-date', shipDate);
+  // Date params — auto-inject from context when agent omits them
+  const postmarkDate = optionalString(args, 'postmark_date') || context.postmarkDate;
+  if (postmarkDate) { argParts.push('--postmark-date', postmarkDate); context.postmarkDate = postmarkDate; }
+  const onlineDate = optionalString(args, 'online_date') || context.onlineDate;
+  if (onlineDate) { argParts.push('--online-date', onlineDate); context.onlineDate = onlineDate; }
+  const shipDate = optionalString(args, 'ship_date') || context.shipDate;
+  if (shipDate) { argParts.push('--ship-date', shipDate); context.shipDate = shipDate; }
 
   // DB: use staging DB if it exists (meet not yet finalized), otherwise central
   const stagingPath = getStagingDbPath();
@@ -519,6 +549,11 @@ export async function toolSaveProgress(
     data_files: dataFiles,
     current_phase: context.currentPhase,
     idml_imported: context.idmlImported || undefined,
+    output_name: context.outputName,
+    state: context.state,
+    postmark_date: context.postmarkDate,
+    online_date: context.onlineDate,
+    ship_date: context.shipDate,
   };
 
   const filePath = getProgressFilePath();
@@ -569,6 +604,11 @@ export async function autoSaveProgress(
     timestamp: new Date().toISOString(),
     current_phase: context.currentPhase,
     idml_imported: context.idmlImported || undefined,
+    output_name: context.outputName,
+    state: context.state,
+    postmark_date: context.postmarkDate,
+    online_date: context.onlineDate,
+    ship_date: context.shipDate,
   };
 
   const filePath = getProgressFilePath();

@@ -3,8 +3,31 @@ import ActivityLog from './ActivityLog';
 import OutputFiles from './OutputFiles';
 import { ActivityLogEntry, AskUserRequest } from '../types';
 
+const US_STATES: Array<{ abbr: string; name: string }> = [
+  { abbr: 'AL', name: 'Alabama' }, { abbr: 'AK', name: 'Alaska' }, { abbr: 'AZ', name: 'Arizona' },
+  { abbr: 'AR', name: 'Arkansas' }, { abbr: 'CA', name: 'California' }, { abbr: 'CO', name: 'Colorado' },
+  { abbr: 'CT', name: 'Connecticut' }, { abbr: 'DE', name: 'Delaware' }, { abbr: 'FL', name: 'Florida' },
+  { abbr: 'GA', name: 'Georgia' }, { abbr: 'HI', name: 'Hawaii' }, { abbr: 'ID', name: 'Idaho' },
+  { abbr: 'IL', name: 'Illinois' }, { abbr: 'IN', name: 'Indiana' }, { abbr: 'IA', name: 'Iowa' },
+  { abbr: 'KS', name: 'Kansas' }, { abbr: 'KY', name: 'Kentucky' }, { abbr: 'LA', name: 'Louisiana' },
+  { abbr: 'ME', name: 'Maine' }, { abbr: 'MD', name: 'Maryland' }, { abbr: 'MA', name: 'Massachusetts' },
+  { abbr: 'MI', name: 'Michigan' }, { abbr: 'MN', name: 'Minnesota' }, { abbr: 'MS', name: 'Mississippi' },
+  { abbr: 'MO', name: 'Missouri' }, { abbr: 'MT', name: 'Montana' }, { abbr: 'NE', name: 'Nebraska' },
+  { abbr: 'NV', name: 'Nevada' }, { abbr: 'NH', name: 'New Hampshire' }, { abbr: 'NJ', name: 'New Jersey' },
+  { abbr: 'NM', name: 'New Mexico' }, { abbr: 'NY', name: 'New York' }, { abbr: 'NC', name: 'North Carolina' },
+  { abbr: 'ND', name: 'North Dakota' }, { abbr: 'OH', name: 'Ohio' }, { abbr: 'OK', name: 'Oklahoma' },
+  { abbr: 'OR', name: 'Oregon' }, { abbr: 'PA', name: 'Pennsylvania' }, { abbr: 'RI', name: 'Rhode Island' },
+  { abbr: 'SC', name: 'South Carolina' }, { abbr: 'SD', name: 'South Dakota' }, { abbr: 'TN', name: 'Tennessee' },
+  { abbr: 'TX', name: 'Texas' }, { abbr: 'UT', name: 'Utah' }, { abbr: 'VT', name: 'Vermont' },
+  { abbr: 'VA', name: 'Virginia' }, { abbr: 'WA', name: 'Washington' }, { abbr: 'WV', name: 'West Virginia' },
+  { abbr: 'WI', name: 'Wisconsin' }, { abbr: 'WY', name: 'Wyoming' },
+];
+
 const ProcessTab: React.FC = () => {
   const [meetName, setMeetName] = useState('');
+  const [league, setLeague] = useState('USAG');
+  const [gender, setGender] = useState('Women');
+  const [state, setState] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [logEntries, setLogEntries] = useState<ActivityLogEntry[]>([]);
   const [showOutput, setShowOutput] = useState(false);
@@ -24,8 +47,22 @@ const ProcessTab: React.FC = () => {
     setLogEntries(prev => [...prev, entry]);
   }, []);
 
+  // Build the structured meet query from dropdowns + details
+  const buildMeetQuery = (): string => {
+    // If meetName looks like a file path, pass it through directly (PDF import)
+    if (meetName.trim().match(/^["\/]|^[A-Za-z]:\\/)) return meetName.trim();
+
+    const stateName = US_STATES.find(s => s.abbr === state)?.name || state;
+    const parts = [`${league} ${gender}'s Gymnastics State Championship`, stateName];
+    if (meetName.trim()) parts.push(meetName.trim());
+    return parts.filter(Boolean).join(' - ');
+  };
+
+  const canProcess = (state !== '' || meetName.trim().match(/^["\/]|^[A-Za-z]:\\/)) && !isProcessing;
+
   const handleProcess = async () => {
-    if (!meetName.trim() || isProcessing) return;
+    const query = buildMeetQuery();
+    if (!query || isProcessing) return;
 
     setIsProcessing(true);
     setShowOutput(false);
@@ -41,7 +78,7 @@ const ProcessTab: React.FC = () => {
     });
 
     try {
-      const result = await window.electronAPI.processMeet(meetName.trim());
+      const result = await window.electronAPI.processMeet(query);
 
       if (result.success) {
         addLogEntry({
@@ -50,7 +87,7 @@ const ProcessTab: React.FC = () => {
           level: 'success',
         });
         // Use the agent's clean output name if available, otherwise raw input
-        setProcessedMeet(result.outputName || meetName.trim());
+        setProcessedMeet(result.outputName || query);
         setShowOutput(true);
       } else {
         addLogEntry({
@@ -264,24 +301,55 @@ const ProcessTab: React.FC = () => {
   return (
     <div className="process-tab">
       <div className="input-section">
-        <label htmlFor="meet-name" className="input-label">
-          Enter the name of the meet to process:
+        <label className="input-label">
+          State Championship Details:
         </label>
-        <div className="input-row">
+        <div className="meet-selectors">
+          <select
+            className="meet-select"
+            value={league}
+            onChange={e => setLeague(e.target.value)}
+            disabled={isProcessing}
+          >
+            <option value="USAG">USAG</option>
+            <option value="AAU">AAU</option>
+          </select>
+          <select
+            className="meet-select"
+            value={gender}
+            onChange={e => setGender(e.target.value)}
+            disabled={isProcessing}
+          >
+            <option value="Women">Women</option>
+            <option value="Men">Men</option>
+          </select>
+          <select
+            className="meet-select meet-select-state"
+            value={state}
+            onChange={e => setState(e.target.value)}
+            disabled={isProcessing}
+          >
+            <option value="">Select State...</option>
+            {US_STATES.map(s => (
+              <option key={s.abbr} value={s.abbr}>{s.name}</option>
+            ))}
+          </select>
           <input
             id="meet-name"
             type="text"
-            className="meet-input"
-            placeholder="e.g. 2025 Iowa State Championship"
+            className="meet-details-input"
+            placeholder="Additional details (e.g. all levels)"
             value={meetName}
             onChange={e => setMeetName(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isProcessing}
           />
+        </div>
+        <div className="input-row">
           <button
             className="process-button"
             onClick={handleProcess}
-            disabled={isProcessing || !meetName.trim()}
+            disabled={!canProcess}
           >
             {isProcessing ? 'Processing...' : 'Process Meet'}
           </button>

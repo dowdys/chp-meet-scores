@@ -158,23 +158,59 @@ const SettingsTab: React.FC = () => {
             value={settings.model}
             onChange={e => updateSetting('model', e.target.value)}
           >
-            <option value="claude-opus-4-6">Claude Opus 4.6</option>
             <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-opus-4-6">Claude Opus 4.6</option>
           </select>
-        ) : (
-          <div className="input-with-button">
-            <input
-              type="text"
-              className="settings-input"
-              placeholder="Enter OpenRouter model ID"
-              value={settings.model}
-              onChange={e => updateSetting('model', e.target.value)}
-            />
-            <button className="check-button" onClick={handleCheckModel}>
-              Check Availability
-            </button>
-          </div>
-        )}
+        ) : (() => {
+          const KNOWN_MODELS = [
+            'qwen/qwen3.5-397b-a17b',
+            'openai/gpt-4.1-mini',
+            'google/gemini-2.5-flash',
+            'qwen/qwen3-coder',
+            'deepseek/deepseek-v3.2-20251201',
+          ];
+          const isCustom = !KNOWN_MODELS.includes(settings.model);
+          return (
+            <>
+              <select
+                className="settings-select"
+                value={isCustom ? '_custom' : settings.model}
+                onChange={e => {
+                  if (e.target.value === '_custom') {
+                    updateSetting('model', '');
+                  } else {
+                    updateSetting('model', e.target.value);
+                  }
+                }}
+              >
+                <optgroup label="Recommended">
+                  <option value="qwen/qwen3.5-397b-a17b">Qwen 3.5 397B — $0.39/$2.34</option>
+                </optgroup>
+                <optgroup label="Budget (may require retries)">
+                  <option value="openai/gpt-4.1-mini">GPT-4.1 Mini — $0.40/$1.60</option>
+                  <option value="google/gemini-2.5-flash">Gemini 2.5 Flash — $0.30/$2.50</option>
+                  <option value="qwen/qwen3-coder">Qwen 3 Coder 480B — $0.22/$1.00</option>
+                  <option value="deepseek/deepseek-v3.2-20251201">DeepSeek V3.2 — $0.26/$0.38</option>
+                </optgroup>
+                <option value="_custom">Custom model ID...</option>
+              </select>
+              {isCustom && (
+                <div className="input-with-button" style={{ marginTop: '8px' }}>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder="Enter OpenRouter model ID (e.g. meta-llama/llama-4-scout)"
+                    value={settings.model}
+                    onChange={e => updateSetting('model', e.target.value)}
+                  />
+                  <button className="check-button" onClick={handleCheckModel}>
+                    Check
+                  </button>
+                </div>
+              )}
+            </>
+          );
+        })()}
         {modelCheckResult && (
           <p className={`model-check-result ${modelCheckResult.includes('available') ? 'success' : ''}`}>
             {modelCheckResult}

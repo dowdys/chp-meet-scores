@@ -665,30 +665,26 @@ def _search_by_word_proximity(page, full_name, quads=False):
                         matched += 1
                         break
 
-        if matched >= max(len(words) - 1, 1):
+        if matched >= max(len(words) - 1, 2):
             # Build a bounding rect covering ALL matched words, not just the anchor.
-            # Search for each word individually and union the rectangles.
-            all_rects = []
+            # Search for each word individually and union into one rectangle.
+            word_rects = []
             for w in words:
-                word_hits = page.search_for(w, quads=quads)
-                for wh in word_hits:
-                    wr = wh.rect if hasattr(wh, 'rect') else wh
-                    wx = wr.x0 if hasattr(wr, 'x0') else wr.ul.x
-                    wy = wr.y0 if hasattr(wr, 'y0') else wr.ul.y
-                    # Only include hits near the anchor
-                    if abs(wx - ax) < 200 and abs(wy - ay) < 20:
-                        all_rects.append(wr)
-            if all_rects:
+                word_hits = page.search_for(w)  # Always get Rects for union math
+                for wr in word_hits:
+                    # 100px horizontal keeps within a single column (min spacing ~114pt)
+                    if abs(wr.x0 - ax) < 100 and abs(wr.y0 - ay) < 20:
+                        word_rects.append(wr)
+            if word_rects:
                 # Union all nearby word rects into one bounding rect
+                x0 = min(r.x0 for r in word_rects)
+                y0 = min(r.y0 for r in word_rects)
+                x1 = max(r.x1 for r in word_rects)
+                y1 = max(r.y1 for r in word_rects)
+                union = fitz.Rect(x0, y0, x1, y1)
                 if quads:
-                    # For quads, return the list as-is (highlight annot handles multiple)
-                    return all_rects
-                else:
-                    x0 = min(r.x0 for r in all_rects)
-                    y0 = min(r.y0 for r in all_rects)
-                    x1 = max(r.x1 for r in all_rects)
-                    y1 = max(r.y1 for r in all_rects)
-                    return [fitz.Rect(x0, y0, x1, y1)]
+                    return [union.quad]  # Convert Rect to Quad for highlight annotations
+                return [union]
             return [anchor]
 
     return []

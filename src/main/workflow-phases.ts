@@ -110,7 +110,6 @@ Use the 2-letter state abbreviation (MS, NV, AL, etc.). Get dates from \`lookup_
 - Use \`ask_user\` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Request dates with the YEAR included (e.g., "April 4, 2025").
 - If multiple meets match, present ALL to the user via \`ask_user\`
 - Once you find a meet on MSO, move directly to extraction — do NOT also search ScoreCat/MyMeetScores for the same meet
-- ALWAYS verify today's date with \`run_script\` before dismissing meets as "future"
 - After MSO extraction, verify levels cover what the user requested — if levels are missing, there may be a separate meet
 
 ### Recognizing File Paths (IDML Import)
@@ -121,21 +120,22 @@ If the user's input looks like a **file path** (starts with \`/\`, \`C:\\\`, \`~
     name: 'extraction',
     description: 'Extract all athlete data from identified source(s)',
     tools: [
-      'mso_extract', 'scorecat_extract', 'chrome_navigate', 'chrome_save_to_file',
-      'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
+      'mso_extract', 'scorecat_extract',
       'save_to_file', 'http_fetch',
     ],
     prompt: `## Current Phase: EXTRACTION
-Extract all athlete data from the identified meet source(s).
+Extract all athlete data using the dedicated extraction tools.
 
-### Dedicated Extraction Tools
-- **\`mso_extract\`** — For MeetScoresOnline. Input: array of numeric meet IDs. Handles API calls, name cleaning, field mapping automatically.
-- **\`scorecat_extract\`** — For ScoreCat/Firebase. Input: array of Algolia meet IDs. Handles Firebase SDK, Firestore queries, field mapping automatically.
+### Extraction Tools
+- **\`mso_extract\`** — For MeetScoresOnline meets. Input: array of numeric meet IDs. Handles everything automatically.
+- **\`scorecat_extract\`** — For ScoreCat meets. Input: array of Algolia meet IDs. Handles everything automatically.
 
-For MSO and ScoreCat, ALWAYS use the dedicated tools. Do NOT manually script extraction.
+Call the appropriate tool with the meet IDs from discovery. Do NOT browse websites — the tools handle all API calls internally.
 
-### Unknown/New Sources
-For other sources, load the \`general_scraping\` skill first, then use \`chrome_save_to_file\` for bulk data extraction.
+### If Dedicated Tools Fail
+If \`mso_extract\` or \`scorecat_extract\` return no data, do NOT start browsing. Instead:
+1. Use \`run_script\` to call Perplexity and confirm where the meet results are actually hosted
+2. If the results are on a site we don't have a dedicated tool for, load the \`unknown_source_extraction\` skill — it will guide you through Chrome-based extraction
 
 ### After Extraction
 - The extraction tools automatically report **level distribution** — verify it matches the user's request
