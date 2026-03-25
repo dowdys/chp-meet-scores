@@ -46,7 +46,6 @@ export type { AgentContext };
 function switchPhase(context: AgentContext, phase: WorkflowPhase): void {
   context.currentPhase = phase;
   context.unlockedTools = [];
-  context.discoveryMatchFound = false;
   setDbToolsPhase(phase);
 }
 
@@ -404,13 +403,15 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
       let phaseTools = filterToolsForPhase(allTools, context.currentPhase, context.unlockedTools);
 
-      // Gate discovery tools after a clear match — prevent re-searching
-      if (context.currentPhase === 'discovery' && context.discoveryMatchFound) {
-        const GATED_AFTER_MATCH = new Set([
-          'search_meets', 'lookup_meet', 'web_search', 'http_fetch',
+      // After set_output_name is called, gate browse/Chrome tools in discovery.
+      // The agent has committed to a meet — it only needs ask_user (dates) and set_phase.
+      // Search tools (search_meets, lookup_meet) stay available for verification.
+      if (context.currentPhase === 'discovery' && context.outputName) {
+        const GATED_AFTER_COMMIT = new Set([
+          'web_search', 'http_fetch',
           'chrome_navigate', 'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
         ]);
-        phaseTools = phaseTools.filter(t => !GATED_AFTER_MATCH.has(t.name));
+        phaseTools = phaseTools.filter(t => !GATED_AFTER_COMMIT.has(t.name));
       }
 
       let response: LLMResponse;
@@ -690,15 +691,7 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
 
-      // Detect clear match from search_meets — gate discovery tools
-      if (toolName === 'search_meets' && typeof result === 'string') {
-        const hasResults = !result.includes('No meets found');
-        const womenMatches = (result.match(/Program: Women/gi) || []).length;
-        if (hasResults && womenMatches >= 1) {
-          context.discoveryMatchFound = true;
-          this.onActivity('Match found — search/browse tools gated, proceed to set name and dates.', 'info');
-        }
-      }
+      // No per-tool detection needed — discovery tools are gated after set_output_name
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       result = `Error: ${errMsg}`;

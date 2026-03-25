@@ -46,8 +46,6 @@ export interface AgentContext {
   postmarkDate?: string;
   onlineDate?: string;
   shipDate?: string;
-  /** Set when search_meets finds a clear match — gates discovery tools */
-  discoveryMatchFound?: boolean;
 }
 
 export interface ProgressData {

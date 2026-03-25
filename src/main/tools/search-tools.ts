@@ -35,7 +35,35 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
     const stateFilter = rawState ? normalizeState(rawState) : undefined;
     const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
 
-    // 1. Search Algolia (ScoreCat)
+    // --- Step 0: Perplexity context (if API key available) ---
+    // Ask Perplexity about the championship FIRST to know what to expect
+    let perplexityContext = '';
+    try {
+      const { configStore } = await import('../config-store');
+      const pplxKey = configStore.get('perplexityApiKey');
+      if (pplxKey) {
+        const pplxResp = await fetchWithRetry('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${pplxKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'sonar',
+            messages: [{
+              role: 'user',
+              content: `Tell me about the ${query} gymnastics meet. How many separate meets make up this championship? What levels/divisions does each cover? What are the exact dates? What venue hosts it? Note: state championships are often split into multiple scored meets (e.g., one for Xcel divisions and one for competitive levels). Keep your answer concise and factual.`,
+            }],
+          }),
+        });
+        const pplxData = await pplxResp.json() as { choices?: Array<{ message?: { content?: string } }> };
+        perplexityContext = pplxData?.choices?.[0]?.message?.content || '';
+      }
+    } catch {
+      // Perplexity unavailable — continue without context
+    }
+
+    // --- Step 1: Search Algolia (ScoreCat) ---
     try {
       const algoliaResp = await fetchWithRetry('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
         method: 'POST',
@@ -60,11 +88,11 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
           date: startDate,
         });
       }
-    } catch (e) {
+    } catch {
       // Algolia failed, continue with MSO
     }
 
-    // 2. Search MSO Results.All (current season + query year's season if different)
+    // --- Step 2: Search MSO Results.All ---
     const searchMsoPage = async (url: string) => {
       const msoResp = await fetchWithRetry(url, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -98,28 +126,24 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
     };
 
     try {
-      // Always search the current/default season page
       await searchMsoPage('https://www.meetscoresonline.com/Results.All');
 
-      // If the query contains a year that falls in a previous season, also search that page.
-      // MSO season format: meet year N → season "{N-1}-{N}" (e.g., 2025 → "2024-2025")
       const yearMatch = query.match(/\b(20\d{2})\b/);
       if (yearMatch) {
         const meetYear = parseInt(yearMatch[1], 10);
         const now = new Date();
-        // Current MSO season: if we're in Aug+ it's currentYear-nextYear, otherwise lastYear-currentYear
         const currentSeasonEnd = now.getMonth() >= 7 ? now.getFullYear() + 1 : now.getFullYear();
         if (meetYear !== currentSeasonEnd) {
           const seasonStr = `${meetYear - 1}-${meetYear}`;
           await searchMsoPage(`https://www.meetscoresonline.com/Results.All.${seasonStr}`);
         }
       }
-    } catch (e) {
+    } catch {
       // MSO failed
     }
 
-    // 3. Perplexity fallback — if no state championship found, ask Perplexity
-    if (results.length === 0 || !results.some(r => r.name.toLowerCase().includes('state'))) {
+    // --- Step 3: Perplexity ID fallback (if no results yet) ---
+    if (results.length === 0) {
       try {
         const { configStore } = await import('../config-store');
         const pplxKey = configStore.get('perplexityApiKey');
@@ -141,12 +165,10 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
           const pplxData = await pplxResp.json() as { choices?: Array<{ message?: { content?: string } }> };
           const pplxText = pplxData?.choices?.[0]?.message?.content || '';
           if (pplxText) {
-            // Parse MSO meet IDs from response
             const msoIds = pplxText.match(/\/R(\d{4,6})/g)?.map(m => m.replace('/R', '')) || [];
             const numericIds = pplxText.match(/\b(\d{4,6})\b/g) || [];
             const allIds = [...new Set([...msoIds, ...numericIds])];
 
-            // Verify each found ID via MSO API
             for (const meetId of allIds.slice(0, 3)) {
               try {
                 const verifyResp = await fetchWithRetry('https://www.meetscoresonline.com/Ajax.ProjectsJson.msoMeet.aspx?_cpn=999999', {
@@ -170,20 +192,31 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
             }
           }
         }
-      } catch (e) {
-        // Perplexity failed — fall through silently
+      } catch {
+        // Perplexity ID search failed — fall through
       }
     }
 
+    // --- Format results ---
     if (results.length === 0) {
-      return `No meets found matching "${query}". Try a different query or use web_search for archived meets.`;
+      let msg = `No meets found matching "${query}". Try a different query or use web_search for archived meets.`;
+      if (perplexityContext) {
+        msg += `\n\nHowever, Perplexity found this context about the championship:\n${perplexityContext}`;
+      }
+      return msg;
     }
 
-    // Format results
     const lines = results.map((r, i) =>
       `${i + 1}. ${r.name}\n   Source: ${r.source} | ID: ${r.id} | State: ${r.state} | Program: ${r.program} | Date: ${r.date}`
     );
-    return `Found ${results.length} meets matching "${query}":\n\n${lines.join('\n\n')}`;
+    let output = `Found ${results.length} meets matching "${query}":\n\n${lines.join('\n\n')}`;
+
+    // Append Perplexity context so the agent knows what levels/dates to expect
+    if (perplexityContext) {
+      output += `\n\n--- Championship Context (from Perplexity) ---\n${perplexityContext}\n\nUse this context to verify the meets above cover all expected levels. If levels are missing, there may be additional meets to find.`;
+    }
+
+    return output;
   },
 
   lookup_meet: async (args) => {
