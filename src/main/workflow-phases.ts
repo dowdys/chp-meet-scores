@@ -234,6 +234,10 @@ If the user gives dates without a year, use the meet year (from the output name 
     prompt: `## Current Phase: OUTPUT & FINALIZE
 Generate deliverables from the database, review with user, and finalize.
 
+### Database Schema (for query_db)
+- **results**: id, state, meet_name, association, name, gym, session, level, division, vault, bars, beam, floor, aa, rank, num
+- **winners**: id, state, meet_name, association, name, gym, session, level, division, event, score, is_tie
+
 ### Output Generation
 Use \`regenerate_output\` to generate or regenerate specific outputs. Available outputs: shirt, idml, order_forms, gym_highlights, summary, all.
 
@@ -292,6 +296,10 @@ Names are sorted by age division by default. Do NOT change to alphabetical unles
     ],
     prompt: `## Current Phase: IMPORT BACKS
 Import designer-edited back-of-shirt PDFs and regenerate order forms and gym highlights.
+
+### Database Schema (for query_db)
+- **results**: id, state, meet_name, association, name, gym, session, level, division, vault, bars, beam, floor, aa, rank, num
+- **winners**: id, state, meet_name, association, name, gym, session, level, division, event, score, is_tie
 
 ### Step 1: Identify the Meet
 Use \`list_meets\` to see available meets. Try to match the meet automatically:

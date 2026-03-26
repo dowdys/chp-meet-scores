@@ -445,9 +445,10 @@ def main():
                         new_pg = combined.new_page(width=_LETTER_W, height=_LETTER_H)
                         # Visual: rasterized image stretched to fill
                         pix = src_page.get_pixmap(dpi=300)
-                        new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), pixmap=pix,
-                                            keep_proportion=False)
+                        png_bytes = pix.tobytes("png")
                         del pix  # Free ~25MB pixmap immediately
+                        new_pg.insert_image(fitz.Rect(0, 0, _LETTER_W, _LETTER_H), stream=png_bytes,
+                                            keep_proportion=False)
                         # Searchable: invisible text layer with scaled positions
                         for block in src_page.get_text("dict")["blocks"]:
                             if block.get("type") != 0:
