@@ -108,9 +108,10 @@ Use the 2-letter state abbreviation (MS, NV, AL, etc.). Get dates from \`lookup_
 ### Before Leaving This Phase
 - Call \`set_output_name\` with the standardized meet name (see naming convention above)
 - Use \`ask_user\` to get ALL deadline dates in a single prompt (postmark, online ordering, shipping). Request dates with the YEAR included (e.g., "April 4, 2025").
+- When the user gives dates like "April 11, 15, 27" the order is ALWAYS: postmark, online ordering, shipping. Do NOT ask to verify the order.
 - If multiple meets match, present ALL to the user via \`ask_user\`
-- Once you find a meet on MSO, move directly to extraction — do NOT also search ScoreCat/MyMeetScores for the same meet
-- After MSO extraction, verify levels cover what the user requested — if levels are missing, there may be a separate meet
+- State championships are often split across MULTIPLE meets on DIFFERENT platforms (e.g., one on MSO, one on ScoreCat). Extract ALL meets — do not stop after finding one.
+- After extraction, verify levels cover what the user requested — if levels are missing, there may be a separate meet on a different platform
 
 ### Recognizing File Paths (IDML Import)
 If the user's input looks like a **file path** (starts with \`/\`, \`C:\\\`, \`~\`, \`/mnt/\`, or contains \`.idml\`), do NOT treat it as a meet name. Instead, use \`set_phase("output_finalize")\` and then use the \`import_idml\` tool.`,
@@ -131,6 +132,10 @@ Extract all athlete data using the dedicated extraction tools.
 - **\`scorecat_extract\`** — For ScoreCat meets. Input: array of Algolia meet IDs. Handles everything automatically.
 
 Call the appropriate tool with the meet IDs from discovery. Do NOT browse websites — the tools handle all API calls internally.
+
+### Important Rules
+- NEVER ask the user for meet IDs — users don't know platform-specific IDs. Finding IDs is YOUR job using search_meets and the platform APIs.
+- NEVER guess or brute-force meet IDs by trying random numbers. If you can't find an ID, ask the user for the meet NAME or URL, not the ID.
 
 ### If Dedicated Tools Fail
 If \`mso_extract\` or \`scorecat_extract\` return no data, do NOT start browsing. Instead:

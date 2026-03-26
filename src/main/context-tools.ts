@@ -46,6 +46,12 @@ export interface AgentContext {
   postmarkDate?: string;
   onlineDate?: string;
   shipDate?: string;
+  /** Meet IDs discovered by search_meets — extraction tools reject IDs not in this set */
+  discoveredMeetIds?: string[];
+  /** Set when search_meets returns non-empty results — gates Chrome tools in discovery */
+  searchMeetsReturned?: boolean;
+  /** Tracks search_meets call count */
+  searchMeetsCallCount?: number;
 }
 
 export interface ProgressData {

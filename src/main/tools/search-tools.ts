@@ -20,6 +20,12 @@ const STATE_ABBREVS: Record<string, string> = {
   'west virginia': 'wv', wisconsin: 'wi', wyoming: 'wy',
 };
 
+// Reverse lookup: abbreviation → full state name
+const US_STATE_NAMES: Record<string, string> = {};
+for (const [name, abbr] of Object.entries(STATE_ABBREVS)) {
+  US_STATE_NAMES[abbr.toUpperCase()] = name.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
 /** Normalize a state input to its 2-letter abbreviation (lowercase). */
 function normalizeState(raw: string): string {
   const lower = raw.toLowerCase().trim();
@@ -36,8 +42,9 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
     const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
 
     // --- Step 0: Perplexity context (if API key available) ---
-    // Ask Perplexity about the championship FIRST to know what to expect
+    // Ask Perplexity about the championship to know what meets to expect and where to find them
     let perplexityContext = '';
+    const perplexityMeetNames: string[] = [];
     try {
       const { configStore } = await import('../config-store');
       const pplxKey = configStore.get('perplexityApiKey');
@@ -52,44 +59,87 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
             model: 'sonar',
             messages: [{
               role: 'user',
-              content: `Tell me about the ${query} gymnastics meet. How many separate meets make up this championship? What levels/divisions does each cover? What are the exact dates? What venue hosts it? Note: state championships are often split into multiple scored meets (e.g., one for Xcel divisions and one for competitive levels). Keep your answer concise and factual.`,
+              content: `I need to find gymnastics meet results for: ${query}.
+
+State championships are often split into multiple separately scored meets (e.g., one for Xcel divisions, one for competitive levels 4-10, one for levels 2-3).
+
+For EACH separate meet that makes up this championship, tell me:
+1. The EXACT meet name as it would appear on scoring platforms
+2. Which scoring platform hosts the results: MeetScoresOnline.com (MSO) or ScoreCat (results.scorecatonline.com)
+3. The dates
+4. What levels/divisions it covers
+
+Be specific about meet names — they're often like "2026 [State] Xcel State Championships" or "2026 [State] Level 4-10 State Championships". Keep your answer concise and factual.`,
             }],
           }),
         });
         const pplxData = await pplxResp.json() as { choices?: Array<{ message?: { content?: string } }> };
         perplexityContext = pplxData?.choices?.[0]?.message?.content || '';
+
+        // Extract meet names from Perplexity response for smarter Algolia/MSO searching
+        const nameMatches = perplexityContext.match(/[""]([^""]+(?:Championship|Championships|State)[^""]*)[""]/gi) ||
+                           perplexityContext.match(/(?:^|\n)\d+\.\s*\*?\*?([^\n*]+(?:Championship|Championships|State)[^\n*]*)/gim);
+        if (nameMatches) {
+          for (const m of nameMatches) {
+            const cleaned = m.replace(/^[\d.\s*"]+/, '').replace(/["*]+$/, '').trim();
+            if (cleaned.length > 10 && cleaned.length < 100) {
+              perplexityMeetNames.push(cleaned);
+            }
+          }
+        }
       }
     } catch {
       // Perplexity unavailable — continue without context
     }
 
     // --- Step 1: Search Algolia (ScoreCat) ---
-    try {
-      const algoliaResp = await fetchWithRetry('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
-        method: 'POST',
-        headers: {
-          'x-algolia-application-id': '2R102D471D',
-          'x-algolia-api-key': 'f6c6022306eb2dace46c6490e7ae9984',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query }),
-      });
-      const algoliaData = await algoliaResp.json() as { hits?: Array<Record<string, unknown>> };
-      for (const hit of algoliaData.hits || []) {
-        const hitState = (hit.state as string | undefined) || '';
-        if (stateFilter && normalizeState(hitState) !== stateFilter) continue;
-        const startDate = hit.startDate ? new Date(hit.startDate as number).toISOString().split('T')[0] : 'unknown';
-        results.push({
-          name: hit.name as string,
-          id: (hit.meet_id || hit.objectID) as string,
-          source: 'scorecat',
-          state: (hit.state as string) || '',
-          program: (hit.program as string) || 'unknown',
-          date: startDate,
+    // Search with multiple query variations: original, state-based simple queries, and Perplexity names
+    const stateName = stateFilter ? US_STATE_NAMES[stateFilter.toUpperCase()] || '' : '';
+    const yearMatch = query.match(/\b(20\d{2})\b/);
+    const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
+    const algoliaQueries = [
+      query,
+      // Simple state-based searches (these match better than the verbose UI query)
+      ...(stateName ? [
+        `${stateName} state ${year}`,
+        `${stateName} state championship ${year}`,
+        `${stateName} ${year}`,
+        `${stateFilter?.toUpperCase()} state ${year}`,
+      ] : []),
+      ...perplexityMeetNames,
+    ];
+    const seenScoreCatIds = new Set<string>();
+    for (const aq of algoliaQueries) {
+      try {
+        const algoliaResp = await fetchWithRetry('https://2r102d471d.algolia.net/1/indexes/ff_meets/query', {
+          method: 'POST',
+          headers: {
+            'x-algolia-application-id': '2R102D471D',
+            'x-algolia-api-key': 'f6c6022306eb2dace46c6490e7ae9984',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: aq }),
         });
+        const algoliaData = await algoliaResp.json() as { hits?: Array<Record<string, unknown>> };
+        for (const hit of algoliaData.hits || []) {
+          const hitId = ((hit.meet_id || hit.objectID) as string);
+          if (seenScoreCatIds.has(hitId)) continue;
+          const hitState = (hit.state as string | undefined) || '';
+          if (stateFilter && normalizeState(hitState) !== stateFilter) continue;
+          seenScoreCatIds.add(hitId);
+          const startDate = hit.startDate ? new Date(hit.startDate as number).toISOString().split('T')[0] : 'unknown';
+          results.push({
+            name: hit.name as string,
+            id: hitId,
+            source: 'scorecat',
+            state: (hit.state as string) || '',
+            program: (hit.program as string) || 'unknown',
+            date: startDate,
+          });
+        }
+      } catch {
+        // Algolia failed for this query, continue
       }
-    } catch {
-      // Algolia failed, continue with MSO
     }
 
     // --- Step 2: Search MSO Results.All ---
@@ -100,23 +150,26 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       const html = await msoResp.text();
       const regex = /data-meetid="(\d+)"\s+data-state="([^"]+)"\s+data-filter-by="([^"]+)"/g;
       let match;
-      const queryLower = query.toLowerCase();
       const seenIds = new Set(results.map(r => r.id));
+
       while ((match = regex.exec(html)) !== null) {
-        const [, meetId, state, filterBy] = match;
+        const [, meetId, meetState, filterBy] = match;
         if (seenIds.has(meetId)) continue;
-        if (stateFilter && state.toLowerCase() !== stateFilter) continue;
-        if (!filterBy.toLowerCase().includes(queryLower.split(' ')[0])) continue;
-        const queryWords = queryLower.split(/\s+/);
-        const matchCount = queryWords.filter(w => filterBy.toLowerCase().includes(w)).length;
-        if (matchCount >= Math.ceil(queryWords.length * 0.5)) {
+        // State filter is the primary filter
+        if (stateFilter && meetState.toLowerCase() !== stateFilter) continue;
+
+        // When we have a state filter, include ALL meets from that state.
+        // The agent + Perplexity context will identify which ones are relevant.
+        const isMatch = !!stateFilter;
+
+        if (isMatch) {
           const isWomen = filterBy.includes('wom');
           const isMen = filterBy.includes('men');
           results.push({
             name: filterBy.split(/\s{2,}/)[0].replace(/\b\w/g, c => c.toUpperCase()).trim(),
             id: meetId,
             source: 'mso',
-            state: state.toUpperCase(),
+            state: meetState.toUpperCase(),
             program: isMen ? 'Men' : isWomen ? 'Women' : 'unknown',
             date: 'check MSO',
           });
@@ -225,7 +278,7 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
       const meetId = requireString(args, 'meet_id');
 
       if (source !== 'mso') {
-        return `Error: lookup_meet currently only supports source "mso". Got: "${source}"`;
+        return `lookup_meet only supports MSO meets. For ScoreCat meets, no verification is needed — the meet was already found via Algolia search. Proceed directly to scorecat_extract with meet_ids: ["${meetId}"].`;
       }
 
       // Fetch meet metadata via MSO lookup_meet API

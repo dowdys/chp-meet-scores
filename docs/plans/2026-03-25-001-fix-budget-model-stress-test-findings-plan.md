@@ -1,7 +1,7 @@
 ---
 title: "fix: Budget model stress test findings — 5 architectural improvements"
 type: fix
-status: active
+status: completed
 date: 2026-03-25
 deepened: 2026-03-25
 ---

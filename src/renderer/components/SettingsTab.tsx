@@ -164,6 +164,7 @@ const SettingsTab: React.FC = () => {
         ) : (() => {
           const KNOWN_MODELS = [
             'qwen/qwen3.5-397b-a17b',
+            'minimax/minimax-m2.7',
             'openai/gpt-4.1-mini',
             'google/gemini-2.5-flash',
             'qwen/qwen3-coder',
@@ -187,6 +188,7 @@ const SettingsTab: React.FC = () => {
                   <option value="qwen/qwen3.5-397b-a17b">Qwen 3.5 397B — $0.39/$2.34</option>
                 </optgroup>
                 <optgroup label="Budget (may require retries)">
+                  <option value="minimax/minimax-m2.7">MiniMax M2.7 — $0.36/$1.44</option>
                   <option value="openai/gpt-4.1-mini">GPT-4.1 Mini — $0.40/$1.60</option>
                   <option value="google/gemini-2.5-flash">Gemini 2.5 Flash — $0.30/$2.50</option>
                   <option value="qwen/qwen3-coder">Qwen 3 Coder 480B — $0.22/$1.00</option>

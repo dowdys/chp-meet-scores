@@ -404,15 +404,14 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
       let phaseTools = filterToolsForPhase(allTools, context.currentPhase, context.unlockedTools);
 
-      // After set_output_name is called, gate browse/Chrome tools in discovery.
-      // The agent has committed to a meet — it only needs ask_user (dates) and set_phase.
-      // Search tools (search_meets, lookup_meet) stay available for verification.
-      if (context.currentPhase === 'discovery' && context.outputName) {
-        const GATED_AFTER_COMMIT = new Set([
+      // After search_meets returns results, gate browse/Chrome tools in discovery.
+      // The agent should use the results, not browse websites to confirm.
+      if (context.currentPhase === 'discovery' && context.searchMeetsReturned) {
+        const GATED_AFTER_SEARCH = new Set([
           'web_search', 'http_fetch',
           'chrome_navigate', 'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
         ]);
-        phaseTools = phaseTools.filter(t => !GATED_AFTER_COMMIT.has(t.name));
+        phaseTools = phaseTools.filter(t => !GATED_AFTER_SEARCH.has(t.name));
       }
 
       let response: LLMResponse;
@@ -527,7 +526,14 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
         // Prune context on phase transition — condense prior work into a compact handoff
         if (context.currentPhase !== phaseBeforeTools) {
+          // Flush the process log BEFORE pruning so pre-prune messages are preserved
+          saveProcessLog(context, {
+            success: false,
+            message: `IN PROGRESS — phase transition: ${phaseBeforeTools} → ${context.currentPhase}`,
+          });
           await this.pruneContextForPhaseTransition(context, phaseBeforeTools);
+          // Reset the log index so post-prune messages append correctly
+          context.lastLoggedMessageIndex = 0;
         }
       }
 
@@ -692,7 +698,23 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
 
-      // No per-tool detection needed — discovery tools are gated after set_output_name
+      // Track search_meets results: discover IDs and gate Chrome tools
+      if (toolName === 'search_meets' && typeof result === 'string' && !result.includes('No meets found')) {
+        context.searchMeetsReturned = true;
+        // Extract discovered meet IDs from the result
+        const idPattern = /ID:\s*(\S+)/g;
+        let idMatch;
+        if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
+        while ((idMatch = idPattern.exec(result)) !== null) {
+          const id = idMatch[1].replace(/[|,]/g, '');
+          if (id && !context.discoveredMeetIds.includes(id)) {
+            context.discoveredMeetIds.push(id);
+          }
+        }
+        if (context.discoveredMeetIds.length > 0) {
+          console.log(`[AGENT] Discovered meet IDs: ${context.discoveredMeetIds.join(', ')}`);
+        }
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       result = `Error: ${errMsg}`;
@@ -711,6 +733,37 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     args: Record<string, unknown>,
     context: AgentContext
   ): Promise<ToolResultContent> {
+    // --- Structural enforcement checks ---
+
+    // search_meets: track calls, limit to 2, cache results
+    if (name === 'search_meets') {
+      const count = (context.searchMeetsCallCount || 0) + 1;
+      context.searchMeetsCallCount = count;
+      if (count > 2) {
+        return 'Error: search_meets has been called 3+ times. The meets you need should already be in the results above. ' +
+          'If you cannot find a meet, use ask_user to ask the user for the meet NAME or URL — never ask for IDs.';
+      }
+    }
+
+    // Extraction tools: reject IDs not discovered by search_meets (prevents brute-force guessing)
+    if ((name === 'mso_extract' || name === 'scorecat_extract') && context.discoveredMeetIds && context.discoveredMeetIds.length > 0) {
+      const meetIds = Array.isArray(args.meet_ids) ? args.meet_ids as string[] : [];
+      const undiscovered = meetIds.filter(id => !context.discoveredMeetIds!.includes(id));
+      if (undiscovered.length > 0) {
+        return `Error: Meet ID(s) ${undiscovered.join(', ')} were not found by search_meets. ` +
+          'Do NOT guess meet IDs. Use search_meets to find the correct IDs first.';
+      }
+    }
+
+    // ask_user during extraction: reject questions asking for meet IDs
+    if (name === 'ask_user' && context.currentPhase === 'extraction') {
+      const question = String((args as Record<string, unknown>).question || '').toLowerCase();
+      if (/\bmeet\s*id\b|\bsource\s*id\b|\bmso\s*id\b|\bscorecat\s*id\b/.test(question)) {
+        return 'Error: Do not ask the user for meet IDs. Users do not know platform-specific IDs. ' +
+          'Use search_meets to find IDs, or ask for the meet NAME or URL instead.';
+      }
+    }
+
     // Validate finalize_meet meet_name matches context.outputName
     if (name === 'finalize_meet' && context.outputName) {
       const fmName = typeof args.meet_name === 'string' ? args.meet_name : '';

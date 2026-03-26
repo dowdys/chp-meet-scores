@@ -10,6 +10,7 @@ npm run build 2>&1 | tail -3
 
 echo "Clearing Python cache..."
 find python -name __pycache__ -exec rm -rf {} + 2>/dev/null
+find "$WIN_DEV/python" -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 echo "Syncing to Windows..."
 rsync -a --delete dist/ "$WIN_DEV/dist/"
