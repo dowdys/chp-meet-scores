@@ -431,17 +431,27 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
         div_order, _unknowns = detect_division_order(db_path, meet_name)
         logger.debug("WINNERS_DIAG: div_order has %d entries: %s", len(div_order), div_order)
 
-        # Build AA score lookup keyed by (name, level, session) for tie-breaking.
-        # AA tie-breaking only applies within the same division+session.
-        aa_scores = {}
+        # Build score lookups keyed by (name, level, session) for tie-breaking.
+        # Tie-breaking only applies within the same division+session.
+        aa_scores = {}          # (name, level, session) -> AA score
+        event_scores = {}       # (name, level, session) -> sorted [highest, next, ...] event scores
         try:
-            cur.execute('''SELECT name, level, session, aa FROM results
-                           WHERE meet_name = ? AND aa IS NOT NULL AND aa > 0''',
+            cur.execute('''SELECT name, level, session, vault, bars, beam, floor, aa FROM results
+                           WHERE meet_name = ?''',
                         (meet_name,))
-            for name, level, session, aa in cur.fetchall():
+            for name, level, session, vault, bars, beam, floor, aa in cur.fetchall():
                 key = (name, level, session)
-                if key not in aa_scores or aa > aa_scores[key]:
-                    aa_scores[key] = aa
+                # AA score for event tie-breaking
+                if aa and aa > 0:
+                    if key not in aa_scores or aa > aa_scores[key]:
+                        aa_scores[key] = aa
+                # Individual event scores sorted descending for AA tie-breaking
+                # Rule: AA ties broken by highest single event score, then next highest, etc.
+                scores = sorted(
+                    [s for s in (vault, bars, beam, floor) if s and s > 0],
+                    reverse=True
+                )
+                event_scores[key] = scores
         except Exception:
             pass  # results table may not exist or have different schema
 
@@ -475,15 +485,25 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                     else:
                         # Sort by: 1) division age (youngest first),
                         #          2) session ascending,
-                        #          3) AA score descending (only meaningful within
-                        #             same division+session for tie-breaking),
-                        #          4) name alphabetically
-                        rows.sort(key=lambda r: (
-                            div_order.get(r[1], 99),
-                            _session_sort_key(r[2]),
-                            -(aa_scores.get((r[0], level, r[2]), -1)),
-                            r[0]
-                        ))
+                        #          3) for event ties: AA score descending,
+                        #          4) for AA ties: highest individual event score descending,
+                        #             then next highest, etc.
+                        #          5) name alphabetically
+                        def _tiebreak_key(r):
+                            key = (r[0], level, r[2])
+                            aa = aa_scores.get(key, -1)
+                            # Negate individual event scores for descending sort
+                            # Pad to 4 elements so tuples are always comparable
+                            scores = event_scores.get(key, [])
+                            neg_scores = tuple(-s for s in scores) + (0, 0, 0, 0)
+                            return (
+                                div_order.get(r[1], 99),
+                                _session_sort_key(r[2]),
+                                -aa,
+                                neg_scores[:4],
+                                r[0]
+                            )
+                        rows.sort(key=_tiebreak_key)
                     # Clean names for shirt display (strip parenthetical annotations)
                     seen = set()
                     clean_names = []
