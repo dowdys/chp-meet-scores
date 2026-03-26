@@ -1,7 +1,7 @@
 ---
 title: "fix: Discovery and extraction reliability for budget models"
 type: fix
-status: active
+status: completed
 date: 2026-03-26
 deepened: 2026-03-26
 ---
