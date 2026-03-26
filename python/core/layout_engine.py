@@ -364,12 +364,14 @@ def clean_name_for_shirt(name: str) -> str:
     """
     # Remove trailing asterisk + parens first: "Name*(V,BB)" -> "Name"
     cleaned = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', name)
+    # Remove ** + event codes with slashes/commas: "Name **V/BB/FX" or "Name ** BB, FX" -> "Name"
+    cleaned = re.sub(r'\s*\*{1,2}\s*(?:V|UB|BB|FX|VT|Be|Fl|Fx)(?:[/,\s]+(?:V|UB|BB|FX|VT|Be|Fl|Fx))*[/,\s]*$', '', cleaned)
     # Remove any remaining parenthetical content: "Name (anything)" -> "Name"
     cleaned = re.sub(r'\s*\([^)]*\)\s*', '', cleaned)
     # Remove curly-quote pronunciation: "Name\u201cpronunciation\u201d" -> "Name"
     cleaned = re.sub(r'\s*[\u201c][^\u201d]*[\u201d]', '', cleaned)
-    # Remove trailing standalone asterisk
-    cleaned = re.sub(r'\s*\*\s*$', '', cleaned)
+    # Remove trailing standalone asterisks
+    cleaned = re.sub(r'\s*\*{1,2}\s*$', '', cleaned)
     # Remove trailing event codes with dash: "Name - VT, FX" -> "Name"
     cleaned = _DASH_EVENT_PATTERN.sub('', cleaned)
     # Remove bare trailing event codes: "Name VT UB BB FX" -> "Name"
