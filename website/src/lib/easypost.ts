@@ -2,7 +2,17 @@ import "server-only";
 
 import EasyPostClient from "@easypost/api";
 
-export const easypost = new EasyPostClient(process.env.EASYPOST_API_KEY!);
+let _client: InstanceType<typeof EasyPostClient> | null = null;
+
+export function getEasyPost(): InstanceType<typeof EasyPostClient> {
+  if (!_client) {
+    _client = new EasyPostClient(process.env.EASYPOST_API_KEY!);
+  }
+  return _client;
+}
+
+// Convenience alias
+export const easypost = { get Shipment() { return getEasyPost().Shipment; }, get Batch() { return getEasyPost().Batch; }, get Webhook() { return getEasyPost().Webhook; } };
 
 // Default parcel dimensions for a t-shirt package
 export const SHIRT_PARCEL = {

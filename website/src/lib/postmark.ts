@@ -2,9 +2,13 @@ import "server-only";
 
 import * as postmark from "postmark";
 
-export const emailClient = new postmark.ServerClient(
-  process.env.POSTMARK_SERVER_TOKEN!
-);
+let _client: postmark.ServerClient | null = null;
+function getClient(): postmark.ServerClient {
+  if (!_client) {
+    _client = new postmark.ServerClient(process.env.POSTMARK_SERVER_TOKEN!);
+  }
+  return _client;
+}
 
 const FROM_EMAIL = process.env.POSTMARK_FROM_EMAIL || "orders@thestatechampion.com";
 
@@ -13,7 +17,7 @@ export async function sendTransactionalEmail(
   subject: string,
   htmlBody: string
 ) {
-  return emailClient.sendEmail({
+  return getClient().sendEmail({
     From: FROM_EMAIL,
     To: to,
     Subject: subject,
@@ -29,7 +33,7 @@ export async function sendBroadcastEmail(
   subject: string,
   htmlBody: string
 ) {
-  return emailClient.sendEmail({
+  return getClient().sendEmail({
     From: FROM_EMAIL,
     To: to,
     Subject: subject,
@@ -60,7 +64,7 @@ export async function sendBatchEmails(
       HtmlBody: e.htmlBody,
       MessageStream: e.stream || "outbound",
     }));
-    const result = await emailClient.sendEmailBatch(batch);
+    const result = await getClient().sendEmailBatch(batch);
     results.push(...result);
   }
 
