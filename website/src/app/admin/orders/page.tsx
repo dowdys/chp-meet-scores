@@ -1,6 +1,7 @@
 import { getOrders } from "@/lib/admin";
 import { formatPrice } from "@/lib/utils";
 import { OrderFilters } from "./order-filters";
+import { CSVExportButton } from "@/components/admin/csv-export-button";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,21 @@ export default async function OrdersPage({ searchParams }: PageProps) {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">All Orders</h1>
-        <span className="text-sm text-gray-500">{orders.length} orders</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">{orders.length} orders</span>
+          <CSVExportButton
+            data={orders.map((o: any) => ({
+              order_number: o.order_number,
+              customer: o.customer_name,
+              email: o.customer_email,
+              items: o.order_items?.length || 0,
+              total: (o.total / 100).toFixed(2),
+              status: o.status,
+              date: new Date(o.created_at).toLocaleDateString(),
+            }))}
+            filename={`orders-${new Date().toISOString().split("T")[0]}.csv`}
+          />
+        </div>
       </div>
 
       <OrderFilters currentStatus={params.status} currentSearch={params.search} />

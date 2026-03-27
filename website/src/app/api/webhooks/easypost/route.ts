@@ -61,6 +61,16 @@ export async function POST(request: NextRequest) {
             changed_by: "easypost_webhook",
             reason: `Tracking status: ${status}`,
           });
+
+          // Send delivery confirmation email
+          if (orderStatus === "delivered") {
+            try {
+              const { sendShippingConfirmationEmail } = await import("@/lib/admin-actions");
+              await sendShippingConfirmationEmail(order.id);
+            } catch {
+              console.error("Failed to send delivery email for order:", order.id);
+            }
+          }
         }
       }
     }

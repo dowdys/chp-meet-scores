@@ -1,4 +1,5 @@
 import { getOrdersByBack } from "@/lib/admin";
+import { BatchCreator } from "./batch-creator";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,10 @@ export default async function BacksPage() {
       <p className="text-sm text-gray-500 mb-4">
         {backGroups.size} backs with pending orders
       </p>
+
+      {backGroups.size > 0 && (
+        <BatchCreator backIds={Array.from(backGroups.keys())} />
+      )}
 
       <div className="space-y-4">
         {Array.from(backGroups.entries()).map(([backId, group]) => {

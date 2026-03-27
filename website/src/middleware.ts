@@ -25,42 +25,34 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh the auth token on every request
+  // Only verify auth for admin routes (saves 50-150ms on public pages)
+  if (request.nextUrl.pathname === "/admin/login") {
+    return supabaseResponse;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Only run auth checks on admin routes (skip for public pages to save latency)
-  if (
-    request.nextUrl.pathname.startsWith("/admin") &&
-    request.nextUrl.pathname !== "/admin/login"
-  ) {
-    if (!user) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/admin/login";
-      return NextResponse.redirect(url);
-    }
+  if (!user) {
+    return NextResponse.redirect(new URL("/admin/login", request.url));
+  }
 
-    // Verify user is actually an admin (not just authenticated)
-    const { data: admin } = await supabase
-      .from("admin_users")
-      .select("id")
-      .eq("id", user.id)
-      .single();
+  // Verify user is in admin_users table
+  const { data: admin } = await supabase
+    .from("admin_users")
+    .select("id")
+    .eq("id", user.id)
+    .single();
 
-    if (!admin) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/admin/login";
-      return NextResponse.redirect(url);
-    }
+  if (!admin) {
+    return NextResponse.redirect(new URL("/admin/login", request.url));
   }
 
   return supabaseResponse;
 }
 
 export const config = {
-  matcher: [
-    // Match all paths except static files, images, and API webhook routes
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api/webhooks).*)",
-  ],
+  // ONLY match admin routes — public pages skip middleware entirely
+  matcher: ["/admin/:path*"],
 };

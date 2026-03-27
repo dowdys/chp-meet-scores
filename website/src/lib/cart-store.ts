@@ -65,6 +65,7 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: "chp-cart",
+      skipHydration: true, // Prevent SSR hydration mismatch
     }
   )
 );
