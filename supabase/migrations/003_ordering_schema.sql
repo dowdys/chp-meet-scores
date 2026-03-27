@@ -231,6 +231,14 @@ GRANT EXECUTE ON FUNCTION public.lookup_athlete_token TO authenticated;
 -- ============================================================
 CREATE SEQUENCE public.order_number_seq START 1;
 
+-- Helper RPC for safe order number generation from application code
+CREATE OR REPLACE FUNCTION public.nextval_order_number()
+RETURNS BIGINT AS $$
+  SELECT nextval('public.order_number_seq');
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = '';
+
+GRANT EXECUTE ON FUNCTION public.nextval_order_number TO authenticated;
+
 -- ============================================================
 -- ORDERS
 -- ============================================================
