@@ -1,4 +1,5 @@
 import { getNameCorrections } from "@/lib/admin";
+import { CorrectionActions } from "./correction-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,32 +25,32 @@ export default async function AlertsPage() {
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-sm text-gray-500">
-                  Order {(item as any).orders?.order_number || "Unknown"}
+                  Order {item.orders?.order_number || "Unknown"}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="line-through text-red-500">{item.athlete_name}</span>
-                  <span className="text-gray-400">\u2192</span>
-                  <span className="font-bold text-green-700">{item.corrected_name}</span>
+                  <span className="line-through text-red-500">
+                    {item.athlete_name}
+                  </span>
+                  <span className="text-gray-400">{"\u2192"}</span>
+                  <span className="font-bold text-green-700">
+                    {item.corrected_name}
+                  </span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {(item as any).shirt_backs?.meet_name || item.meet_name} \u2022{" "}
-                  {(item as any).shirt_backs?.level_group_label || ""}
+                  {item.shirt_backs?.meet_name || item.meet_name}
+                  {" \u2022 "}
+                  {item.shirt_backs?.level_group_label || ""}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600">
-                  Apply
-                </button>
-                <button className="bg-gray-200 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-300">
-                  Dismiss
-                </button>
-              </div>
+              <CorrectionActions itemId={item.id} />
             </div>
           </div>
         ))}
 
         {corrections.length === 0 && (
-          <p className="text-gray-400 text-center py-8">No pending corrections</p>
+          <p className="text-gray-400 text-center py-8">
+            No pending corrections
+          </p>
         )}
       </div>
     </div>

@@ -1,10 +1,20 @@
 import { getOrders } from "@/lib/admin";
 import { formatPrice } from "@/lib/utils";
+import { OrderFilters } from "./order-filters";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrdersPage() {
-  const { data: orders } = await getOrders({ limit: 100 });
+interface PageProps {
+  searchParams: Promise<{ status?: string; search?: string }>;
+}
+
+export default async function OrdersPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const { data: orders } = await getOrders({
+    status: params.status,
+    search: params.search,
+    limit: 200,
+  });
 
   return (
     <div className="p-8">
@@ -13,7 +23,9 @@ export default async function OrdersPage() {
         <span className="text-sm text-gray-500">{orders.length} orders</span>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <OrderFilters currentStatus={params.status} currentSearch={params.search} />
+
+      <div className="bg-white rounded-xl border overflow-hidden mt-4">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
@@ -40,6 +52,7 @@ export default async function OrdersPage() {
                     order.status === "paid" ? "bg-green-100 text-green-700" :
                     order.status === "shipped" ? "bg-blue-100 text-blue-700" :
                     order.status === "processing" ? "bg-yellow-100 text-yellow-700" :
+                    order.status === "delivered" ? "bg-green-200 text-green-800" :
                     "bg-gray-100 text-gray-700"
                   }`}>
                     {order.status}
@@ -53,7 +66,7 @@ export default async function OrdersPage() {
             {orders.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-8 text-center text-gray-400">
-                  No orders yet
+                  No orders found
                 </td>
               </tr>
             )}

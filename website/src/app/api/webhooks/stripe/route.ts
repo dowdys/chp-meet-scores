@@ -211,6 +211,12 @@ async function handleCheckoutCompleted(
     reason: "Stripe checkout completed",
   });
 
-  // TODO: Send confirmation email via Postmark (async, non-blocking)
-  // TODO: This should be queued rather than done synchronously
+  // Send confirmation email (non-blocking — don't let email failure break order creation)
+  try {
+    const { sendOrderConfirmationEmail } = await import("@/lib/admin-actions");
+    await sendOrderConfirmationEmail(order.id);
+  } catch (emailErr) {
+    console.error("Failed to send order confirmation email:", emailErr);
+    // Non-critical — order is created, email can be resent from admin
+  }
 }

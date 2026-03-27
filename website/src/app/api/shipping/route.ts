@@ -88,6 +88,14 @@ export async function POST(request: NextRequest) {
           .update({ production_status: "packed" })
           .eq("order_id", order.id);
 
+        // Send shipping confirmation email (non-blocking)
+        try {
+          const { sendShippingConfirmationEmail } = await import("@/lib/admin-actions");
+          await sendShippingConfirmationEmail(order.id);
+        } catch {
+          console.error("Failed to send shipping email for order:", order.id);
+        }
+
         results.push({
           orderId: order.id,
           orderNumber: order.order_number,

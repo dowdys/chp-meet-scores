@@ -1,5 +1,5 @@
 import { getShippingQueue } from "@/lib/admin";
-import { formatPrice } from "@/lib/utils";
+import { ShipAction } from "./ship-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +34,7 @@ export default async function ShippingPage() {
                 </td>
                 <td className="p-3">{order.order_items?.length || 0} shirts</td>
                 <td className="p-3">
-                  <button className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600">
-                    Create Label
-                  </button>
+                  <ShipAction orderId={order.id} />
                 </td>
               </tr>
             ))}

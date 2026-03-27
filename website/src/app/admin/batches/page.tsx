@@ -1,4 +1,5 @@
 import { getPrinterBatches } from "@/lib/admin";
+import { BatchActions } from "./batch-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +30,14 @@ export default async function BatchesPage() {
                     ` \u2022 ${batch.printer_batch_backs.length} backs`}
                 </p>
               </div>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                statusColors[batch.status] || "bg-gray-100"
-              }`}>
-                {batch.status.replace("_", " ")}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  statusColors[batch.status] || "bg-gray-100"
+                }`}>
+                  {batch.status.replace("_", " ")}
+                </span>
+                <BatchActions batchId={batch.id} currentStatus={batch.status} />
+              </div>
             </div>
             {batch.sent_at && (
               <p className="text-xs text-gray-400 mt-2">

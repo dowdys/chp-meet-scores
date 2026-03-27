@@ -1,4 +1,5 @@
 import { getEmailCaptures } from "@/lib/admin";
+import { BlastAction } from "./blast-action";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +31,7 @@ export default async function EmailsPage() {
               <h3 className="font-bold">{state}</h3>
               <p className="text-sm text-gray-500">{stateCaptures.length} signups</p>
             </div>
-            <button className="bg-blue-500 text-white px-4 py-2 rounded text-sm hover:bg-blue-600">
-              Send Blast
-            </button>
+            <BlastAction state={state} count={stateCaptures.length} />
           </div>
         ))}
         {byState.size === 0 && (
