@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
+import { checkoutSchema } from "@/lib/validation";
 import {
   SHIRT_PRICE,
   JEWEL_PRICE,

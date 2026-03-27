@@ -1,11 +1,18 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 import { render } from "@react-email/render";
 import { OrderConfirmationEmail } from "@/emails/order-confirmation";
 import { ShippingConfirmationEmail } from "@/emails/shipping-confirmation";
 import { sendBatchEmails } from "@/lib/postmark";
 import { formatPrice } from "@/lib/utils";
+
+/** Verify caller is admin before any mutating action */
+async function ensureAdmin() {
+  const auth = await requireAdmin();
+  if (auth.error) throw new Error("Unauthorized");
+}
 
 function getDb() {
   return createServiceClient();
@@ -16,6 +23,7 @@ function getDb() {
 // ============================================================
 
 export async function applyNameCorrection(itemId: number) {
+  await ensureAdmin();
   const db = getDb();
   await db
     .from("order_items")
@@ -26,6 +34,7 @@ export async function applyNameCorrection(itemId: number) {
 }
 
 export async function dismissNameCorrection(itemId: number) {
+  await ensureAdmin();
   const db = getDb();
   await db
     .from("order_items")
@@ -46,6 +55,7 @@ export async function createPrinterBatch(
   backIds: number[],
   printer: "printer_1" | "printer_2" = "printer_2"
 ) {
+  await ensureAdmin();
   const db = getDb();
 
   const weekStr = new Date().toLocaleDateString("en-US", {
@@ -95,6 +105,7 @@ export async function updateBatchStatus(
   batchId: number,
   newStatus: "at_printer" | "returned"
 ) {
+  await ensureAdmin();
   const db = getDb();
 
   const updates: Record<string, string | null> = { status: newStatus };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { emailCaptureSchema } from "@/lib/validation";
 
 interface EmailCaptureBody {
   email: string;
@@ -19,15 +20,18 @@ function isValidEmail(email: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: EmailCaptureBody = await request.json();
+    const raw = await request.json();
 
-    // Validate required fields
-    if (!body.email || !body.athlete_name) {
+    // Validate with Zod schema
+    const parsed = emailCaptureSchema.safeParse(raw);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Email and athlete name are required" },
+        { error: parsed.error.issues[0]?.message || "Invalid data" },
         { status: 400 }
       );
     }
+
+    const body = parsed.data;
 
     if (!isValidEmail(body.email)) {
       return NextResponse.json(
@@ -52,12 +56,12 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase.from("email_captures").upsert(
       {
         email: body.email.trim().toLowerCase(),
-        phone: sanitize(body.phone) || null,
-        athlete_name: sanitize(body.athlete_name)!,
-        state: sanitize(body.state) || null,
-        association: sanitize(body.association) || null,
-        gym: sanitize(body.gym) || null,
-        level: sanitize(body.level) || null,
+        phone: sanitize(body.phone ?? undefined) || null,
+        athlete_name: sanitize(body.athlete_name) || body.athlete_name,
+        state: sanitize(body.state ?? undefined) || null,
+        association: sanitize(body.association ?? undefined) || null,
+        gym: sanitize(body.gym ?? undefined) || null,
+        level: sanitize(body.level ?? undefined) || null,
         source: sanitize(body.source) || "website",
       },
       {
