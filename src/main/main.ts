@@ -55,6 +55,11 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Supabase auth token refresh lifecycle (required for non-browser environments)
+  import('./supabase-client').then(({ setupAutoRefreshLifecycle }) => {
+    if (mainWindow) setupAutoRefreshLifecycle(mainWindow);
+  }).catch(() => { /* supabase-client may fail to load in some envs */ });
 }
 
 function sendActivityLog(message: string, level: 'info' | 'success' | 'error' | 'warning' = 'info'): void {
@@ -258,10 +263,76 @@ function setupIPC(): void {
       configStore.setAll(settings);
       // Reset agent loop so it picks up new settings
       activeAgentLoop = null;
+      // Reset Supabase client so it picks up new credentials
+      const { resetSupabaseClient } = await import('./supabase-client');
+      resetSupabaseClient();
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { success: false, error: message };
+    }
+  });
+
+  // Test Supabase connection
+  ipcMain.handle('test-supabase-connection', async () => {
+    const { testConnection } = await import('./supabase-client');
+    return testConnection();
+  });
+
+  // List all meets in the central Supabase database
+  ipcMain.handle('list-cloud-meets', async () => {
+    try {
+      const { getSupabaseClient } = await import('./supabase-client');
+      const supabase = await getSupabaseClient();
+      if (!supabase) return { success: false, error: 'Supabase not available' };
+      const { data, error } = await supabase
+        .from('meets')
+        .select('meet_name, state, year, association, source, dates, version, athlete_count, winner_count, published_at, published_by')
+        .order('published_at', { ascending: false });
+      if (error) return { success: false, error: error.message };
+      return { success: true, meets: data };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Get files for a specific cloud meet
+  ipcMain.handle('get-cloud-meet-files', async (_event, meetName: string) => {
+    try {
+      const { getSupabaseClient } = await import('./supabase-client');
+      const supabase = await getSupabaseClient();
+      if (!supabase) return { success: false, error: 'Supabase not available' };
+      const { data, error } = await supabase
+        .from('meet_files')
+        .select('filename, storage_path, file_size, uploaded_at')
+        .eq('meet_name', meetName)
+        .order('filename');
+      if (error) return { success: false, error: error.message };
+      return { success: true, files: data };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Download a file from Supabase Storage to the local output directory
+  ipcMain.handle('download-cloud-file', async (_event, meetName: string, storagePath: string, filename: string) => {
+    try {
+      const { getSupabaseClient } = await import('./supabase-client');
+      const { getOutputDir } = await import('./paths');
+      const supabase = await getSupabaseClient();
+      if (!supabase) return { success: false, error: 'Supabase not available' };
+      const { data, error } = await supabase.storage
+        .from('meet-documents')
+        .download(storagePath);
+      if (error) return { success: false, error: error.message };
+      if (!data) return { success: false, error: 'No data returned' };
+      const buffer = Buffer.from(await data.arrayBuffer());
+      const outputDir = getOutputDir(meetName);
+      const localPath = path.join(outputDir, filename);
+      fs.writeFileSync(localPath, buffer);
+      return { success: true, localPath };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 

@@ -14,6 +14,8 @@ import Database from 'better-sqlite3';
 import { getStagingDbPath } from './tools/python-tools';
 import { setDbToolsPhase } from './tools/db-tools';
 import { getDataDir, getOutputDir, getProjectRoot } from './paths';
+import { uploadMeetFiles } from './supabase-sync';
+import { isSupabaseEnabled } from './supabase-client';
 import { WorkflowPhase, getToolHomePhase, getAllPhases, getPhaseDefinition } from './workflow-phases';
 import { requireString, requireArray, optionalString } from './tools/validation';
 
@@ -403,6 +405,18 @@ export async function toolImportPdfBacks(
 
   // Set import protection flag
   context.idmlImported = true;
+
+  // Re-upload updated files to Supabase Storage (non-blocking)
+  if (isSupabaseEnabled() && meetName) {
+    try {
+      const fileResult = await uploadMeetFiles(meetName);
+      if (fileResult.uploaded.length > 0) {
+        return result + ` Re-uploaded ${fileResult.uploaded.length} files to cloud.`;
+      }
+    } catch (err) {
+      console.warn('[import_pdf_backs] Cloud re-upload failed:', err);
+    }
+  }
 
   return result;
 }

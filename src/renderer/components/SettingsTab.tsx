@@ -9,6 +9,10 @@ const SettingsTab: React.FC = () => {
     githubToken: '',
     outputDir: '',
     perplexityApiKey: '',
+    supabaseUrl: '',
+    supabaseAnonKey: '',
+    supabaseEnabled: false,
+    installationId: '',
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);
@@ -16,6 +20,7 @@ const SettingsTab: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [connectionTest, setConnectionTest] = useState<string>('');
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
 
@@ -257,6 +262,37 @@ const SettingsTab: React.FC = () => {
           >
             {showPerplexityKey ? 'Hide' : 'Show'}
           </button>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>Cloud Sync</h3>
+        <p className="setting-description">
+          Finalized meets are automatically synced to the central database, accessible from any computer.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <button
+            className="check-button"
+            onClick={async () => {
+              setConnectionTest('Testing...');
+              try {
+                const result = await window.electronAPI.testSupabaseConnection();
+                setConnectionTest(result.success ? 'Connected!' : `Failed: ${result.error}`);
+              } catch {
+                setConnectionTest('Connection test failed.');
+              }
+            }}
+          >
+            Test Connection
+          </button>
+          {connectionTest && (
+            <span className={`model-check-result ${connectionTest === 'Connected!' ? 'success' : ''}`}>
+              {connectionTest}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: '12px', color: '#888' }}>
+          Installation ID: {settings.installationId || 'Loading...'}
         </div>
       </div>
 

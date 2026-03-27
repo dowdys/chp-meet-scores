@@ -1,5 +1,6 @@
 import Store from 'electron-store';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { app, safeStorage } from 'electron';
 
 export interface AppConfig {
@@ -9,6 +10,10 @@ export interface AppConfig {
   githubToken: string;
   outputDir: string;
   perplexityApiKey: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  supabaseEnabled: boolean;
+  installationId: string;
 }
 
 const defaults: AppConfig = {
@@ -18,10 +23,14 @@ const defaults: AppConfig = {
   githubToken: '',
   outputDir: '',
   perplexityApiKey: '',
+  supabaseUrl: '',
+  supabaseAnonKey: '',
+  supabaseEnabled: false,
+  installationId: '',
 };
 
 /** Keys that contain sensitive values and should be encrypted at rest. */
-const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken', 'perplexityApiKey']);
+const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken', 'perplexityApiKey', 'supabaseAnonKey']);
 
 class ConfigStore {
   private store: Store<AppConfig>;
@@ -84,6 +93,12 @@ class ConfigStore {
       this.store.set('outputDir', defaultDir);
       return defaultDir as AppConfig[K];
     }
+    // Lazy-generate installationId on first access
+    if (key === 'installationId' && !value) {
+      const id = crypto.randomUUID();
+      this.store.set('installationId', id);
+      return id as AppConfig[K];
+    }
     // Decrypt sensitive values and migrate plaintext -> encrypted on first read
     if (this.isSensitive(key) && typeof value === 'string' && value) {
       const decrypted = this.decryptValue(value);
@@ -117,11 +132,18 @@ class ConfigStore {
       githubToken: this.get('githubToken'),
       outputDir: this.get('outputDir'),
       perplexityApiKey: this.get('perplexityApiKey'),
+      supabaseUrl: this.get('supabaseUrl'),
+      supabaseAnonKey: this.get('supabaseAnonKey'),
+      supabaseEnabled: this.get('supabaseEnabled'),
+      installationId: this.get('installationId'),
     };
   }
 
   setAll(settings: Partial<AppConfig>): void {
-    const validKeys: (keyof AppConfig)[] = ['apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir', 'perplexityApiKey'];
+    const validKeys: (keyof AppConfig)[] = [
+      'apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir', 'perplexityApiKey',
+      'supabaseUrl', 'supabaseAnonKey', 'supabaseEnabled',
+    ];
     for (const key of validKeys) {
       if (key in settings && settings[key] !== undefined) {
         this.set(key, settings[key] as AppConfig[typeof key]);

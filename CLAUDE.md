@@ -60,3 +60,12 @@ Every prompt warning replaced by architectural enforcement makes the system more
 ## Config
 - Config file: `~/.config/chp-meet-scores/chp-meet-scores-config.json`
 - Output goes to: `~/Gymnastics Champions/{meetName}/`
+
+## Critical Rules
+
+- **NEVER run recursive grep/find on `/home/goduk`** — home contains 50+ GB of transcripts, caches, node_modules, Docker volumes, and model weights. Recursive scans peg disk at 100% for minutes. Instead:
+  - Use the **Grep tool** (ripgrep, fast, respects .gitignore) — never `grep` via Bash
+  - Target **specific project directories** — e.g., `~/marketplace-autopilot/`, `~/ai-infra/src/`
+  - For secrets/credentials: check **`~/secrets.env`** first (all API keys centralized there)
+  - For code search: `codebase search "query" --project NAME` CLI
+  - For past conversations: `memory search "query"` CLI

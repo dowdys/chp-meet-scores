@@ -138,12 +138,32 @@ export function saveProcessLog(
     const isFirstSave = lastIdx === 0;
 
     if (isFinal) {
-      // Final save: rewrite entire file so header has correct status/tokens.
-      const header = formatHeader(context, true, result.message, result.success);
-      const { text: body } = formatMessages(context.messages, 0);
-      const fullContent = header + body;
+      // Final save: append remaining messages, then update the header in-place.
+      // This preserves pre-prune content that was flushed during phase transitions.
+      const newMessages = context.messages.slice(lastIdx);
+      if (newMessages.length > 0 && fs.existsSync(logPath)) {
+        const iterationOffset = countIterations(context.messages.slice(0, lastIdx));
+        const { text: body } = formatMessages(newMessages, iterationOffset);
+        fs.appendFileSync(logPath, body, 'utf-8');
+      }
 
-      fs.writeFileSync(logPath, fullContent, 'utf-8');
+      // Now rewrite the header at the top of the file with final status/tokens
+      const header = formatHeader(context, true, result.message, result.success);
+      if (fs.existsSync(logPath)) {
+        const existingContent = fs.readFileSync(logPath, 'utf-8');
+        // Find the end of the header (after the "---" separator)
+        const headerEnd = existingContent.indexOf('\n---\n');
+        if (headerEnd >= 0) {
+          const body = existingContent.substring(headerEnd + 5); // after "---\n"
+          fs.writeFileSync(logPath, header + body, 'utf-8');
+        }
+        // else: no separator found, just overwrite (shouldn't happen)
+      } else {
+        // File doesn't exist yet (unusual for final save), write everything
+        const { text: body } = formatMessages(context.messages, 0);
+        fs.writeFileSync(logPath, header + body, 'utf-8');
+      }
+
       context.lastLoggedMessageIndex = context.messages.length;
 
       // Copy to the output folder on final saves
@@ -152,7 +172,8 @@ export function saveProcessLog(
       if (fs.existsSync(outputDir)) {
         try {
           const outputLogPath = path.join(outputDir, 'process_log.md');
-          fs.writeFileSync(outputLogPath, fullContent, 'utf-8');
+          const finalContent = fs.readFileSync(logPath, 'utf-8');
+          fs.writeFileSync(outputLogPath, finalContent, 'utf-8');
         } catch {
           // Non-critical — just skip
         }

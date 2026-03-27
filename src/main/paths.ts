@@ -36,6 +36,10 @@ export function getOutputDir(meetName: string, createIfMissing = true): string {
   return meetDir;
 }
 
+export function getCentralDbPath(): string {
+  return path.join(getDataDir(), 'chp_results.db');
+}
+
 export function getDataDir(): string {
   let dataDir: string;
   if (app.isPackaged) {

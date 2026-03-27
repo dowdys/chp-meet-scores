@@ -106,4 +106,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restartAndUpdate: () => {
     return ipcRenderer.invoke('restart-and-update');
   },
+  testSupabaseConnection: () => {
+    return ipcRenderer.invoke('test-supabase-connection');
+  },
+  listCloudMeets: () => {
+    return ipcRenderer.invoke('list-cloud-meets');
+  },
+  getCloudMeetFiles: (meetName: string) => {
+    return ipcRenderer.invoke('get-cloud-meet-files', meetName);
+  },
+  downloadCloudFile: (meetName: string, storagePath: string, filename: string) => {
+    return ipcRenderer.invoke('download-cloud-file', meetName, storagePath, filename);
+  },
 } as ElectronAPI);

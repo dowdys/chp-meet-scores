@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getDataDir } from '../paths';
+import { publishMeet } from '../supabase-sync';
+import { isSupabaseEnabled } from '../supabase-client';
 import { requireString, optionalNumber } from './validation';
 
 function getDbPath(): string {
@@ -343,7 +345,23 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
         }
         currentStagingDbPath = null;
 
-        const finalMsg = `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        let finalMsg = `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+
+        // Supabase cloud sync (non-blocking: failure never prevents local finalization)
+        if (isSupabaseEnabled()) {
+          try {
+            const publishResult = await publishMeet(meetName);
+            if (publishResult.success) {
+              finalMsg += ` Published to cloud (v${publishResult.version}, ${publishResult.resultsCount} athletes, ${publishResult.winnersCount} winners).`;
+            } else {
+              finalMsg += ` Cloud publish failed: ${publishResult.reason}. Data is safe locally.`;
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            finalMsg += ` Cloud publish error: ${errMsg}. Data is safe locally.`;
+          }
+        }
+
         return duplicateWarning ? duplicateWarning + finalMsg : finalMsg;
       } catch (err) {
         centralDb.close();

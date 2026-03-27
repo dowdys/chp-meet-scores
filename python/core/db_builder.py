@@ -7,10 +7,43 @@ both rank 1.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import os
 from .models import MeetConfig
 from .constants import EVENTS
+
+
+# Event code patterns that get attached to athlete names in some data sources.
+# ScoreCat IES format: "Addie Wolff **V/BB/FX" or "Allie Thomas **UB/"
+# MSO format: "Jane Smith VT,BB,FX" or "Jane Smith IES VT,BB"
+_NAME_SUFFIX_PATTERN = re.compile(
+    r'\s*\*{1,2}\s*'  # ** or * prefix
+    r'(?:V|UB|BB|FX|VT|Be|Fl|Fx)'  # first event code
+    r'(?:[/,\s]+(?:V|UB|BB|FX|VT|Be|Fl|Fx))*'  # additional event codes
+    r'[/,\s]*$'  # trailing separators
+)
+_MSO_SUFFIX_PATTERN = re.compile(
+    r'\s*(?:IES\s+)?'  # optional IES prefix
+    r'(?:VT|UB|BB|FX|V|Be|Fl|Fx)'  # first event code
+    r'(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*'  # additional
+    r'[,\s]*$'
+)
+
+
+def clean_athlete_name(name: str) -> str:
+    """Strip event code suffixes from athlete names.
+
+    Handles both ScoreCat IES format (**V/BB/FX) and MSO format (VT,BB,FX).
+    Applied during database building so all sources get cleaned.
+    """
+    if not name:
+        return name
+    cleaned = _NAME_SUFFIX_PATTERN.sub('', name)
+    if cleaned != name:
+        return cleaned.strip()
+    cleaned = _MSO_SUFFIX_PATTERN.sub('', name)
+    return cleaned.strip()
 
 
 def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> str:
@@ -85,15 +118,22 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             except Exception:
                 pass  # Table doesn't exist yet — will be created later
 
+        names_cleaned = 0
         for a in athletes:
+            raw_name = a['name']
+            cleaned_name = clean_athlete_name(raw_name)
+            if cleaned_name != raw_name:
+                names_cleaned += 1
             cur.execute('''INSERT OR REPLACE INTO results
                 (state, meet_name, association, name, gym, session, level, division,
                  vault, bars, beam, floor, aa, rank, num)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (config.state, config.meet_name, config.association,
-                 a['name'], a['gym'], a['session'], a['level'], a['division'],
+                 cleaned_name, a['gym'], a['session'], a['level'], a['division'],
                  a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
                  a.get('rank'), a.get('num')))
+        if names_cleaned > 0:
+            print(f"Name cleaning: stripped event code suffixes from {names_cleaned} athlete names")
 
         conn.commit()
 

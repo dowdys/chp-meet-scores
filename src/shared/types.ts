@@ -23,6 +23,31 @@ export interface AppSettings {
   githubToken: string;
   outputDir: string;
   perplexityApiKey: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  supabaseEnabled: boolean;
+  installationId: string;
+}
+
+export interface CloudMeet {
+  meet_name: string;
+  state: string;
+  year: string;
+  association: string | null;
+  source: string | null;
+  dates: string | null;
+  version: number;
+  athlete_count: number;
+  winner_count: number;
+  published_at: string;
+  published_by: string | null;
+}
+
+export interface CloudMeetFile {
+  filename: string;
+  storage_path: string;
+  file_size: number | null;
+  uploaded_at: string;
 }
 
 export interface AskUserRequest {
@@ -53,4 +78,8 @@ export interface ElectronAPI {
   onUpdateProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => () => void;
   onUpdateReady: (callback: () => void) => () => void;
   restartAndUpdate: () => Promise<void>;
+  testSupabaseConnection: () => Promise<{ success: boolean; error?: string }>;
+  listCloudMeets: () => Promise<{ success: boolean; meets?: CloudMeet[]; error?: string }>;
+  getCloudMeetFiles: (meetName: string) => Promise<{ success: boolean; files?: CloudMeetFile[]; error?: string }>;
+  downloadCloudFile: (meetName: string, storagePath: string, filename: string) => Promise<{ success: boolean; localPath?: string; error?: string }>;
 }
