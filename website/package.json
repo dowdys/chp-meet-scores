@@ -1,0 +1,42 @@
+{
+  "name": "thestatechampion-website",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@easypost/api": "^8.8.0",
+    "@headlessui/react": "^2.2.9",
+    "@react-email/components": "^1.0.10",
+    "@react-email/render": "^2.0.4",
+    "@stripe/react-stripe-js": "^6.0.0",
+    "@stripe/stripe-js": "^9.0.0",
+    "@supabase/ssr": "^0.9.0",
+    "@supabase/supabase-js": "^2.100.1",
+    "canvas-confetti": "^1.9.4",
+    "framer-motion": "^12.38.0",
+    "next": "16.2.1",
+    "postmark": "^4.0.7",
+    "qrcode": "^1.5.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "stripe": "^21.0.1",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@react-pdf/renderer": "^4.3.2",
+    "@tailwindcss/postcss": "^4",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
