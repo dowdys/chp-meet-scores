@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GlobalSearch } from "@/components/admin/global-search";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
@@ -20,8 +21,11 @@ export default function AdminLayout({
 }) {
   return (
     <div className="flex min-h-screen">
-      <nav className="w-56 bg-gray-900 text-white p-4 space-y-1">
-        <h2 className="text-lg font-bold mb-4 px-3">CHP Admin</h2>
+      <nav className="w-56 bg-gray-900 text-white p-4 space-y-1 flex-shrink-0">
+        <h2 className="text-lg font-bold mb-2 px-3">CHP Admin</h2>
+        <div className="px-1 mb-4">
+          <GlobalSearch />
+        </div>
         {NAV_ITEMS.map((item) => (
           <Link
             key={item.href}
@@ -32,7 +36,7 @@ export default function AdminLayout({
           </Link>
         ))}
       </nav>
-      <main className="flex-1 bg-gray-50">{children}</main>
+      <main className="flex-1 bg-gray-50 min-w-0">{children}</main>
     </div>
   );
 }
