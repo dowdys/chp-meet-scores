@@ -27,6 +27,8 @@ const CloudMeetsTab: React.FC = () => {
   const [filesLoading, setFilesLoading] = useState(false);
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [downloaded, setDownloaded] = useState<Record<string, string>>({});
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<string>('');
 
   // Filters
   const [filterState, setFilterState] = useState('');
@@ -139,12 +141,41 @@ const CloudMeetsTab: React.FC = () => {
         <div className="cloud-files-section">
           <div className="cloud-files-header">
             <h3>Documents</h3>
-            {files.length > 0 && (
-              <button className="cloud-download-all" onClick={() => handleDownloadAll(selectedMeet)}>
-                Download All
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                className="cloud-download-all"
+                disabled={pulling}
+                onClick={async () => {
+                  setPulling(true);
+                  setPullResult('');
+                  try {
+                    const result = await window.electronAPI.pullCloudMeet(selectedMeet);
+                    if (result.success) {
+                      setPullResult(`Pulled ${result.resultsCount} results, ${result.winnersCount} winners to local DB`);
+                    } else {
+                      setPullResult(`Error: ${result.reason}`);
+                    }
+                  } catch (err) {
+                    setPullResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                  setPulling(false);
+                }}
+              >
+                {pulling ? 'Pulling...' : 'Pull to Local DB'}
               </button>
-            )}
+              {files.length > 0 && (
+                <button className="cloud-download-all" onClick={() => handleDownloadAll(selectedMeet)}>
+                  Download All Files
+                </button>
+              )}
+            </div>
           </div>
+          {pullResult && (
+            <p className={pullResult.startsWith('Error') ? 'cloud-error' : 'cloud-success'}
+               style={{ margin: '4px 0 8px', fontSize: '13px' }}>
+              {pullResult}
+            </p>
+          )}
 
           {filesLoading && <p className="cloud-loading">Loading files...</p>}
 

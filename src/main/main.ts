@@ -336,6 +336,17 @@ function setupIPC(): void {
     }
   });
 
+  // Pull a published meet's data from Supabase into the local database
+  ipcMain.handle('pull-cloud-meet', async (_event, meetName: string) => {
+    try {
+      const { pullMeetData } = await import('./supabase-sync');
+      const result = await pullMeetData(meetName);
+      return result;
+    } catch (err) {
+      return { success: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   // Open a file or directory with the system default app
   ipcMain.handle('open-path', async (_event, filePath: string) => {
     const { shell } = await import('electron');

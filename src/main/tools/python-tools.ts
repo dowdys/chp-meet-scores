@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getDataDir } from '../paths';
-import { publishMeet } from '../supabase-sync';
+import { publishMeet, pullMeetData } from '../supabase-sync';
 import { isSupabaseEnabled } from '../supabase-client';
 import { requireString, optionalNumber } from './validation';
 
@@ -369,6 +369,17 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       }
     } catch (err) {
       return `Error finalizing meet: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+
+  pull_meet: async (args) => {
+    const meetName = requireString(args, 'meet_name');
+    try {
+      const result = await pullMeetData(meetName);
+      if (!result.success) return `Error: ${result.reason}`;
+      return `Pulled "${meetName}" from Supabase: ${result.resultsCount} results, ${result.winnersCount} winners written to local database. Use regenerate_output to create fresh docs.`;
+    } catch (err) {
+      return `Error pulling meet: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
 };
