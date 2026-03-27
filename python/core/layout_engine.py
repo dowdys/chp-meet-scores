@@ -357,25 +357,19 @@ _DASH_EVENT_PATTERN = re.compile(
 
 
 def clean_name_for_shirt(name: str) -> str:
-    """Strip parenthetical annotations, pronunciation guides, and event
-    suffixes from an athlete name before putting it on the shirt.
+    """Clean a name for display on the championship shirt.
 
-    Handles: "(Ah-nee-uh)", "(VT UB BB FX)", "Name VT UB", "Name - FX", etc.
+    Event code stripping is already handled by clean_athlete_name() in db_builder
+    at data entry time. This function handles remaining display concerns:
+    parenthetical annotations, pronunciation guides, and curly quotes.
     """
-    # Remove trailing asterisk + parens first: "Name*(V,BB)" -> "Name"
-    cleaned = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', name)
-    # Remove ** + event codes with slashes/commas: "Name **V/BB/FX" or "Name ** BB, FX" -> "Name"
-    cleaned = re.sub(r'\s*\*{1,2}\s*(?:V|UB|BB|FX|VT|Be|Fl|Fx)(?:[/,\s]+(?:V|UB|BB|FX|VT|Be|Fl|Fx))*[/,\s]*$', '', cleaned)
-    # Remove any remaining parenthetical content: "Name (anything)" -> "Name"
+    from .db_builder import clean_athlete_name
+    # First pass: strip any event codes that survived (defense-in-depth)
+    cleaned = clean_athlete_name(name)
+    # Remove any remaining parenthetical content: "Name (Ah-nee-uh)" -> "Name"
     cleaned = re.sub(r'\s*\([^)]*\)\s*', '', cleaned)
     # Remove curly-quote pronunciation: "Name\u201cpronunciation\u201d" -> "Name"
     cleaned = re.sub(r'\s*[\u201c][^\u201d]*[\u201d]', '', cleaned)
-    # Remove trailing standalone asterisks
-    cleaned = re.sub(r'\s*\*{1,2}\s*$', '', cleaned)
-    # Remove trailing event codes with dash: "Name - VT, FX" -> "Name"
-    cleaned = _DASH_EVENT_PATTERN.sub('', cleaned)
-    # Remove bare trailing event codes: "Name VT UB BB FX" -> "Name"
-    cleaned = _EVENT_CODES_PATTERN.sub('', cleaned)
     return cleaned.strip()
 
 

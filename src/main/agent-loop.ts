@@ -804,7 +804,26 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
             return `Error: Cannot change output name — folder "${context.outputName}" already contains files. Use "Clear Session" to start fresh if you need a different name.`;
           }
         }
-        context.outputName = newName;
+        // Try to normalize to canonical format if we have enough context
+        const { normalizeMeetName, normalizeState } = require('./meet-naming');
+        const state = normalizeState(context.state || (args.state as string) || '');
+        const yearMatch = newName.match(/\b(20\d{2})\b/);
+        const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
+        if (state && state.length === 2) {
+          // Extract dates from the name if present (e.g., "March 14-16")
+          const dateMatch = newName.match(/((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d[\d\s,-]*)/i);
+          const normalized = normalizeMeetName({
+            association: 'USAG', gender: 'W', sport: 'Gymnastics',
+            year, state,
+            dates: dateMatch ? dateMatch[1].replace(/,?\s*\d{4}\s*$/, '').trim() : undefined,
+          });
+          context.outputName = normalized;
+          if (normalized !== newName) {
+            return `Output folder name normalized to: "${normalized}" (from "${newName}")`;
+          }
+        } else {
+          context.outputName = newName;
+        }
         return `Output folder name set to: "${context.outputName}"`;
       }
 

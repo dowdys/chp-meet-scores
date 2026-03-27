@@ -168,6 +168,27 @@ export async function uploadMeetFiles(meetName: string): Promise<{ uploaded: str
 
   const storagePath = `${state.toUpperCase()}/${year}/${sanitizeMeetName(meetName)}`;
 
+  // Clean up orphaned blobs before uploading (prevents stale files from previous versions)
+  try {
+    const { data: existingFiles } = await supabase.storage
+      .from('meet-documents')
+      .list(storagePath);
+    if (existingFiles?.length) {
+      const newFilenames = new Set(UPLOADABLE_FILES.filter(f =>
+        fs.existsSync(path.join(outputDir, f))
+      ));
+      const orphaned = existingFiles
+        .filter(f => !newFilenames.has(f.name))
+        .map(f => `${storagePath}/${f.name}`);
+      if (orphaned.length > 0) {
+        await supabase.storage.from('meet-documents').remove(orphaned);
+        console.log(`[supabase-sync] Removed ${orphaned.length} orphaned files from storage`);
+      }
+    }
+  } catch (err) {
+    console.warn('[supabase-sync] Blob cleanup failed (non-fatal):', err);
+  }
+
   // Upload files sequentially (bandwidth-bound; sequential gives clean per-file error handling)
   for (const filename of UPLOADABLE_FILES) {
     const filePath = path.join(outputDir, filename);

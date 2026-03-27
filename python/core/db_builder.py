@@ -14,36 +14,54 @@ from .models import MeetConfig
 from .constants import EVENTS
 
 
-# Event code patterns that get attached to athlete names in some data sources.
-# ScoreCat IES format: "Addie Wolff **V/BB/FX" or "Allie Thomas **UB/"
-# MSO format: "Jane Smith VT,BB,FX" or "Jane Smith IES VT,BB"
-_NAME_SUFFIX_PATTERN = re.compile(
-    r'\s*\*{1,2}\s*'  # ** or * prefix
-    r'(?:V|UB|BB|FX|VT|Be|Fl|Fx)'  # first event code
-    r'(?:[/,\s]+(?:V|UB|BB|FX|VT|Be|Fl|Fx))*'  # additional event codes
-    r'[/,\s]*$'  # trailing separators
-)
-_MSO_SUFFIX_PATTERN = re.compile(
-    r'\s*(?:IES\s+)?'  # optional IES prefix
-    r'(?:VT|UB|BB|FX|V|Be|Fl|Fx)'  # first event code
-    r'(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*'  # additional
-    r'[,\s]*$'
-)
+# --- Unified athlete name cleanup ---
+# Handles ALL known event code formats from every data source:
+#   ScoreCat:  "Addie Wolff **V/BB/FX", "Kelly*(V,BB,FX)", "Holder- BB, FX"
+#   MSO:       "Jane Smith VT,BB,FX", "Name IES VT,BB", "Raygan Jones  BB"
+#   Attached:  "PrevendarVT,BB,FX" (no space before codes)
+#   Trailing:  "Bella Estrada VT,", "Name V/"
+# Applied once at database build time. Downstream functions can trust names are clean.
+
+# Event codes used in women's gymnastics (case-insensitive matching)
+_EC = r'(?:VT|UB|BB|FX|V|Be|Fl|Fx|AA)'
+_EC_SEQ = _EC + r'(?:[/,\s]+' + _EC + r')*'  # sequence with any separator
+
+# Ordered from most specific to least specific to avoid false positives
+_CLEANUP_PATTERNS = [
+    # 1. Parenthetical with optional * prefix: "Kelly*(V,BB,FX)", "Name (VT)"
+    re.compile(r'\s*\*{0,2}\s*\([^)]*\)\s*$', re.IGNORECASE),
+    # 2. ** or * followed by event codes: "Name **V/BB/FX", "Name ** BB, FX"
+    re.compile(r'\s*\*{1,2}\s*(?:IES\s+)?' + _EC_SEQ + r'[/,\s]*$', re.IGNORECASE),
+    # 3. Remaining lone ** or *: "Name **"
+    re.compile(r'\s*\*{1,2}\s*$'),
+    # 4. Dash-prefixed codes: "Holder- BB, FX", "Name - VT, FX"
+    re.compile(r'\s*-\s*' + _EC_SEQ + r'[,/\s]*$', re.IGNORECASE),
+    # 5. IES prefix + codes: "Name IES VT,BB"
+    re.compile(r'\s+IES\s+' + _EC_SEQ + r'[,/\s]*$', re.IGNORECASE),
+    # 6. Space-separated codes at end: "Name VT,BB,FX", "Name VT BB", "Name VT,"
+    re.compile(r'\s+' + _EC_SEQ + r'[,/\s]*$', re.IGNORECASE),
+    # 7. Attached codes (no space): "PrevendarVT,BB,FX"
+    #    Detects lowercase→uppercase boundary before a multi-char event code
+    re.compile(r'(?<=[a-z])(?:VT|UB|BB|FX|AA)(?:[,/\s]+' + _EC + r')*[,/\s]*$', re.IGNORECASE),
+]
 
 
 def clean_athlete_name(name: str) -> str:
     """Strip event code suffixes from athlete names.
 
-    Handles both ScoreCat IES format (**V/BB/FX) and MSO format (VT,BB,FX).
-    Applied during database building so all sources get cleaned.
+    Canonical cleanup function — handles all known formats from every data source.
+    Applied during database building so all downstream code can trust names are clean.
+    Patterns are ordered most-specific-first to minimize false positives.
     """
     if not name:
         return name
-    cleaned = _NAME_SUFFIX_PATTERN.sub('', name)
-    if cleaned != name:
-        return cleaned.strip()
-    cleaned = _MSO_SUFFIX_PATTERN.sub('', name)
-    return cleaned.strip()
+    result = name
+    for pattern in _CLEANUP_PATTERNS:
+        cleaned = pattern.sub('', result)
+        if cleaned != result:
+            result = cleaned.strip()
+            break  # Stop after first match to avoid over-cleaning
+    return result
 
 
 def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> str:

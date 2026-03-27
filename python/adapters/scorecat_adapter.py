@@ -123,19 +123,11 @@ class ScoreCatAdapter(BaseAdapter):
 
     @staticmethod
     def _clean_last_name(raw) -> str:
-        """Strip event annotations from last names.
-
-        Handles:
-          'Holder- BB, FX' -> 'Holder'          (dash-style)
-          'Kelly*(V,BB,FX)' -> 'Kelly'           (asterisk-paren style)
-          'Nguyen*(UB)' -> 'Nguyen'
-        """
+        """Basic last name sanitization. Event code stripping is handled
+        by clean_athlete_name() in db_builder at data entry time."""
         if raw is None:
             return ''
-        raw = str(raw).strip()
-        raw = re.sub(r'\s*\*\s*\([^)]*\)\s*$', '', raw)
-        raw = re.sub(r'\s*-\s*[A-Z, ]+$', '', raw)
-        return raw.strip()
+        return str(raw).strip()
 
     @classmethod
     def _clean_name(cls, first, last) -> str:
