@@ -91,6 +91,7 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             association TEXT,
             name TEXT,
             gym TEXT,
+            club_num TEXT,
             session TEXT,
             level TEXT,
             division TEXT,
@@ -102,6 +103,12 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             rank TEXT,
             num TEXT
         )''')
+
+        # Add club_num column to existing tables (safe if already present)
+        try:
+            cur.execute('ALTER TABLE results ADD COLUMN club_num TEXT')
+        except Exception:
+            pass  # Column already exists
 
         # Unique index as safety net for any duplicate rows within the same extraction
         cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
@@ -143,11 +150,12 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             if cleaned_name != raw_name:
                 names_cleaned += 1
             cur.execute('''INSERT OR REPLACE INTO results
-                (state, meet_name, association, name, gym, session, level, division,
+                (state, meet_name, association, name, gym, club_num, session, level, division,
                  vault, bars, beam, floor, aa, rank, num)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (config.state, config.meet_name, config.association,
-                 cleaned_name, a['gym'], a['session'], a['level'], a['division'],
+                 cleaned_name, a['gym'], a.get('club_num', ''),
+                 a['session'], a['level'], a['division'],
                  a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
                  a.get('rank'), a.get('num')))
         if names_cleaned > 0:

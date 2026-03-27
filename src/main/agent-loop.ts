@@ -61,7 +61,7 @@ export class AgentLoop {
   private llmClient: LLMClient;
   private toolExecutors: ToolExecutor;
   private onActivity: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
-  private queryConversation: LLMMessage[] = [];
+  // Query conversation removed — queryResults() now uses query-engine.ts directly
   private activeContext: AgentContext | null = null;
   private lastContext: AgentContext | null = null;
 
@@ -251,79 +251,15 @@ export class AgentLoop {
   }
 
   async queryResults(question: string): Promise<{ success: boolean; answer: string }> {
-    // Save and restore phase so query tab doesn't clobber a running processing session
-    const savedPhase = this.activeContext?.currentPhase ?? null;
     try {
-      // Query tab should use central DB
-      setDbToolsPhase(null);
-
-      const querySystem = `You are a gymnastics meet data analyst. Use the query_db tool to answer questions about meet results in the SQLite database.
-
-## Database Schema
-**results**: id, state, meet_name, association, name, gym, session, level, division, vault (REAL), bars (REAL), beam (REAL), floor (REAL), aa (REAL), rank, num
-**winners**: id, state, meet_name, association, name, gym, session, level, division, event, score (REAL), is_tie (INTEGER)
-**meets**: id, meet_name (UNIQUE), source, source_id, source_name, state, association, year, dates, created_at — tracks where each meet's data came from
-
-Give clear, concise answers.`;
-
-      if (this.queryConversation.length > 20) {
-        this.queryConversation = this.queryConversation.slice(-10);
-      }
-
-      this.queryConversation.push({ role: 'user', content: question });
-
-      const queryTools = getToolDefinitions().filter((t) =>
-        ['query_db', 'query_db_to_file', 'list_output_files', 'list_meets', 'get_meet_summary'].includes(t.name)
-      );
-
-      const dummyContext: AgentContext = {
-        meetName: '_query',
-        systemPrompt: querySystem,
-        loadedSkills: [],
-        messages: this.queryConversation,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        onActivity: this.onActivity,
-        abortRequested: false,
-        iterationCount: 0,
-        currentPhase: 'output_finalize',
-        unlockedTools: [],
-      };
-
-      let answer = '';
-      let iterations = 0;
-      const maxIterations = 10;
-
-      while (iterations < maxIterations) {
-        iterations++;
-        const response = await this.llmClient.sendMessage({
-          system: querySystem,
-          messages: this.queryConversation,
-          tools: queryTools,
-        });
-
-        if (response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
-          const textBlocks = response.content.filter((b): b is import('./llm-client').TextBlock => b.type === 'text');
-          answer = textBlocks.map((b) => b.text).join('\n');
-          this.queryConversation.push({ role: 'assistant', content: response.content });
-          break;
-        }
-
-        if (response.stop_reason === 'tool_use') {
-          this.queryConversation.push({ role: 'assistant', content: response.content });
-          const toolResults = await this.executeToolCalls(response.content, dummyContext);
-          this.queryConversation.push({ role: 'user', content: toolResults });
-        }
-      }
-
+      // Use the fast query engine (keyword match → Supabase RPC, no LLM for common questions)
+      const { answerQuery } = require('./query-engine');
+      const answer = await answerQuery(question);
       return { success: true, answer };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.onActivity(`Query error: ${message}`, 'error');
       return { success: false, answer: message };
-    } finally {
-      // Restore processing phase so we don't clobber an active processing session
-      setDbToolsPhase(savedPhase);
     }
   }
 
