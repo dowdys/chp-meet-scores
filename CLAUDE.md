@@ -38,6 +38,16 @@ When the inner agent repeatedly fails to follow instructions (browsing instead o
 
 Every prompt warning replaced by architectural enforcement makes the system more reliable. If you find yourself adding a prompt warning for the third time, build it into the code instead.
 
+## Design Principle: Always Use Native Tool Calling for LLM Features
+When building features that use an LLM to interact with data or services, ALWAYS use native function/tool calling — never prompt-parse approaches like:
+- Keyword matching + routing to endpoints
+- Asking the LLM to output structured text (SQL in tags, JSON classification)
+- Separate "generate" + "format" model calls with different conversations
+
+These approaches fail on edge cases, lose conversational context, and require endless iteration. Native tool calling (the same pattern used in agent-loop.ts) handles multi-part questions, follow-ups, and natural responses out of the box. Define clear, purpose-specific tools and let the model call them.
+
+Reference implementation: `src/main/query-engine.ts` (MiniMax M2.7 with 5 tools, parallel tool execution, persistent conversation).
+
 ## Post-Edit Reminders
 - After editing TypeScript: `npm run build` then restart Electron (Node.js caches modules)
 - After editing Python: `find python -name __pycache__ -exec rm -rf {} +`
