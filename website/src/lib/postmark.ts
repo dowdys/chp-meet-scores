@@ -50,7 +50,7 @@ export async function sendBatchEmails(
 ) {
   // Postmark supports 500 per batch
   const BATCH_SIZE = 500;
-  const results = [];
+  const results: postmark.Models.MessageSendingResponse[] = [];
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE).map((e) => ({
