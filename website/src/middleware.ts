@@ -30,14 +30,28 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protect admin routes — redirect to login if not authenticated
-  if (request.nextUrl.pathname.startsWith("/admin")) {
+  // Only run auth checks on admin routes (skip for public pages to save latency)
+  if (
+    request.nextUrl.pathname.startsWith("/admin") &&
+    request.nextUrl.pathname !== "/admin/login"
+  ) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/login";
-      if (request.nextUrl.pathname !== "/admin/login") {
-        return NextResponse.redirect(url);
-      }
+      return NextResponse.redirect(url);
+    }
+
+    // Verify user is actually an admin (not just authenticated)
+    const { data: admin } = await supabase
+      .from("admin_users")
+      .select("id")
+      .eq("id", user.id)
+      .single();
+
+    if (!admin) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin/login";
+      return NextResponse.redirect(url);
     }
   }
 

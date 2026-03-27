@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { easypost, SHIRT_PARCEL, FROM_ADDRESS } from "@/lib/easypost";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+
   try {
     const { orderIds }: { orderIds: number[] } = await request.json();
 

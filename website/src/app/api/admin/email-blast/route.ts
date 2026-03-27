@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 import { sendBatchEmails } from "@/lib/postmark";
 import { render } from "@react-email/render";
 import { ResultsReadyEmail } from "@/emails/results-ready";
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+
   try {
     const { state }: { state: string } = await request.json();
 

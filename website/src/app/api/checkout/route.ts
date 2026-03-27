@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import {
   SHIRT_PRICE,
@@ -118,6 +119,32 @@ export async function POST(request: NextRequest) {
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
+    // Store cart server-side (avoids Stripe's 500-char metadata limit)
+    const cartToken = crypto.randomUUID();
+    const supabase = createServiceClient();
+    const { error: cartError } = await supabase.from("pending_carts").insert({
+      cart_token: cartToken,
+      items: items.map((i) => ({
+        athleteName: i.athleteName,
+        correctedName: i.correctedName || null,
+        meetName: i.meetName,
+        state: i.state,
+        level: i.level,
+        gym: i.gym,
+        shirtSize: i.shirtSize,
+        shirtColor: i.shirtColor,
+        hasJewel: i.hasJewel,
+      })),
+    });
+
+    if (cartError) {
+      console.error("Failed to store cart:", cartError);
+      return NextResponse.json(
+        { error: "Failed to prepare checkout" },
+        { status: 500 }
+      );
+    }
+
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       line_items: lineItems,
@@ -125,18 +152,8 @@ export async function POST(request: NextRequest) {
       success_url: `${siteUrl}/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/order`,
       metadata: {
+        cart_token: cartToken,
         item_count: shirtCount.toString(),
-        // Store cart reference — full details stored in our DB at webhook time
-        cart_summary: JSON.stringify(
-          items.map((i) => ({
-            name: i.athleteName,
-            size: i.shirtSize,
-            color: i.shirtColor,
-            jewel: i.hasJewel,
-            meet: i.meetName,
-            corrected: i.correctedName || null,
-          }))
-        ).substring(0, 490), // Stripe metadata value max 500 chars
       },
     });
 

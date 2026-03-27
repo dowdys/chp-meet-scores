@@ -25,35 +25,47 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient();
 
-  // Idempotency: check if we've already processed this event
-  const { data: existingEvent } = await supabase
+  // Atomic idempotency: INSERT ON CONFLICT prevents TOCTOU race condition
+  const { data: inserted } = await supabase
     .from("webhook_events")
-    .select("event_id")
-    .eq("event_id", event.id)
-    .single();
+    .upsert(
+      { event_id: event.id, event_type: event.type, status: "processing" },
+      { onConflict: "event_id", ignoreDuplicates: true }
+    )
+    .select("event_id");
 
-  if (existingEvent) {
+  // If no rows returned, event was already processed
+  if (!inserted || inserted.length === 0) {
     return NextResponse.json({ received: true, deduplicated: true });
   }
 
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutCompleted(supabase, session);
-      break;
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await handleCheckoutCompleted(supabase, session);
+        break;
+      }
     }
-    case "checkout.session.expired": {
-      // Could handle abandoned cart cleanup here
-      break;
-    }
-  }
 
-  // Record that we processed this event
-  await supabase.from("webhook_events").insert({
-    event_id: event.id,
-    event_type: event.type,
-    status: "completed",
-  });
+    // Mark as completed
+    await supabase
+      .from("webhook_events")
+      .update({ status: "completed" })
+      .eq("event_id", event.id);
+  } catch (err) {
+    // Mark as failed so retries can re-process
+    await supabase
+      .from("webhook_events")
+      .update({ status: "failed" })
+      .eq("event_id", event.id);
+
+    console.error("Webhook processing failed:", err);
+    return NextResponse.json(
+      { error: "Processing failed" },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ received: true });
 }
@@ -62,24 +74,37 @@ async function handleCheckoutCompleted(
   supabase: ReturnType<typeof createServiceClient>,
   session: Stripe.Checkout.Session
 ) {
-  // Parse cart from metadata
-  let cartItems: Array<{
-    name: string;
-    size: string;
-    color: string;
-    jewel: boolean;
-    meet: string;
-    corrected: string | null;
-  }> = [];
-
-  try {
-    cartItems = JSON.parse(session.metadata?.cart_summary || "[]");
-  } catch {
-    console.error("Failed to parse cart_summary from Stripe metadata");
-    return;
+  // Retrieve cart from server-side storage (not from Stripe metadata)
+  const cartToken = session.metadata?.cart_token;
+  if (!cartToken) {
+    throw new Error(`No cart_token in Stripe metadata for session ${session.id}`);
   }
 
-  if (cartItems.length === 0) return;
+  const { data: cart, error: cartError } = await supabase
+    .from("pending_carts")
+    .select("items")
+    .eq("cart_token", cartToken)
+    .single();
+
+  if (cartError || !cart) {
+    throw new Error(`Cart not found for token ${cartToken}: ${cartError?.message}`);
+  }
+
+  const cartItems = cart.items as Array<{
+    athleteName: string;
+    correctedName: string | null;
+    meetName: string;
+    state: string;
+    level: string;
+    gym: string;
+    shirtSize: string;
+    shirtColor: string;
+    hasJewel: boolean;
+  }>;
+
+  if (cartItems.length === 0) {
+    throw new Error(`Empty cart for token ${cartToken}`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shipping = (session as any).shipping_details as {
@@ -94,18 +119,20 @@ async function handleCheckoutCompleted(
   } | null;
   const customer = session.customer_details;
 
-  // Generate order number with random component
+  // Generate order number with cryptographic randomness
   const { data: seqData } = await supabase.rpc("nextval_order_number");
-  const seq = seqData || Math.floor(Math.random() * 99999);
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const seq = seqData || 1;
+  const randomBytes = crypto.getRandomValues(new Uint8Array(4));
+  const random = Array.from(randomBytes).map(b => b.toString(36).padStart(2, '0')).join('').substring(0, 6).toUpperCase();
   const orderNumber = `CHP-${new Date().getFullYear()}-${random}${String(seq).padStart(3, "0")}`;
 
+  // Use Stripe's authoritative total (not recalculated)
   const subtotal =
     cartItems.length * SHIRT_PRICE +
-    cartItems.filter((i) => i.jewel).length * JEWEL_PRICE;
+    cartItems.filter((i) => i.hasJewel).length * JEWEL_PRICE;
   const shippingCost = calculateShipping(cartItems.length);
   const tax = (session.total_details?.amount_tax || 0);
-  const total = subtotal + shippingCost + tax;
+  const total = session.amount_total || (subtotal + shippingCost + tax);
 
   // Create order atomically
   const { data: order, error: orderError } = await supabase
@@ -141,23 +168,43 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  // Create order items
-  // Note: back_id lookup requires shirt_backs data to exist for this meet.
-  // For now, we store meet_name and will resolve back_id when available.
-  const orderItems = cartItems.map((item) => ({
-    order_id: order.id,
-    athlete_name: item.name,
-    corrected_name: item.corrected || null,
-    meet_id: 0, // TODO: Look up meet_id from meet_name
-    meet_name: item.meet,
-    back_id: 0, // TODO: Look up from shirt_backs based on meet + level
-    shirt_size: item.size,
-    shirt_color: item.color,
-    has_jewel: item.jewel,
-    unit_price: SHIRT_PRICE,
-    jewel_price: item.jewel ? JEWEL_PRICE : 0,
-    production_status: "pending",
-  }));
+  // Resolve meet_id and back_id for each item
+  const orderItems = await Promise.all(
+    cartItems.map(async (item) => {
+      // Look up meet_id from meet_name
+      const { data: meet } = await supabase
+        .from("meets")
+        .select("id")
+        .eq("meet_name", item.meetName)
+        .single();
+
+      // Look up back_id from shirt_backs (active version for this meet)
+      const { data: back } = meet
+        ? await supabase
+            .from("shirt_backs")
+            .select("id")
+            .eq("meet_id", meet.id)
+            .is("superseded_at", null)
+            .limit(1)
+            .single()
+        : { data: null };
+
+      return {
+        order_id: order.id,
+        athlete_name: item.athleteName,
+        corrected_name: item.correctedName || null,
+        meet_id: meet?.id || null,
+        meet_name: item.meetName,
+        back_id: back?.id || null,
+        shirt_size: item.shirtSize,
+        shirt_color: item.shirtColor,
+        has_jewel: item.hasJewel,
+        unit_price: SHIRT_PRICE,
+        jewel_price: item.hasJewel ? JEWEL_PRICE : 0,
+        production_status: "pending",
+      };
+    })
+  );
 
   const { error: itemsError } = await supabase
     .from("order_items")

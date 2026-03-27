@@ -9,7 +9,7 @@ export async function getDashboardStats() {
 
   const [orders, pendingBacks, batches, readyToShip, corrections, captures] =
     await Promise.all([
-      db.from("orders").select("id, total, status, created_at"),
+      db.from("orders").select("id, total, status, created_at").gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).limit(5000),
       db
         .from("order_items")
         .select("back_id")
@@ -64,9 +64,13 @@ export async function getOrders(filters?: {
     query = query.eq("status", filters.status);
   }
   if (filters?.search) {
-    query = query.or(
-      `customer_name.ilike.%${filters.search}%,customer_email.ilike.%${filters.search}%,order_number.ilike.%${filters.search}%`
-    );
+    // Sanitize: escape PostgREST filter special characters
+    const s = filters.search.replace(/[%_.,()]/g, "");
+    if (s.length > 0) {
+      query = query.or(
+        `customer_name.ilike.%${s}%,customer_email.ilike.%${s}%,order_number.ilike.%${s}%`
+      );
+    }
   }
   if (filters?.limit) {
     query = query.limit(filters.limit);

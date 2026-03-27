@@ -67,9 +67,7 @@ export function AthleteLookup({
   const [gymQuery, setGymQuery] = useState("");
   const [athleteQuery, setAthleteQuery] = useState("");
 
-  const debouncedStateQuery = useDebounce(stateQuery, 200);
-  const debouncedGymQuery = useDebounce(gymQuery, 200);
-  const debouncedAthleteQuery = useDebounce(athleteQuery, 200);
+  // No debounce needed — these filter local arrays, not network requests
 
   // Load available years
   useEffect(() => {
@@ -133,6 +131,7 @@ export function AthleteLookup({
       .from("winners")
       .select("gym")
       .eq("state", selection.state)
+      .limit(5000) // Prevent silent 1000-row truncation
       .then(({ data }) => {
         if (data) {
           const unique = [...new Set(data.map((w) => w.gym))].filter(
@@ -154,6 +153,7 @@ export function AthleteLookup({
       .select("name, meet_name, level")
       .eq("state", selection.state)
       .eq("gym", selection.gym)
+      .limit(5000) // Prevent silent 1000-row truncation
       .then(({ data }) => {
         if (data) {
           // Deduplicate by name + meet_name
@@ -191,21 +191,21 @@ export function AthleteLookup({
   );
 
   // Filter options based on search query
-  const filteredStates = debouncedStateQuery
+  const filteredStates = stateQuery
     ? states.filter((s) =>
-        s.toLowerCase().includes(debouncedStateQuery.toLowerCase())
+        s.toLowerCase().includes(stateQuery.toLowerCase())
       )
     : states;
 
-  const filteredGyms = debouncedGymQuery
+  const filteredGyms = gymQuery
     ? gyms.filter((g) =>
-        g.toLowerCase().includes(debouncedGymQuery.toLowerCase())
+        g.toLowerCase().includes(gymQuery.toLowerCase())
       )
     : gyms;
 
-  const filteredAthletes = debouncedAthleteQuery
+  const filteredAthletes = athleteQuery
     ? athletes.filter((a) =>
-        a.name.toLowerCase().includes(debouncedAthleteQuery.toLowerCase())
+        a.name.toLowerCase().includes(athleteQuery.toLowerCase())
       )
     : athletes;
 

@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
         association: sanitize(body.association) || null,
         gym: sanitize(body.gym) || null,
         level: sanitize(body.level) || null,
-        source: body.source || "website",
+        source: sanitize(body.source) || "website",
       },
       {
         onConflict: "email,athlete_name,state", // matches unique index

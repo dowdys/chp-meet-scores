@@ -14,18 +14,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { token } = await params;
   const supabase = createServiceClient();
 
-  const { data } = await supabase.rpc("lookup_athlete_token", {
-    p_token: token,
-  });
+  // Read-only query — do NOT use lookup_athlete_token (which mutates scan_count)
+  const { data } = await supabase
+    .from("athlete_tokens")
+    .select("athlete_name, gym")
+    .eq("token", token)
+    .single();
 
   if (!data) {
     return { title: "The State Champion", robots: { index: false } };
   }
 
   return {
-    title: `${data.athlete_name} - Champion | The State Champion`,
-    description: `Congratulations to ${data.athlete_name} from ${data.gym}!`,
-    robots: { index: false }, // noindex for COPPA — children's data
+    // Generic title for COPPA — don't put child's name in meta tags
+    title: "Championship Results | The State Champion",
+    description: "View your championship results and order your shirt!",
+    robots: { index: false },
   };
 }
 
@@ -33,10 +37,12 @@ export default async function CelebrationPage({ params }: PageProps) {
   const { token } = await params;
   const supabase = createServiceClient();
 
-  // lookup_athlete_token also increments scan_count atomically
-  const { data, error } = await supabase.rpc("lookup_athlete_token", {
-    p_token: token,
-  });
+  // Read-only query for page rendering (scan tracking moved to client-side)
+  const { data, error } = await supabase
+    .from("athlete_tokens")
+    .select("token, meet_name, athlete_name, gym, level, division, events")
+    .eq("token", token)
+    .single();
 
   if (error || !data) {
     return (
@@ -80,6 +86,7 @@ export default async function CelebrationPage({ params }: PageProps) {
 
       {/* Client-side animated version (loads on top of server content) */}
       <CelebrationClient
+        token={data.token}
         athleteName={data.athlete_name}
         gym={data.gym}
         level={data.level}

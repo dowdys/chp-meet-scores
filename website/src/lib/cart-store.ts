@@ -20,7 +20,6 @@ interface CartState {
   items: CartItem[];
   addItem: (item: Omit<CartItem, "id">) => void;
   removeItem: (id: string) => void;
-  updateItem: (id: string, updates: Partial<CartItem>) => void;
   clearCart: () => void;
   getSubtotal: () => number;
   getShippingCost: () => number;
@@ -48,13 +47,6 @@ export const useCartStore = create<CartState>()(
       removeItem: (id) =>
         set((state) => ({
           items: state.items.filter((i) => i.id !== id),
-        })),
-
-      updateItem: (id, updates) =>
-        set((state) => ({
-          items: state.items.map((i) =>
-            i.id === id ? { ...i, ...updates } : i
-          ),
         })),
 
       clearCart: () => set({ items: [] }),

@@ -12,13 +12,3 @@ export function getStripe(): Stripe {
   }
   return _stripe;
 }
-
-// Re-export pricing from utils for server-side convenience
-export {
-  SHIRT_PRICE,
-  JEWEL_PRICE,
-  SHIPPING_FIRST,
-  SHIPPING_ADDITIONAL,
-  calculateShipping,
-  calculateItemPrice,
-} from "./utils";

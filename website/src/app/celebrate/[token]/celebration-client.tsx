@@ -6,6 +6,7 @@ import { ConfettiBurst } from "@/components/celebration/confetti-burst";
 import { PodiumReveal } from "@/components/celebration/podium-reveal";
 
 interface CelebrationClientProps {
+  token: string;
   athleteName: string;
   gym: string;
   level: string;
@@ -14,6 +15,7 @@ interface CelebrationClientProps {
 }
 
 export function CelebrationClient({
+  token,
   athleteName,
   gym,
   level,
@@ -32,11 +34,19 @@ export function CelebrationClient({
     const confettiTimer = setTimeout(() => setShowConfetti(true), 400);
     // Show CTA after animations complete
     const ctaTimer = setTimeout(() => setShowCTA(true), 2500);
+
+    // Track scan (fire-and-forget, non-blocking)
+    fetch("/api/celebrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).catch(() => {}); // Ignore errors — analytics are non-critical
+
     return () => {
       clearTimeout(confettiTimer);
       clearTimeout(ctaTimer);
     };
-  }, []);
+  }, [token]);
 
   const orderParams = new URLSearchParams({
     name: athleteName,

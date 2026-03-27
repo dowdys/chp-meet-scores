@@ -227,6 +227,22 @@ GRANT EXECUTE ON FUNCTION public.lookup_athlete_token TO anon;
 GRANT EXECUTE ON FUNCTION public.lookup_athlete_token TO authenticated;
 
 -- ============================================================
+-- PENDING CARTS: Server-side cart storage before Stripe checkout
+-- Avoids Stripe metadata 500-char limit truncation
+-- ============================================================
+CREATE TABLE public.pending_carts (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cart_token TEXT UNIQUE NOT NULL,       -- Random token for lookup
+    items JSONB NOT NULL,                  -- Full cart items array
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours'
+);
+CREATE INDEX idx_pending_carts_token ON public.pending_carts(cart_token);
+ALTER TABLE public.pending_carts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Deny public access to carts" ON public.pending_carts
+    FOR ALL USING (false);
+
+-- ============================================================
 -- ORDER NUMBER SEQUENCE
 -- ============================================================
 CREATE SEQUENCE public.order_number_seq START 1;
@@ -305,9 +321,9 @@ CREATE TABLE public.order_items (
     athlete_name TEXT NOT NULL,
     corrected_name TEXT,
     name_correction_reviewed BOOLEAN DEFAULT FALSE,
-    meet_id BIGINT NOT NULL REFERENCES public.meets(id) ON DELETE RESTRICT,
+    meet_id BIGINT REFERENCES public.meets(id) ON DELETE RESTRICT,  -- NULL if meet not yet in Supabase
     meet_name TEXT NOT NULL,
-    back_id BIGINT NOT NULL REFERENCES public.shirt_backs(id) ON DELETE RESTRICT,
+    back_id BIGINT REFERENCES public.shirt_backs(id) ON DELETE RESTRICT,  -- NULL if backs not yet published
 
     shirt_size TEXT NOT NULL
         CHECK (shirt_size IN ('YS','YM','YL','S','M','L','XL','XXL')),

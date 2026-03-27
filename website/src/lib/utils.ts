@@ -7,16 +7,6 @@ export function formatPrice(cents: number): string {
 }
 
 /**
- * Generate a human-friendly order number with random component.
- * Format: CHP-2026-A7K3F (non-sequential to prevent enumeration)
- */
-export function generateOrderDisplay(sequenceNum: number): string {
-  const year = new Date().getFullYear();
-  const random = Math.random().toString(36).substring(2, 7).toUpperCase();
-  return `CHP-${year}-${random}`;
-}
-
-/**
  * Prices in cents (shared between client and server).
  */
 export const SHIRT_PRICE = 2795; // $27.95
