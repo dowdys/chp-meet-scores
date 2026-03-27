@@ -65,6 +65,7 @@ class ScoreCatAdapter(BaseAdapter):
             name = ''
 
         gym = str(self._get_field(raw, 'clubName', 'club_name', 'club', 'gym', 'team', default='')).strip()
+        club_num = str(self._get_field(raw, 'clubNum', 'club_num', 'clubNumber', default='')).strip()
         level = self._clean_prefix(self._get_field(raw, 'level', default=''), 'Level')
         division = self._clean_prefix(self._get_field(raw, 'division', default=''), 'Division')
         session = self._clean_prefix(
@@ -87,6 +88,7 @@ class ScoreCatAdapter(BaseAdapter):
         return {
             'name': name,
             'gym': gym,
+            'club_num': club_num,
             'session': session,
             'level': level,
             'division': division,

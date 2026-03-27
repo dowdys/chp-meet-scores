@@ -80,6 +80,7 @@ export async function publishMeetData(meetName: string): Promise<PublishResult> 
     const roundedResults = results.map(r => ({
       ...r,
       gym: r.gym || '',  // Coalesce NULL gym to empty string
+      club_num: r.club_num || '',
       vault: roundScore(r.vault),
       bars: roundScore(r.bars),
       beam: roundScore(r.beam),
