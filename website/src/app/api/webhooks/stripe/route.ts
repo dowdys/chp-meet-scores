@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
 import { SHIRT_PRICE, JEWEL_PRICE, calculateShipping } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
-  // MUST use .text() for signature verification (not .json())
-  const body = await request.text();
+  const body = await request.text(); // MUST use .text() for signature verification
   const signature = request.headers.get("stripe-signature");
 
   if (!signature) {
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
 
-  const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
   let event: Stripe.Event;
   try {
-    event = stripeClient.webhooks.constructEvent(body, signature, webhookSecret);
+    event = getStripe().webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err) {
     console.error("Webhook signature verification failed:", err);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
@@ -106,24 +105,14 @@ async function handleCheckoutCompleted(
     throw new Error(`Empty cart for token ${cartToken}`);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const shipping = (session as any).shipping_details as {
-    name?: string;
-    address?: {
-      line1?: string;
-      line2?: string;
-      city?: string;
-      state?: string;
-      postal_code?: string;
-    };
-  } | null;
+  // Access shipping details from Stripe Checkout Session
+  const shipping = session.collected_information?.shipping_details ?? null;
   const customer = session.customer_details;
 
   // Generate order number with cryptographic randomness
   const { data: seqData } = await supabase.rpc("nextval_order_number");
   const seq = seqData || 1;
-  const randomBytes = crypto.getRandomValues(new Uint8Array(4));
-  const random = Array.from(randomBytes).map(b => b.toString(36).padStart(2, '0')).join('').substring(0, 6).toUpperCase();
+  const random = crypto.randomUUID().substring(0, 6).toUpperCase();
   const orderNumber = `CHP-${new Date().getFullYear()}-${random}${String(seq).padStart(3, "0")}`;
 
   // Use Stripe's authoritative total (not recalculated)
@@ -164,8 +153,7 @@ async function handleCheckoutCompleted(
     .single();
 
   if (orderError || !order) {
-    console.error("Failed to create order:", orderError);
-    return;
+    throw new Error(`Failed to create order: ${orderError?.message || "unknown error"}`);
   }
 
   // Resolve meet_id and back_id for each item
@@ -211,7 +199,7 @@ async function handleCheckoutCompleted(
     .insert(orderItems);
 
   if (itemsError) {
-    console.error("Failed to create order items:", itemsError);
+    throw new Error(`Failed to create order items for order ${order.id}: ${itemsError.message}`);
   }
 
   // Record status history

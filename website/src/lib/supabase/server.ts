@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 /**
@@ -36,11 +37,10 @@ export async function createClient() {
 /**
  * Service-role client for server-side operations that bypass RLS.
  * Used in webhook handlers and admin API routes.
- * NEVER import this in client components.
+ * NEVER import this in client components — guarded by "server-only".
  */
 export function createServiceClient() {
-  const { createClient } = require("@supabase/supabase-js");
-  return createClient(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );

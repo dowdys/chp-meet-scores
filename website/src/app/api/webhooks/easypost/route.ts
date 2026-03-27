@@ -1,45 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getEasyPost } from "@/lib/easypost";
-import crypto from "crypto";
-
-function verifyWebhookSignature(
-  body: string,
-  signature: string | null,
-  secret: string
-): boolean {
-  if (!signature) return false;
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected)
-  );
-}
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
-  const hmacSignature = request.headers.get("X-Hmac-Signature");
   const webhookSecret = process.env.EASYPOST_WEBHOOK_SECRET;
 
-  // Verify HMAC signature
   if (!webhookSecret) {
     console.error("EASYPOST_WEBHOOK_SECRET not configured");
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
   }
 
-  if (!verifyWebhookSignature(rawBody, hmacSignature, webhookSecret)) {
+  // Verify HMAC signature using the SDK's built-in method
+  // (handles NFKD normalization, weight float correction, and hmac-sha256-hex prefix)
+  let event;
+  try {
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+
+    const client = getEasyPost();
+    event = client.Utils.validateWebhook(Buffer.from(rawBody), headers, webhookSecret);
+  } catch {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   try {
-    const body = JSON.parse(rawBody);
     const supabase = createServiceClient();
 
-    if (body.description === "tracker.updated") {
-      const tracker = body.result;
+    if (event.description === "tracker.updated") {
+      const tracker = event.result;
       const trackingCode = tracker?.tracking_code;
       const status = tracker?.status;
 
