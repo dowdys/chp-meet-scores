@@ -118,4 +118,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadCloudFile: (meetName: string, storagePath: string, filename: string) => {
     return ipcRenderer.invoke('download-cloud-file', meetName, storagePath, filename);
   },
+  openPath: (filePath: string) => {
+    return ipcRenderer.invoke('open-path', filePath);
+  },
+  showInFolder: (filePath: string) => {
+    return ipcRenderer.invoke('show-in-folder', filePath);
+  },
 } as ElectronAPI);

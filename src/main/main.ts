@@ -336,6 +336,18 @@ function setupIPC(): void {
     }
   });
 
+  // Open a file or directory with the system default app
+  ipcMain.handle('open-path', async (_event, filePath: string) => {
+    const { shell } = await import('electron');
+    await shell.openPath(filePath);
+  });
+
+  // Show a file in the system file explorer
+  ipcMain.handle('show-in-folder', async (_event, filePath: string) => {
+    const { shell } = await import('electron');
+    shell.showItemInFolder(filePath);
+  });
+
   // Get output files for a meet
   ipcMain.handle('get-output-files', async (_event, meetName: string) => {
     try {

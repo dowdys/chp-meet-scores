@@ -75,6 +75,24 @@ const CloudMeetsTab: React.FC = () => {
     setDownloading(prev => ({ ...prev, [file.filename]: false }));
   };
 
+  const handleOpen = async (meetName: string, file: CloudMeetFile) => {
+    // If already downloaded, open directly
+    if (downloaded[file.filename]) {
+      window.electronAPI.openPath(downloaded[file.filename]);
+      return;
+    }
+    // Otherwise download first, then open
+    setDownloading(prev => ({ ...prev, [file.filename]: true }));
+    try {
+      const result = await window.electronAPI.downloadCloudFile(meetName, file.storage_path, file.filename);
+      if (result.success && result.localPath) {
+        setDownloaded(prev => ({ ...prev, [file.filename]: result.localPath! }));
+        window.electronAPI.openPath(result.localPath);
+      }
+    } catch { /* ignore */ }
+    setDownloading(prev => ({ ...prev, [file.filename]: false }));
+  };
+
   const handleDownloadAll = async (meetName: string) => {
     for (const file of files) {
       if (!downloaded[file.filename]) {
@@ -141,17 +159,35 @@ const CloudMeetsTab: React.FC = () => {
                 <span className="cloud-file-size">{formatBytes(file.file_size)}</span>
               </div>
               <div className="cloud-file-actions">
-                {downloaded[file.filename] ? (
-                  <span className="cloud-file-done">Downloaded</span>
-                ) : downloading[file.filename] ? (
+                {downloading[file.filename] ? (
                   <span className="cloud-file-progress">Downloading...</span>
                 ) : (
-                  <button
-                    className="cloud-file-download"
-                    onClick={() => handleDownload(selectedMeet, file)}
-                  >
-                    Download
-                  </button>
+                  <>
+                    <button
+                      className="cloud-file-open"
+                      onClick={() => handleOpen(selectedMeet, file)}
+                      title="Open in default app (downloads first if needed)"
+                    >
+                      Open
+                    </button>
+                    {downloaded[file.filename] ? (
+                      <button
+                        className="cloud-file-folder"
+                        onClick={() => window.electronAPI.showInFolder(downloaded[file.filename])}
+                        title="Show in File Explorer"
+                      >
+                        Show in Folder
+                      </button>
+                    ) : (
+                      <button
+                        className="cloud-file-download"
+                        onClick={() => handleDownload(selectedMeet, file)}
+                        title="Download to output directory"
+                      >
+                        Save
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

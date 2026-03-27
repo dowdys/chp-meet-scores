@@ -1,7 +1,7 @@
 ---
 title: "fix: Meet Name Normalization and Cloud Storage Cleanup"
 type: fix
-status: active
+status: superseded-by-2026-03-27-001
 date: 2026-03-26
 origin: docs/plans/2026-03-26-002-feat-centralized-supabase-database-plan.md
 ---
