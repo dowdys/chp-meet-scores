@@ -4,7 +4,7 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getDataDir } from '../paths';
 import { publishMeet } from '../supabase-sync';
-import { isSupabaseEnabled } from '../supabase-client';
+import { isSupabaseEnabled, SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase-client';
 import { requireString, optionalNumber } from './validation';
 
 function getDbPath(): string {
@@ -124,6 +124,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             DATA_DIR: dataDir,
             STAGING_DB_PATH: currentStagingDbPath || '',
             PYTHONUTF8: '1',
+            SUPABASE_URL,
+            SUPABASE_KEY: SUPABASE_ANON_KEY,
           },
           timeout
         );
@@ -243,7 +245,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
           CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT, meet_name TEXT, association TEXT,
-            name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
+            name TEXT, gym TEXT, club_num TEXT, session TEXT, level TEXT, division TEXT,
             vault REAL, bars REAL, beam REAL, floor REAL, aa REAL,
             rank TEXT, num TEXT
           );
@@ -278,14 +280,31 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
           centralDb.prepare('DELETE FROM results WHERE meet_name = ?').run(meetName);
           centralDb.prepare('DELETE FROM winners WHERE meet_name = ?').run(meetName);
 
-          // Copy results from staging to central
-          const resultCount = centralDb.prepare(
-            `INSERT INTO results (state, meet_name, association, name, gym, session, level, division,
-             vault, bars, beam, floor, aa, rank, num)
-             SELECT state, meet_name, association, name, gym, session, level, division,
-             vault, bars, beam, floor, aa, rank, num
-             FROM staging.results WHERE meet_name = ?`
-          ).run(meetName);
+          // Copy results from staging to central (try with club_num first, fall back without)
+          let resultCount: { changes: number };
+          try {
+            resultCount = centralDb.prepare(
+              `INSERT INTO results (state, meet_name, association, name, gym, club_num, session, level, division,
+               vault, bars, beam, floor, aa, rank, num)
+               SELECT state, meet_name, association, name, gym, club_num, session, level, division,
+               vault, bars, beam, floor, aa, rank, num
+               FROM staging.results WHERE meet_name = ?`
+            ).run(meetName);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('club_num')) {
+              // Staging DB lacks club_num column — fall back without it
+              resultCount = centralDb.prepare(
+                `INSERT INTO results (state, meet_name, association, name, gym, session, level, division,
+                 vault, bars, beam, floor, aa, rank, num)
+                 SELECT state, meet_name, association, name, gym, session, level, division,
+                 vault, bars, beam, floor, aa, rank, num
+                 FROM staging.results WHERE meet_name = ?`
+              ).run(meetName);
+            } else {
+              throw err;
+            }
+          }
 
           // Copy winners from staging to central
           let winnerCount = { changes: 0 };

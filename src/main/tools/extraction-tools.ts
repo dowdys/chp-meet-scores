@@ -87,6 +87,7 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
           const mapped = rows.map(r => ({
             name: cleanName(r.fullname || ''),
             gym: decodeHtml(r.gym || ''),
+            club_num: r.clubnum || '',
             session: r.sess || '',
             level: r.level || '',
             division: r.div || '',

@@ -348,6 +348,22 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: ['skill_name'],
       },
     },
+    // --- Gym tools (database phase) ---
+    {
+      name: 'perplexity_gym_lookup',
+      description: 'Verify or enrich gym names using Perplexity AI. Verify mode checks if gym name pairs refer to the same gym. Enrich mode looks up official names and addresses.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['verify', 'enrich'], description: 'verify = check if pairs are same gym, enrich = look up official names/addresses' },
+          state: { type: 'string', description: 'State to scope the gym search (e.g., "Nevada", "Mississippi")' },
+          pairs: { type: 'string', description: 'JSON array of {gym_a, gym_b} objects (verify mode only)' },
+          gyms: { type: 'array', items: { type: 'string' }, description: 'Array of gym name strings (enrich mode only)' },
+        },
+        required: ['mode', 'state'],
+      },
+    },
+
     // --- User interaction (always available) ---
     {
       name: 'ask_user',

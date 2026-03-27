@@ -803,8 +803,36 @@ def main():
             athletes = all_athletes
             print(f"Total: {len(athletes)} athletes from {len(args.data)} files")
 
+        # Load persistent gym aliases from Supabase (best-effort)
+        aliases: dict[str, str] | None = None
+        try:
+            import urllib.request
+            _sb_url = os.environ.get('SUPABASE_URL', '')
+            _sb_key = os.environ.get('SUPABASE_KEY', '')
+            if _sb_url and _sb_key:
+                from python.core.constants import state_to_abbrev
+                _state_abbrev = state_to_abbrev(args.state)
+                _req = urllib.request.Request(
+                    f"{_sb_url.rstrip('/')}/rest/v1/rpc/get_gym_aliases",
+                    data=json.dumps({"p_state": _state_abbrev}).encode('utf-8'),
+                    headers={
+                        'apikey': _sb_key,
+                        'Authorization': f'Bearer {_sb_key}',
+                        'Content-Type': 'application/json',
+                    },
+                    method='POST',
+                )
+                with urllib.request.urlopen(_req, timeout=5) as _resp:
+                    _rows = json.loads(_resp.read().decode('utf-8'))
+                if _rows and isinstance(_rows, list):
+                    aliases = {r['alias']: r['canonical'] for r in _rows
+                               if 'alias' in r and 'canonical' in r}
+                    print(f"Loaded {len(aliases)} gym aliases from Supabase")
+        except Exception as e:
+            print(f"Warning: Could not load gym aliases from Supabase: {e}")
+
         # Normalize gym names
-        result = normalize_gyms(athletes, gym_map_path=args.gym_map)
+        result = normalize_gyms(athletes, gym_map_path=args.gym_map, aliases=aliases)
         athletes = result['normalized_athletes']
         print_gym_report(result['gym_report'])
 

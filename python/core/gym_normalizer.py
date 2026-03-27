@@ -1,8 +1,11 @@
 """Gym name normalizer for gymnastics meet data.
 
-Three-phase normalization:
+Seven-phase normalization:
+  Phase 0 — Persistent alias lookup: apply Supabase-sourced canonical aliases
   Phase 1 — Auto-normalize: title-case, collapse whitespace, group case-insensitive matches
-  Phase 2 — Suffix-aware merge: "All Pro" + "All Pro Gymnastics" → "All Pro Gymnastics"
+  Phase 1.5 — Club number dedup: group by club_num, merge to most-common name
+  Phase 2 — Suffix-aware merge: consolidate all variants (base + suffixed) to longest name
+  Phase 2.5 — Abbreviation-initials detection: flag gyms that look like initials of another
   Phase 3 — Fuzzy duplicate detection (informational, not auto-merged)
   Phase 4 — Manual gym-map: apply user-provided alias mapping (case-insensitive keys)
 """
@@ -47,20 +50,48 @@ def _title_case_gym(name: str) -> str:
     return ' '.join(_title_case_word(w) for w in words)
 
 
-def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
+def normalize(athletes: list[dict], gym_map_path: str | None = None,
+              aliases: dict[str, str] | None = None) -> dict:
     """Normalize gym names in athlete data.
 
     Args:
         athletes: List of athlete dicts (modified in-place).
         gym_map_path: Optional path to a JSON file mapping old names to canonical names.
+        aliases: Optional dict mapping lowercase gym names to canonical names
+                 (from Supabase persistent aliases).
 
     Returns:
         Dict with:
           normalized_athletes: the (modified) athletes list
-          gym_report: {unique_gyms, auto_merged, suffix_merged, potential_duplicates}
+          gym_report: {unique_gyms, auto_merged, suffix_merged, potential_duplicates,
+                       alias_applied, clubnum_merged, initials_suspects}
     """
     auto_merged = {}
     suffix_merged = {}
+    alias_applied = {}
+    clubnum_merged = {}
+    initials_suspects = []
+
+    # ========================================
+    # Phase 0: Persistent alias lookup
+    # ========================================
+    alias_canonical_values: set[str] = set()
+    if aliases:
+        alias_lower = {k.lower().strip(): v for k, v in aliases.items()}
+        alias_canonical_values = set(aliases.values())
+        applied = 0
+        for a in athletes:
+            gym = a.get('gym', '') or ''
+            key = gym.strip().lower()
+            if key in alias_lower:
+                canonical = alias_lower[key]
+                if gym.strip() != canonical:
+                    alias_applied[gym.strip()] = canonical
+                a['gym'] = canonical
+                applied += 1
+        if applied:
+            print(f"Phase 0: Alias lookup applied to {applied} athletes "
+                  f"({len(alias_applied)} unique mappings)")
 
     # ========================================
     # Phase 1: Case-insensitive auto-normalize
@@ -82,13 +113,20 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
     canonical_map: dict[str, str] = {}  # any original form -> canonical
     for key, variants in gym_counts.items():
         if len(variants) == 1:
-            # Only one variant — title-case from the ORIGINAL form (preserves acronyms)
             original = next(iter(variants))
-            canonical = _title_case_gym(original)
+            # Protect Phase 0 canonical values from being overridden
+            if original in alias_canonical_values:
+                canonical = original
+            else:
+                canonical = _title_case_gym(original)
         else:
             # Multiple variants — title-case the most common one
             most_common = max(variants, key=lambda v: variants[v])
-            canonical = _title_case_gym(most_common)
+            # Protect Phase 0 canonical values from being overridden
+            if most_common in alias_canonical_values:
+                canonical = most_common
+            else:
+                canonical = _title_case_gym(most_common)
 
         for variant in variants:
             if variant != canonical:
@@ -106,13 +144,57 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
     auto_merged = {k: v for k, v in auto_merged.items() if k != v}
 
     # ========================================
-    # Phase 2: Suffix-aware merge
+    # Phase 1.5: Club number dedup
     # ========================================
-    # After case normalization, merge "X" into "X Gymnastics" when the suffix
-    # is a known gym-related word. The full name (with suffix) is the canonical form.
+    # Group athletes by club_num; for each club_num with multiple gym names,
+    # merge all to the most-common name (length as tiebreaker).
+    clubnum_groups: dict[str, dict[str, int]] = {}  # club_num -> {gym_name: count}
+    for a in athletes:
+        cn = (a.get('club_num') or '').strip()
+        if not cn:
+            continue
+        gym = a.get('gym', '') or ''
+        if not gym:
+            continue
+        if cn not in clubnum_groups:
+            clubnum_groups[cn] = {}
+        clubnum_groups[cn][gym] = clubnum_groups[cn].get(gym, 0) + 1
+
+    clubnum_merge_map: dict[str, str] = {}  # old gym name -> canonical
+    for cn, name_counts in clubnum_groups.items():
+        if len(name_counts) <= 1:
+            continue
+        # Pick the most common name; break ties by longest name
+        best = max(name_counts, key=lambda g: (name_counts[g], len(g)))
+        for name in name_counts:
+            if name != best:
+                clubnum_merge_map[name] = best
+                clubnum_merged[name] = best
+
+    if clubnum_merge_map:
+        for a in athletes:
+            gym = a.get('gym', '')
+            if gym in clubnum_merge_map:
+                a['gym'] = clubnum_merge_map[gym]
+        if clubnum_merged:
+            print(f"Phase 1.5: Club number dedup merged {len(clubnum_merged)} gym name variants")
+
+    # ========================================
+    # Phase 2: Suffix-aware merge (consolidated)
+    # ========================================
+    # After case normalization, merge all variants sharing a base name.
+    # The bare base is included as a merge candidate alongside suffixed forms.
+    # ALWAYS prefer the longest (fullest) name.
     unique_after_case = set(a.get('gym', '') for a in athletes if a.get('gym'))
 
-    # Build base_name -> list of (full_name, suffix) for all suffixed variants
+    # Count athletes per gym for tiebreaking
+    gym_athlete_counts: dict[str, int] = {}
+    for a in athletes:
+        g = a.get('gym', '')
+        if g:
+            gym_athlete_counts[g] = gym_athlete_counts.get(g, 0) + 1
+
+    # Build base_name -> list of (full_name) for all suffixed variants
     base_to_suffixed: dict[str, list[str]] = {}
     for gym in unique_after_case:
         words = gym.split()
@@ -122,34 +204,23 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
                 base_to_suffixed[base] = []
             base_to_suffixed[base].append(gym)
 
-    # For each base that exists as a standalone gym AND has suffixed variant(s),
-    # merge the standalone into the suffixed form
-    suffix_merge_map: dict[str, str] = {}  # standalone -> canonical suffixed
+    # For each base that has suffixed variant(s), merge all forms to the longest name
+    suffix_merge_map: dict[str, str] = {}  # any form -> canonical
     for base, suffixed_forms in base_to_suffixed.items():
-        if base not in unique_after_case:
-            continue  # base doesn't exist as standalone, nothing to merge
+        # Include base as a candidate if it exists as a standalone gym
+        all_candidates = list(suffixed_forms)
+        if base in unique_after_case:
+            all_candidates.append(base)
 
-        if len(suffixed_forms) == 1:
-            # Clear case: merge base into the one suffixed form
-            suffix_merge_map[base] = suffixed_forms[0]
-            suffix_merged[base] = suffixed_forms[0]
-        else:
-            # Multiple suffixed forms (e.g., "X Gym" and "X Gymnastics")
-            # Pick the most common one by athlete count
-            gym_athlete_counts = {}
-            for a in athletes:
-                g = a.get('gym', '')
-                if g in suffixed_forms:
-                    gym_athlete_counts[g] = gym_athlete_counts.get(g, 0) + 1
-            if gym_athlete_counts:
-                best = max(gym_athlete_counts, key=lambda g: gym_athlete_counts[g])
-                suffix_merge_map[base] = best
-                suffix_merged[base] = best
-                # Also merge the less common suffixed forms into the best one
-                for sf in suffixed_forms:
-                    if sf != best:
-                        suffix_merge_map[sf] = best
-                        suffix_merged[sf] = best
+        if len(all_candidates) <= 1:
+            continue
+
+        # Pick the longest name; break ties by athlete count
+        best = max(all_candidates, key=lambda g: (len(g), gym_athlete_counts.get(g, 0)))
+        for form in all_candidates:
+            if form != best:
+                suffix_merge_map[form] = best
+                suffix_merged[form] = best
 
     # Apply suffix merges to athletes
     if suffix_merge_map:
@@ -157,6 +228,36 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
             gym = a.get('gym', '')
             if gym in suffix_merge_map:
                 a['gym'] = suffix_merge_map[gym]
+
+    # ========================================
+    # Phase 2.5: Abbreviation-initials detection
+    # ========================================
+    # Detect gyms whose name looks like initials of another gym's name.
+    # Uses strip_count (0, 1, or 2 suffix words) to test if initials match.
+    unique_after_suffix = sorted(set(a.get('gym', '') for a in athletes if a.get('gym')))
+
+    for gym in unique_after_suffix:
+        words_upper = gym.upper().split()
+        # Only consider short names that look like initials (2-5 chars, all uppercase)
+        if not (gym.isupper() and 2 <= len(gym.replace(' ', '')) <= 5):
+            continue
+        initials_str = gym.replace(' ', '').upper()
+
+        for candidate in unique_after_suffix:
+            if candidate == gym:
+                continue
+            cand_words = candidate.split()
+            if len(cand_words) < 2:
+                continue
+            # Try strip_count 0, 1, or 2 suffix words
+            for strip_count in range(3):
+                check_words = cand_words[:len(cand_words) - strip_count] if strip_count else cand_words
+                if len(check_words) < 2:
+                    continue
+                cand_initials = ''.join(w[0].upper() for w in check_words if w)
+                if cand_initials == initials_str:
+                    initials_suspects.append((gym, candidate, strip_count))
+                    break  # found a match, no need to try more strip counts
 
     # ========================================
     # Phase 3: Fuzzy duplicate detection
@@ -220,8 +321,24 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None) -> dict:
             'auto_merged': auto_merged,
             'suffix_merged': suffix_merged,
             'potential_duplicates': potential_duplicates,
+            'alias_applied': alias_applied,
+            'clubnum_merged': clubnum_merged,
+            'initials_suspects': initials_suspects,
         },
     }
+
+
+def _print_section(title: str, items: list[str], max_show: int = 15) -> None:
+    """Print a labeled section with optional truncation."""
+    if not items:
+        return
+    if len(items) > max_show:
+        print(f"{title} (showing {max_show} of {len(items)}):")
+    else:
+        print(f"{title}:")
+    print('\n'.join(items[:max_show]))
+    if len(items) > max_show:
+        print(f"  ... and {len(items) - max_show} more")
 
 
 def print_gym_report(report: dict) -> None:
@@ -230,29 +347,34 @@ def print_gym_report(report: dict) -> None:
     merged = report['auto_merged']
     suffix = report.get('suffix_merged', {})
     dupes = report['potential_duplicates']
+    alias = report.get('alias_applied', {})
+    clubnum = report.get('clubnum_merged', {})
+    initials = report.get('initials_suspects', [])
 
-    total_merged = len(merged) + len(suffix)
+    total_merged = len(merged) + len(suffix) + len(alias) + len(clubnum)
     print(f"\nGym normalization: {len(gyms)} unique gyms, "
-          f"{total_merged} auto-merged ({len(merged)} case, {len(suffix)} suffix), "
+          f"{total_merged} auto-merged ({len(alias)} alias, {len(merged)} case, "
+          f"{len(clubnum)} clubnum, {len(suffix)} suffix), "
           f"{len(dupes)} potential duplicates to review")
 
-    if merged:
-        merge_lines = [f'  "{k}" -> "{v}"' for k, v in sorted(merged.items())]
-        if len(merge_lines) > 15:
-            print(f"Case-merged (showing 15 of {len(merge_lines)}):")
-            print('\n'.join(merge_lines[:15]))
-        else:
-            print(f"Case-merged:")
-            print('\n'.join(merge_lines))
+    _print_section("Alias-applied",
+                   [f'  "{k}" -> "{v}"' for k, v in sorted(alias.items())])
 
-    if suffix:
-        suffix_lines = [f'  "{k}" -> "{v}"' for k, v in sorted(suffix.items())]
-        if len(suffix_lines) > 15:
-            print(f"Suffix-merged (showing 15 of {len(suffix_lines)}):")
-            print('\n'.join(suffix_lines[:15]))
-        else:
-            print(f"Suffix-merged:")
-            print('\n'.join(suffix_lines))
+    _print_section("Case-merged",
+                   [f'  "{k}" -> "{v}"' for k, v in sorted(merged.items())])
+
+    _print_section("Club-num merged",
+                   [f'  "{k}" -> "{v}"' for k, v in sorted(clubnum.items())])
+
+    _print_section("Suffix-merged",
+                   [f'  "{k}" -> "{v}"' for k, v in sorted(suffix.items())])
+
+    if initials:
+        print(f"Initials suspects ({len(initials)}):")
+        for short, full, sc in initials[:15]:
+            print(f'  "{short}" might be initials of "{full}" (strip_count={sc})')
+        if len(initials) > 15:
+            print(f"  ... and {len(initials) - 15} more")
 
     if dupes:
         print(f"Potential duplicates (>{80}% similar):")
