@@ -1,115 +1,92 @@
 "use client";
 
-import { useState, useMemo } from "react";
-
 interface ShirtPreviewProps {
   frontImageUrl: string | null;
-  backPdfUrl: string | null;
+  backImageUrl: string | null;
   color: "white" | "grey";
   athleteName?: string;
   hasJewel?: boolean;
 }
 
-export function ShirtPreview({
-  frontImageUrl,
-  backPdfUrl,
+function ShirtSilhouette({
+  imageUrl,
+  label,
   color,
-  athleteName,
-  hasJewel = false,
-}: ShirtPreviewProps) {
-  const [side, setSide] = useState<"front" | "back">("front");
-
-  // Back preview: route through API that adds stars when jewel is checked
-  // TODO: Convert back PDFs to PNGs too once Electron publishes them
-  const backImageUrl = useMemo(() => {
-    if (!backPdfUrl) return null;
-    // For now, back PDFs can't be rendered as images client-side
-    // This will work once we convert backs to PNGs during Electron publish
-    return null;
-  }, [backPdfUrl]);
-
-  const currentImage = side === "front" ? frontImageUrl : backImageUrl;
+}: {
+  imageUrl: string | null;
+  label: string;
+  color: "white" | "grey";
+}) {
+  const fillColor = color === "white" ? "#ffffff" : "#d4d4d4";
+  const strokeColor = color === "white" ? "#e5e5e5" : "#a0a0a0";
+  const neckColor = color === "white" ? "#ddd" : "#888";
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2 justify-center">
-        <button
-          onClick={() => setSide("front")}
-          className={`px-4 py-1.5 rounded text-sm font-medium transition ${
-            side === "front"
-              ? "bg-red-600 text-white"
-              : "bg-white/10 text-gray-400 hover:text-white"
-          }`}
-        >
-          Front
-        </button>
-        <button
-          onClick={() => setSide("back")}
-          className={`px-4 py-1.5 rounded text-sm font-medium transition ${
-            side === "back"
-              ? "bg-red-600 text-white"
-              : "bg-white/10 text-gray-400 hover:text-white"
-          }`}
-        >
-          Back
-        </button>
-      </div>
-
-      {/* Shirt shape */}
-      <div className="relative mx-auto" style={{ width: 300, height: 360 }}>
-        {/* T-shirt silhouette */}
+    <div className="flex flex-col items-center">
+      <div className="relative" style={{ width: 220, height: 270 }}>
         <svg
-          viewBox="0 0 300 360"
+          viewBox="0 0 220 270"
           className="absolute inset-0 z-0"
           xmlns="http://www.w3.org/2000/svg"
         >
           <path
             d={`
-              M 75 0 L 0 55 L 32 85 L 58 70 L 58 350 L 242 350
-              L 242 70 L 268 85 L 300 55 L 225 0
-              C 215 32 183 48 150 48 C 117 48 85 32 75 0 Z
+              M 55 0 L 0 40 L 24 62 L 43 52 L 43 262 L 177 262
+              L 177 52 L 196 62 L 220 40 L 165 0
+              C 157 24 135 36 110 36 C 85 36 63 24 55 0 Z
             `}
-            fill={color === "white" ? "#f8f8f8" : "#b8b8b8"}
-            stroke={color === "white" ? "#ddd" : "#888"}
-            strokeWidth="1.5"
+            fill={fillColor}
+            stroke={strokeColor}
+            strokeWidth="1"
           />
           <path
-            d="M 75 0 C 85 32 117 48 150 48 C 183 48 215 32 225 0"
+            d="M 55 0 C 63 24 85 36 110 36 C 135 36 157 24 165 0"
             fill="none"
-            stroke={color === "white" ? "#ccc" : "#777"}
-            strokeWidth="1.5"
+            stroke={neckColor}
+            strokeWidth="1"
           />
         </svg>
 
-        {/* Design image overlay */}
         <div
           className="absolute overflow-hidden z-10 flex items-center justify-center"
-          style={{ top: 65, left: 70, width: 160, height: 230, borderRadius: 4 }}
+          style={{ top: 48, left: 52, width: 116, height: 170, borderRadius: 2 }}
         >
-          {currentImage ? (
+          {imageUrl ? (
             <img
-              src={currentImage}
-              alt={`${side} of shirt`}
+              src={imageUrl}
+              alt={label}
               className="w-full h-full object-contain"
               crossOrigin="anonymous"
             />
           ) : (
-            <div className="text-gray-500 text-xs text-center px-2">
-              {side === "front"
-                ? "Front preview loading..."
-                : "Back preview available after meet processing"}
+            <div className="text-gray-400 text-[10px] text-center px-1">
+              Not yet available
             </div>
           )}
         </div>
       </div>
+      <p className="text-xs text-gray-500 mt-1">{label}</p>
+    </div>
+  );
+}
 
-      <p className="text-center text-xs text-gray-500">
-        {side === "front" ? "Front of shirt" : "Back of shirt"} •{" "}
-        {color === "white" ? "White" : "Grey"}
-        {side === "back" && hasJewel && (
-          <span className="text-red-400"> • ★ Jewel accent</span>
-        )}
-      </p>
+export function ShirtPreview({
+  frontImageUrl,
+  backImageUrl,
+  color,
+}: ShirtPreviewProps) {
+  return (
+    <div className="flex gap-6 justify-center items-start">
+      <ShirtSilhouette
+        imageUrl={frontImageUrl}
+        label="Front"
+        color={color}
+      />
+      <ShirtSilhouette
+        imageUrl={backImageUrl}
+        label="Back"
+        color={color}
+      />
     </div>
   );
 }

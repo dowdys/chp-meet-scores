@@ -31,10 +31,19 @@ function OrderContent() {
   const [confettiTrigger, setConfettiTrigger] = useState(false);
   const [shirtColor, setShirtColor] = useState<"white" | "grey">("white");
   const [hasJewel, setHasJewel] = useState(false);
-  const [backPdfUrl, setBackPdfUrl] = useState<string | null>(null);
 
-  // Get the front PDF URL from the state
+  // Front image URL (PNG from shirt-fronts bucket)
   const frontImageUrl = meet ? getFrontUrl(meet) : null;
+
+  // Back image URL (PNG from shirt-backs bucket)
+  const backImageUrl = (() => {
+    if (!meet) return null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    // Extract state abbreviation from meet name
+    const stateMatch = meet.match(/\d{4}\s+([A-Z]{2})/);
+    if (!stateMatch) return null;
+    return `${supabaseUrl}/storage/v1/object/public/shirt-backs/${stateMatch[1]}_back_1.png`;
+  })();
 
   useEffect(() => {
     if (name && showCelebration) {
@@ -43,29 +52,6 @@ function OrderContent() {
       return () => { clearTimeout(timer); clearTimeout(hideTimer); };
     }
   }, [name, showCelebration]);
-
-  // Fetch back PDF URL from meet_files
-  useEffect(() => {
-    if (!meet) return;
-    const fetchBack = async () => {
-      const { createClient } = await import("@/lib/supabase/client");
-      const supabase = createClient();
-      const { data } = await supabase
-        .from("meet_files")
-        .select("storage_path")
-        .eq("meet_name", meet)
-        .eq("filename", "back_of_shirt.pdf")
-        .limit(1)
-        .single();
-
-      if (data?.storage_path) {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-        // meet-documents is private, need to use the download endpoint
-        setBackPdfUrl(`${supabaseUrl}/storage/v1/object/public/meet-documents/${data.storage_path}`);
-      }
-    };
-    fetchBack();
-  }, [meet]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
@@ -94,14 +80,12 @@ function OrderContent() {
         )}
 
         {/* Shirt Preview */}
-        {name && (frontImageUrl || backPdfUrl) && (
+        {name && (frontImageUrl || backImageUrl) && (
           <div className="mb-8">
             <ShirtPreview
               frontImageUrl={frontImageUrl}
-              backPdfUrl={backPdfUrl}
+              backImageUrl={backImageUrl}
               color={shirtColor}
-              athleteName={name}
-              hasJewel={hasJewel}
             />
           </div>
         )}
