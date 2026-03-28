@@ -1,7 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { GymEvent, ChampionshipEvent } from "@/lib/utils";
+import { EVENTS, type GymEvent, type ChampionshipEvent } from "@/lib/utils";
 import { CelebrationPageClient } from "./celebration-client";
 
 interface PageProps {
@@ -100,11 +100,21 @@ export default async function CelebrationPage({ params }: PageProps) {
 
 function parseEvents(raw: unknown): ChampionshipEvent[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (e): e is ChampionshipEvent =>
-      typeof e === "object" &&
-      e !== null &&
-      "event" in e &&
-      "is_tie" in e
-  );
+  return raw
+    .filter(
+      (e): e is Record<string, unknown> =>
+        typeof e === "object" &&
+        e !== null &&
+        typeof (e as Record<string, unknown>).event === "string" &&
+        (EVENTS as readonly string[]).includes((e as Record<string, unknown>).event as string) &&
+        typeof (e as Record<string, unknown>).is_tie === "boolean" &&
+        ((e as Record<string, unknown>).score === null ||
+          (e as Record<string, unknown>).score === undefined ||
+          typeof (e as Record<string, unknown>).score === "number")
+    )
+    .map((e) => ({
+      event: e.event as GymEvent,
+      score: typeof e.score === "number" ? e.score : null,
+      is_tie: e.is_tie as boolean,
+    }));
 }

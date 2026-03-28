@@ -7,42 +7,26 @@ export function ConfettiBurst({ trigger }: { trigger: boolean }) {
   useEffect(() => {
     if (!trigger) return;
 
-    // Check for reduced motion preference
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (prefersReducedMotion) return;
-
-    // Check for slow connection
-    const conn = (navigator as { connection?: { effectiveType?: string; saveData?: boolean } }).connection;
-    const isSlow =
-      conn?.saveData ||
-      conn?.effectiveType === "2g" ||
-      conn?.effectiveType === "slow-2g";
-    const particleCount = isSlow ? 30 : 80;
-
-    // Gold + white confetti burst
     const colors = ["#FFD700", "#FFC107", "#FFFFFF", "#FFE082"];
 
     confetti({
-      particleCount,
+      particleCount: 80,
       spread: 70,
       origin: { y: 0.6 },
       colors,
       disableForReducedMotion: true,
     });
 
-    // Second burst slightly delayed for a richer effect
     const burstTimer = setTimeout(() => {
       confetti({
-        particleCount: Math.floor(particleCount * 0.6),
+        particleCount: 48,
         spread: 100,
         origin: { y: 0.5, x: 0.3 },
         colors,
         disableForReducedMotion: true,
       });
       confetti({
-        particleCount: Math.floor(particleCount * 0.6),
+        particleCount: 48,
         spread: 100,
         origin: { y: 0.5, x: 0.7 },
         colors,
@@ -50,7 +34,10 @@ export function ConfettiBurst({ trigger }: { trigger: boolean }) {
       });
     }, 300);
 
-    return () => clearTimeout(burstTimer);
+    return () => {
+      clearTimeout(burstTimer);
+      confetti.reset();
+    };
   }, [trigger]);
 
   return null;

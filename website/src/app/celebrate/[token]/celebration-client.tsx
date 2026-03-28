@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import type { ChampionshipEvent } from "@/lib/utils";
+import { parseStateName, type ChampionshipEvent } from "@/lib/utils";
 
 const CelebrationOverlay = dynamic(
   () =>
@@ -32,17 +32,9 @@ export function CelebrationPageClient({
 }: CelebrationPageClientProps) {
   const [complete, setComplete] = useState(false);
 
-  const meetParts = meetName.split(" - ");
-  const state = meetParts[1]?.replace(/^\d{4}\s*/, "") || "";
+  const state = parseStateName(meetName);
 
-  const orderParams = new URLSearchParams({
-    name: athleteName,
-    gym,
-    meet: meetName,
-    level,
-    state,
-  });
-  const orderUrl = `/order?${orderParams.toString()}`;
+  const orderUrl = `/order?token=${encodeURIComponent(token)}`;
 
   const handleComplete = useCallback(() => {
     setComplete(true);

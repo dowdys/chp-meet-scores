@@ -3,22 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { LazyMotion, domAnimation, AnimatePresence, m, useReducedMotion } from "framer-motion";
 import Link from "next/link";
+import confetti from "canvas-confetti";
 import { ConfettiBurst } from "./confetti-burst";
 import { PodiumReveal } from "./podium-reveal";
-import { VaultAnimation } from "./vault-animation";
-import { BarsAnimation } from "./bars-animation";
-import { BeamAnimation } from "./beam-animation";
-import { FloorAnimation } from "./floor-animation";
-import { AllAroundAnimation } from "./all-around-animation";
+import { EventAnimation } from "./event-animation";
 import { EVENT_DISPLAY, type GymEvent, type ChampionshipEvent } from "@/lib/utils";
-
-const EVENT_ANIMATIONS: Record<GymEvent, React.ComponentType<{ isActive?: boolean }>> = {
-  vault: VaultAnimation,
-  bars: BarsAnimation,
-  beam: BeamAnimation,
-  floor: FloorAnimation,
-  aa: AllAroundAnimation,
-};
 
 type CelebrationStage = "intro" | "reveal";
 
@@ -32,50 +21,6 @@ interface CelebrationOverlayProps {
   events: ChampionshipEvent[];
   onComplete: () => void;
   orderUrl: string;
-}
-
-function StaticCelebrationCard({
-  athleteName,
-  gym,
-  level,
-  state,
-  events,
-  orderUrl,
-}: Omit<CelebrationOverlayProps, "token" | "meetName" | "onComplete">) {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 bg-gradient-to-b from-gray-900 to-black text-white">
-      <div className="max-w-md mx-auto text-center space-y-6 p-8 rounded-2xl border border-amber-900/30">
-        <svg viewBox="0 0 40 50" className="w-12 h-14 mx-auto">
-          <path d="M14,0 L20,18 L26,0" fill="#FFC107" opacity={0.7} />
-          <circle cx="20" cy="28" r="12" fill="#FFD700" />
-          <circle cx="20" cy="28" r="9" fill="#FFC107" opacity={0.6} />
-          <text x="20" y="33" textAnchor="middle" fill="#000" fontSize="10" fontWeight="bold">&#9733;</text>
-        </svg>
-        <h1 className="text-3xl md:text-4xl font-bold">{athleteName}</h1>
-        <p className="text-amber-400">{gym}</p>
-        {events.length > 0 && (
-          <div className="space-y-1">
-            {events.map((evt) => (
-              <div key={evt.event} className="flex items-center justify-center gap-2">
-                <span className="text-amber-400">&#9733;</span>
-                <span>{EVENT_DISPLAY[evt.event] || evt.event}</span>
-                <span className="text-gray-400">{evt.score?.toFixed(3) ?? "---"}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <p className="text-sm text-amber-200/70">
-          Level {level} &bull; {state} State Champion
-        </p>
-        <Link
-          href={orderUrl}
-          className="inline-block bg-amber-500 text-black px-8 py-3 rounded-xl text-lg font-bold hover:bg-amber-400 transition shadow-lg shadow-amber-900/30"
-        >
-          Order Your Championship Shirt &rarr;
-        </Link>
-      </div>
-    </div>
-  );
 }
 
 export function CelebrationOverlay({
@@ -95,34 +40,34 @@ export function CelebrationOverlay({
   const [showCTA, setShowCTA] = useState(false);
   const cancelRef = useRef({ cancelled: false });
   const hasCompletedRef = useRef(false);
-  const onCompleteRef = useRef(onComplete);
-  const ctaRef = useRef<HTMLAnchorElement>(null);
-
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   // Determine primary event for animation
   const primaryEvent: GymEvent =
-    (events.find((e) => e.event === "aa")?.event as GymEvent) ||
-    (events[0]?.event as GymEvent) ||
+    events.find((e) => e.event === "aa")?.event ??
+    events[0]?.event ??
     "aa";
-  const EventAnimation = EVENT_ANIMATIONS[primaryEvent] || AllAroundAnimation;
 
   const handleComplete = useCallback(() => {
     if (hasCompletedRef.current) return;
     hasCompletedRef.current = true;
     cancelRef.current.cancelled = true;
-    onCompleteRef.current();
-  }, []);
+    confetti.reset();
+    onComplete();
+  }, [onComplete]);
 
-  // Check for replay via sessionStorage
+  // P1 #1 fix: Read-only sessionStorage check (separate from write)
   useEffect(() => {
-    const key = `celebrated-${token}`;
-    if (sessionStorage.getItem(key)) {
+    if (sessionStorage.getItem(`cel-${token.slice(0, 8)}`)) {
       handleComplete();
-      return;
     }
-    sessionStorage.setItem(key, "1");
   }, [token, handleComplete]);
+
+  // P1 #3 fix: Reduced motion skips animation entirely
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      handleComplete();
+    }
+  }, [prefersReducedMotion, handleComplete]);
 
   // Track scan (fire-and-forget)
   useEffect(() => {
@@ -133,22 +78,21 @@ export function CelebrationOverlay({
     }).catch(() => {});
   }, [token]);
 
-  // Animation timeline — all timers from single origin, cancellable
+  // Animation timeline — P2 #7 fix: fresh cancel token per mount
   useEffect(() => {
     if (prefersReducedMotion || hasCompletedRef.current) return;
 
-    const cancel = cancelRef.current;
-    cancel.cancelled = false;
+    // Write sessionStorage only when timeline actually starts (P1 #1 fix)
+    sessionStorage.setItem(`cel-${token.slice(0, 8)}`, "1");
+
+    const cancel = { cancelled: false };
+    cancelRef.current = cancel;
 
     const timers = [
       setTimeout(() => {
         if (cancel.cancelled) return;
         setStage("reveal");
       }, 2000),
-      setTimeout(() => {
-        if (cancel.cancelled) return;
-        setShowConfetti(true);
-      }, 3500),
       setTimeout(() => {
         if (cancel.cancelled) return;
         setShowCTA(true);
@@ -163,7 +107,7 @@ export function CelebrationOverlay({
       cancel.cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [prefersReducedMotion, handleComplete]);
+  }, [prefersReducedMotion, handleComplete, token]);
 
   // Escape key handler
   useEffect(() => {
@@ -174,26 +118,12 @@ export function CelebrationOverlay({
     return () => window.removeEventListener("keydown", handleKey);
   }, [handleComplete]);
 
-  // Focus CTA when it appears
-  useEffect(() => {
-    if (showCTA && ctaRef.current) {
-      ctaRef.current.focus();
+  // P2 #6 fix: Trigger confetti from reveal animation completion, not setTimeout
+  const handleRevealAnimationStart = useCallback(() => {
+    if (!cancelRef.current.cancelled) {
+      setShowConfetti(true);
     }
-  }, [showCTA]);
-
-  // Reduced motion: show static card
-  if (prefersReducedMotion) {
-    return (
-      <StaticCelebrationCard
-        athleteName={athleteName}
-        gym={gym}
-        level={level}
-        state={state}
-        events={events}
-        orderUrl={orderUrl}
-      />
-    );
-  }
+  }, []);
 
   return (
     <div
@@ -218,7 +148,7 @@ export function CelebrationOverlay({
               transition={{ duration: 0.3 }}
               className="flex flex-col items-center justify-center"
             >
-              <EventAnimation isActive />
+              <EventAnimation event={primaryEvent} />
             </m.div>
           )}
 
@@ -228,6 +158,7 @@ export function CelebrationOverlay({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4 }}
+              onAnimationComplete={handleRevealAnimationStart}
               className="flex flex-col items-center justify-center max-w-lg mx-auto"
             >
               <PodiumReveal
@@ -238,7 +169,7 @@ export function CelebrationOverlay({
                 gym={gym}
               />
 
-              {/* CTA button */}
+              {/* CTA button — focus managed via onAnimationComplete */}
               <m.div
                 className="mt-10"
                 initial={{ opacity: 0, y: 20 }}
@@ -247,9 +178,15 @@ export function CelebrationOverlay({
                   y: showCTA ? 0 : 20,
                 }}
                 transition={{ duration: 0.5 }}
+                onAnimationComplete={() => {
+                  if (showCTA) {
+                    const el = document.querySelector<HTMLAnchorElement>("[data-cta]");
+                    el?.focus();
+                  }
+                }}
               >
                 <Link
-                  ref={ctaRef}
+                  data-cta
                   href={orderUrl}
                   className="inline-block bg-amber-500 text-black px-10 py-4 rounded-xl text-xl font-bold hover:bg-amber-400 transition shadow-lg shadow-amber-900/30"
                 >

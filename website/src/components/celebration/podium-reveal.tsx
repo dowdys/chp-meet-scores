@@ -111,7 +111,7 @@ export function PodiumReveal({
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 1.3, type: "spring" }}
-        className="inline-block bg-amber-900/20 backdrop-blur px-6 py-2 rounded-full text-sm text-amber-200"
+        className="inline-block bg-amber-900/30 px-6 py-2 rounded-full text-sm text-amber-200"
       >
         Level {level} &bull; {state} State Champion
       </m.div>

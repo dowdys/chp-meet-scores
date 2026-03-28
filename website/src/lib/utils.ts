@@ -67,3 +67,12 @@ export interface ChampionshipEvent {
   score: number | null;
   is_tie: boolean;
 }
+
+/**
+ * Extract state abbreviation from a meet name.
+ * e.g. "USAG W Gymnastics - 2026 MN - March 20" → "MN"
+ */
+export function parseStateName(meetName: string): string {
+  const parts = meetName.split(" - ");
+  return parts[1]?.replace(/^\d{4}\s*/, "") || "";
+}

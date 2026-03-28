@@ -8,6 +8,7 @@ import { OrderForm } from "@/components/order-form";
 import { Cart } from "@/components/cart";
 import { ShirtPreview } from "@/components/shirt-preview";
 import { getFrontUrl } from "@/lib/shirt-urls";
+import { parseStateName } from "@/lib/utils";
 
 const ConfettiBurst = dynamic(
   () => import("@/components/celebration/confetti-burst").then((m) => m.ConfettiBurst),
@@ -20,22 +21,52 @@ const PodiumReveal = dynamic(
 
 function OrderContent() {
   const searchParams = useSearchParams();
+  const tokenParam = searchParams.get("token");
 
-  const name = searchParams.get("name") || "";
-  const gym = searchParams.get("gym") || "";
-  const meet = searchParams.get("meet") || "";
-  const state = searchParams.get("state") || "";
-  const level = searchParams.get("level") || "";
+  // Direct URL params (from /find flow, no token)
+  const [name, setName] = useState(searchParams.get("name") || "");
+  const [gym, setGym] = useState(searchParams.get("gym") || "");
+  const [meet, setMeet] = useState(searchParams.get("meet") || "");
+  const [state, setState] = useState(searchParams.get("state") || "");
+  const [level, setLevel] = useState(searchParams.get("level") || "");
 
-  // Skip celebration if already seen via /celebrate page
-  const alreadyCelebrated = typeof window !== "undefined" &&
-    Array.from({ length: sessionStorage.length }).some((_, i) =>
-      sessionStorage.key(i)?.startsWith("celebrated-")
-    );
-  const [showCelebration, setShowCelebration] = useState(!!name && !alreadyCelebrated);
+  // Token-based lookup (from /celebrate flow — PII stays off URL)
+  useEffect(() => {
+    if (!tokenParam) return;
+    (async () => {
+      try {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("athlete_tokens")
+          .select("athlete_name, gym, meet_name, level")
+          .eq("token", tokenParam)
+          .limit(1)
+          .single();
+        if (data) {
+          setName(data.athlete_name);
+          setGym(data.gym);
+          setMeet(data.meet_name);
+          setLevel(data.level);
+          setState(parseStateName(data.meet_name));
+        }
+      } catch { /* token lookup failed — show empty state */ }
+    })();
+  }, [tokenParam]);
+
+  const [showCelebration, setShowCelebration] = useState(!!name || !!tokenParam);
   const [confettiTrigger, setConfettiTrigger] = useState(false);
   const [shirtColor, setShirtColor] = useState<"white" | "grey">("white");
   const [hasJewel, setHasJewel] = useState(false);
+
+  // P2 #5 fix: check sessionStorage in effect to avoid hydration mismatch
+  useEffect(() => {
+    try {
+      const alreadyCelebrated = Array.from({ length: sessionStorage.length })
+        .some((_, i) => sessionStorage.key(i)?.startsWith("cel-"));
+      if (alreadyCelebrated) setShowCelebration(false);
+    } catch { /* SSR or private browsing */ }
+  }, []);
 
   // Front image URL (PNG from shirt-fronts bucket)
   const frontImageUrl = meet ? getFrontUrl(meet) : null;
@@ -95,6 +126,8 @@ function OrderContent() {
               frontImageUrl={frontImageUrl}
               backImageUrl={backImageUrl}
               color={shirtColor}
+              athleteName={name}
+              hasJewel={hasJewel}
             />
           </div>
         )}
