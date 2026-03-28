@@ -6,7 +6,7 @@ interface ShirtPreviewProps {
   color: "white" | "grey";
 }
 
-function ShirtSilhouette({
+function ShirtMockup({
   imageUrl,
   label,
   color,
@@ -15,43 +15,73 @@ function ShirtSilhouette({
   label: string;
   color: "white" | "grey";
 }) {
-  const fill = color === "white" ? "#ffffff" : "#d0d0d0";
-  const stroke = color === "white" ? "#ffffff" : "#b0b0b0";
+  const shirtBg = color === "white" ? "#f0f0f0" : "#444";
+  const shirtHighlight = color === "white" ? "#fafafa" : "#555";
+  const shirtDark = color === "white" ? "#e0e0e0" : "#2a2a2a";
+  const collarColor = color === "white" ? "#d0d0d0" : "#555";
+  const sleeveColor = color === "white" ? "#d8d8d8" : "#4a4a4a";
 
   return (
     <div className="flex flex-col items-center flex-1">
-      <div className="relative w-full" style={{ maxWidth: 320, aspectRatio: "220/270" }}>
-        <svg
-          viewBox="0 0 220 270"
-          className="absolute inset-0 w-full h-full z-0"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d={`
-              M 55 0 L 0 40 L 24 62 L 43 52 L 43 262 L 177 262
-              L 177 52 L 196 62 L 220 40 L 165 0
-              C 157 24 135 36 110 36 C 85 36 63 24 55 0 Z
-            `}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth="0.5"
-          />
-          <path
-            d="M 55 0 C 63 24 85 36 110 36 C 135 36 157 24 165 0"
-            fill="none"
-            stroke={color === "white" ? "#f0f0f0" : "#aaa"}
-            strokeWidth="0.5"
-          />
-        </svg>
-
-        {/* Design overlay — positioned relative to shirt body */}
+      <div
+        className="relative rounded-lg overflow-hidden"
+        style={{
+          width: "100%",
+          maxWidth: 360,
+          aspectRatio: "3/4",
+          background: `radial-gradient(ellipse at 50% 35%, ${shirtHighlight} 0%, ${shirtBg} 50%, ${shirtDark} 100%)`,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+        }}
+      >
+        {/* Collar */}
         <div
-          className="absolute overflow-hidden z-10 flex items-center justify-center"
+          className="absolute left-1/2 -translate-x-1/2"
           style={{
-            top: "18%",
-            left: "24%",
-            width: "52%",
-            height: "63%",
+            top: "5%",
+            width: "24%",
+            height: "7%",
+            borderRadius: "0 0 50% 50%",
+            border: `2px solid ${collarColor}`,
+            borderTop: "none",
+          }}
+        />
+
+        {/* Left sleeve seam */}
+        <div
+          className="absolute"
+          style={{
+            top: "8%",
+            left: "2%",
+            width: "20%",
+            height: "16%",
+            borderBottom: `1px solid ${sleeveColor}`,
+            borderRadius: "0 0 0 50%",
+            transform: "rotate(-8deg)",
+          }}
+        />
+
+        {/* Right sleeve seam */}
+        <div
+          className="absolute"
+          style={{
+            top: "8%",
+            right: "2%",
+            width: "20%",
+            height: "16%",
+            borderBottom: `1px solid ${sleeveColor}`,
+            borderRadius: "0 0 50% 0",
+            transform: "rotate(8deg)",
+          }}
+        />
+
+        {/* Design overlay */}
+        <div
+          className="absolute flex items-center justify-center"
+          style={{
+            top: "17%",
+            left: "16%",
+            width: "68%",
+            height: "58%",
           }}
         >
           {imageUrl ? (
@@ -60,15 +90,34 @@ function ShirtSilhouette({
               alt={label}
               className="w-full h-full object-contain"
               crossOrigin="anonymous"
+              style={{
+                mixBlendMode: color === "white" ? "multiply" : "screen",
+                filter: color === "white" ? "none" : "brightness(1.1)",
+              }}
             />
           ) : (
-            <div className="text-gray-500 text-xs text-center px-1">
-              Not yet available
+            <div
+              className="text-center px-4"
+              style={{ color: color === "white" ? "#bbb" : "#777" }}
+            >
+              <p className="text-sm">Preview not available</p>
+              <p className="text-xs mt-1">
+                Design appears once meet is processed
+              </p>
             </div>
           )}
         </div>
+
+        {/* Subtle fabric texture */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(128,128,128,0.02) 1px, rgba(128,128,128,0.02) 2px)",
+          }}
+        />
       </div>
-      <p className="text-xs text-gray-500 mt-2">{label}</p>
+      <p className="text-sm text-gray-500 mt-3 font-medium">{label}</p>
     </div>
   );
 }
@@ -79,9 +128,9 @@ export function ShirtPreview({
   color,
 }: ShirtPreviewProps) {
   return (
-    <div className="flex gap-4 justify-center items-start max-w-3xl mx-auto">
-      <ShirtSilhouette imageUrl={frontImageUrl} label="Front" color={color} />
-      <ShirtSilhouette imageUrl={backImageUrl} label="Back" color={color} />
+    <div className="flex gap-8 justify-center items-start max-w-3xl mx-auto px-4">
+      <ShirtMockup imageUrl={frontImageUrl} label="Front" color={color} />
+      <ShirtMockup imageUrl={backImageUrl} label="Back" color={color} />
     </div>
   );
 }
