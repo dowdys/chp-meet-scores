@@ -27,7 +27,7 @@ function ShirtMockup({
         className="relative rounded-lg overflow-hidden"
         style={{
           width: "100%",
-          maxWidth: 360,
+          maxWidth: 460,
           aspectRatio: "3/4",
           background: `radial-gradient(ellipse at 50% 35%, ${shirtHighlight} 0%, ${shirtBg} 50%, ${shirtDark} 100%)`,
           boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
@@ -78,17 +78,17 @@ function ShirtMockup({
         <div
           className="absolute flex items-center justify-center"
           style={{
-            top: "17%",
-            left: "16%",
-            width: "68%",
-            height: "58%",
+            top: "14%",
+            left: "10%",
+            width: "80%",
+            height: "70%",
           }}
         >
           {imageUrl ? (
             <img
               src={imageUrl}
               alt={label}
-              className="w-full h-full object-contain"
+              className="w-full h-full object-cover"
               crossOrigin="anonymous"
               style={{
                 mixBlendMode: color === "white" ? "multiply" : "screen",
@@ -128,7 +128,7 @@ export function ShirtPreview({
   color,
 }: ShirtPreviewProps) {
   return (
-    <div className="flex gap-8 justify-center items-start max-w-3xl mx-auto px-4">
+    <div className="flex gap-8 justify-center items-start max-w-5xl mx-auto px-4">
       <ShirtMockup imageUrl={frontImageUrl} label="Front" color={color} />
       <ShirtMockup imageUrl={backImageUrl} label="Back" color={color} />
     </div>
