@@ -98,6 +98,10 @@ function convertWindowsPaths(input: string): string {
   return input;
 }
 
+// Supabase credentials for Python gym alias loading (single source of truth)
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-client';
+const SUPABASE_ENV = { SUPABASE_URL, SUPABASE_KEY: SUPABASE_ANON_KEY };
+
 /**
  * Run process_meet.py with the given args and return stdout.
  */
@@ -107,7 +111,7 @@ async function runPython(
 ): Promise<string> {
   const result = await pythonManager.runScript('process_meet.py', argParts, (line) => {
     onActivity(`[python] ${line}`, 'info');
-  });
+  }, SUPABASE_ENV);
 
   if (result.exitCode !== 0) {
     return `Python script failed (exit code ${result.exitCode}).\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;

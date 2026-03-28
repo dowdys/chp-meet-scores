@@ -25,6 +25,9 @@ COLUMN_ALIASES = {
     'club': 'gym',
     'clubname': 'gym',
     'team': 'gym',
+    'clubnum': 'club_num',
+    'club_num': 'club_num',
+    'clubnumber': 'club_num',
     'session': 'session',
     'sess': 'session',
     'level': 'level',
@@ -157,6 +160,7 @@ class GenericAdapter(BaseAdapter):
             athlete = {
                 'name': str(mapped.get('name', '')),
                 'gym': str(mapped.get('gym', '')),
+                'club_num': str(mapped.get('club_num', '')),
                 'session': session,
                 'level': level,
                 'division': division,
@@ -215,6 +219,7 @@ class GenericAdapter(BaseAdapter):
             athletes.append({
                 'name': name,
                 'gym': get_col('gym'),
+                'club_num': get_col('club_num'),
                 'session': get_col('session'),
                 'level': get_col('level'),
                 'division': get_col('division'),

@@ -154,7 +154,7 @@ If \`mso_extract\` or \`scorecat_extract\` return no data, do NOT start browsing
     description: 'Build the SQLite database, run quality checks, normalize gym names',
     tools: [
       'build_database', 'query_db', 'query_db_to_file', 'get_meet_summary',
-      'list_meets', 'list_skills', 'load_skill',
+      'list_meets', 'list_skills', 'load_skill', 'perplexity_gym_lookup',
     ],
     prompt: `## Current Phase: DATABASE
 Build the database from extracted data and verify quality.
@@ -177,7 +177,7 @@ Auto-normalized by \`build_database\` in three phases:
 2. **Suffix merge** — "All Pro" + "All Pro Gymnastics" → "All Pro Gymnastics"
 3. **Fuzzy detection** — Flags >80% similar pairs for review (NOT auto-merged)
 
-If potential duplicates need manual mapping, create a gym-map JSON and re-run with \`gym_map\` parameter. Don't spend more than ~3 iterations on gym normalization.
+If potential duplicates need manual mapping, use \`perplexity_gym_lookup\` in verify mode to check ambiguous pairs, then create a gym-map JSON and re-run with \`gym_map\` parameter. Don't spend more than ~3 iterations on gym normalization.
 
 ### Division Ordering
 After building the database, \`build_database\` reports the auto-detected division order and flags any UNKNOWN_DIVISIONS. **You must verify the division order is correct** before generating outputs. Divisions should be sorted youngest to oldest.

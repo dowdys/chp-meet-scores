@@ -5,6 +5,7 @@ import { searchToolExecutors } from './search-tools';
 import { userToolExecutors } from './user-tools';
 import { extractionToolExecutors } from './extraction-tools';
 import { fileToolExecutors } from './file-tools';
+import { gymToolExecutors } from './gym-tools';
 
 export const allToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   ...browserToolExecutors,
@@ -14,6 +15,7 @@ export const allToolExecutors: Record<string, (args: Record<string, unknown>) =>
   ...userToolExecutors,
   ...extractionToolExecutors,
   ...fileToolExecutors,
+  ...gymToolExecutors,
 };
 
 export { setAskUserHandler } from './user-tools';

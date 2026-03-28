@@ -11,8 +11,8 @@ import Store from 'electron-store';
 import { BrowserWindow } from 'electron';
 
 // Hardcoded Supabase project credentials (anon key is public by design)
-const SUPABASE_URL = 'https://xkbwrlqmwdmoynfoudha.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrYndybHFtd2Rtb3luZm91ZGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MzkzMjksImV4cCI6MjA5MDExNTMyOX0.i9WKwH0is3vRi-qM0joKx7h7JjOrarUJ44eTGmTxj2Q';
+export const SUPABASE_URL = 'https://xkbwrlqmwdmoynfoudha.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrYndybHFtd2Rtb3luZm91ZGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MzkzMjksImV4cCI6MjA5MDExNTMyOX0.i9WKwH0is3vRi-qM0joKx7h7JjOrarUJ44eTGmTxj2Q';
 
 // Separate store for Supabase auth session tokens (not the main config store)
 const sessionStore = new Store({ name: 'supabase-session' });
