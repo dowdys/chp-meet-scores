@@ -82,6 +82,7 @@ export interface ElectronAPI {
   listCloudMeets: () => Promise<{ success: boolean; meets?: CloudMeet[]; error?: string }>;
   getCloudMeetFiles: (meetName: string) => Promise<{ success: boolean; files?: CloudMeetFile[]; error?: string }>;
   downloadCloudFile: (meetName: string, storagePath: string, filename: string) => Promise<{ success: boolean; localPath?: string; error?: string }>;
+  pullCloudMeet: (meetName: string) => Promise<{ success: boolean; reason?: string; resultsCount?: number; winnersCount?: number }>;
   openPath: (filePath: string) => Promise<void>;
   showInFolder: (filePath: string) => Promise<void>;
 }

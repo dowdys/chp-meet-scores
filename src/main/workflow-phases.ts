@@ -228,7 +228,7 @@ If the user gives dates without a year, use the meet year (from the output name 
     description: 'Generate output files from DB, review layout with user, iterate, and finalize',
     tools: [
       'regenerate_output', 'render_pdf_page', 'open_file',
-      'list_output_files', 'query_db', 'query_db_to_file', 'finalize_meet',
+      'list_output_files', 'query_db', 'query_db_to_file', 'finalize_meet', 'pull_meet',
       'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill',
     ],
     prompt: `## Current Phase: OUTPUT & FINALIZE
@@ -292,7 +292,7 @@ Names are sorted by age division by default. Do NOT change to alphabetical unles
     tools: [
       'import_pdf_backs', 'list_meets', 'list_output_files',
       'open_file', 'render_pdf_page', 'get_meet_summary',
-      'set_output_name', 'query_db',
+      'set_output_name', 'query_db', 'pull_meet',
     ],
     prompt: `## Current Phase: IMPORT BACKS
 Import designer-edited back-of-shirt PDFs and regenerate order forms and gym highlights.

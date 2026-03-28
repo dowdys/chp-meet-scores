@@ -363,6 +363,18 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: ['mode', 'state'],
       },
     },
+    // --- Cloud sync tools ---
+    {
+      name: 'pull_meet',
+      description: 'Download a published meet from Supabase into the local database for output regeneration. Use when you need to regenerate docs from corrected cloud data or work with a meet on a different machine.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_name: { type: 'string', description: 'The meet name exactly as published in Supabase' },
+        },
+        required: ['meet_name'],
+      },
+    },
 
     // --- User interaction (always available) ---
     {

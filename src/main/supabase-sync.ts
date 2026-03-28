@@ -16,6 +16,10 @@ export type PublishResult =
   | { success: true; version: number; resultsCount: number; winnersCount: number }
   | { success: false; reason: string };
 
+export type PullResult =
+  | { success: true; resultsCount: number; winnersCount: number }
+  | { success: false; reason: string };
+
 /** Known output filenames that should be uploaded to Supabase Storage. */
 const UPLOADABLE_FILES = [
   'back_of_shirt.pdf',
@@ -267,4 +271,146 @@ export async function publishMeet(meetName: string): Promise<PublishResult> {
   }
 
   return dataResult;
+}
+
+/**
+ * Pull a published meet's data from Supabase into the local central SQLite database.
+ * This is the inverse of publishMeetData() — enables local output regeneration
+ * after cloud-side corrections (e.g., gym name fixes) or on a different machine.
+ */
+export async function pullMeetData(meetName: string): Promise<PullResult> {
+  if (!isSupabaseEnabled()) {
+    return { success: false, reason: 'Supabase sync disabled' };
+  }
+
+  const supabase = await getSupabaseClient();
+  if (!supabase) {
+    return { success: false, reason: 'Supabase client not available' };
+  }
+
+  // 1. Fetch meet metadata
+  const { data: meetRow, error: meetErr } = await supabase
+    .from('meets')
+    .select('meet_name, source, source_id, source_name, state, association, year, dates')
+    .eq('meet_name', meetName)
+    .single();
+  if (meetErr || !meetRow) {
+    return { success: false, reason: `Meet "${meetName}" not found in Supabase` };
+  }
+
+  // 2. Fetch all results (paginated to avoid PostgREST 1000-row truncation)
+  const allResults: Record<string, unknown>[] = [];
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  while (true) {
+    const { data: batch, error: rErr } = await supabase
+      .from('results')
+      .select('state, meet_name, association, name, gym, session, level, division, vault, bars, beam, floor, aa, rank, num')
+      .eq('meet_name', meetName)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (rErr) {
+      return { success: false, reason: `Failed to fetch results: ${rErr.message}` };
+    }
+    allResults.push(...(batch || []));
+    if (!batch || batch.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  // 3. Fetch all winners (paginated)
+  const allWinners: Record<string, unknown>[] = [];
+  offset = 0;
+  while (true) {
+    const { data: batch, error: wErr } = await supabase
+      .from('winners')
+      .select('state, meet_name, association, name, gym, session, level, division, event, score, is_tie')
+      .eq('meet_name', meetName)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (wErr) {
+      return { success: false, reason: `Failed to fetch winners: ${wErr.message}` };
+    }
+    allWinners.push(...(batch || []));
+    if (!batch || batch.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  // 4. Write to local central DB in a transaction
+  const centralPath = getCentralDbPath();
+  const db = new Database(centralPath);
+  try {
+    // Ensure tables exist (same schema as finalize_meet)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        state TEXT, meet_name TEXT, association TEXT,
+        name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
+        vault REAL, bars REAL, beam REAL, floor REAL, aa REAL,
+        rank TEXT, num TEXT
+      );
+      CREATE TABLE IF NOT EXISTS winners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        state TEXT, meet_name TEXT, association TEXT,
+        name TEXT, gym TEXT, session TEXT, level TEXT, division TEXT,
+        event TEXT, score REAL, is_tie INTEGER DEFAULT 0
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
+        ON results(meet_name, name, gym, session, level, division);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_winners_unique
+        ON winners(meet_name, name, gym, session, level, division, event);
+      CREATE TABLE IF NOT EXISTS meets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meet_name TEXT UNIQUE, source TEXT, source_id TEXT, source_name TEXT,
+        state TEXT, association TEXT, year TEXT, dates TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
+
+    const transaction = db.transaction(() => {
+      // Delete existing data for this meet
+      db.prepare('DELETE FROM results WHERE meet_name = ?').run(meetName);
+      db.prepare('DELETE FROM winners WHERE meet_name = ?').run(meetName);
+      db.prepare('DELETE FROM meets WHERE meet_name = ?').run(meetName);
+
+      // Insert meet metadata
+      db.prepare(
+        `INSERT INTO meets (meet_name, source, source_id, source_name, state, association, year, dates)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(meetRow.meet_name, meetRow.source, meetRow.source_id, meetRow.source_name,
+            meetRow.state, meetRow.association, meetRow.year, meetRow.dates);
+
+      // Insert results
+      const insertResult = db.prepare(
+        `INSERT OR REPLACE INTO results (state, meet_name, association, name, gym, session, level, division,
+         vault, bars, beam, floor, aa, rank, num)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const r of allResults) {
+        insertResult.run(
+          r.state, r.meet_name, r.association, r.name, r.gym || '',
+          r.session, r.level, r.division,
+          r.vault, r.bars, r.beam, r.floor, r.aa, r.rank, r.num
+        );
+      }
+
+      // Insert winners
+      const insertWinner = db.prepare(
+        `INSERT OR REPLACE INTO winners (state, meet_name, association, name, gym, session, level, division,
+         event, score, is_tie)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const w of allWinners) {
+        insertWinner.run(
+          w.state, w.meet_name, w.association, w.name, w.gym || '',
+          w.session, w.level, w.division,
+          w.event, w.score, w.is_tie ? 1 : 0
+        );
+      }
+    });
+
+    transaction();
+  } finally {
+    db.close();
+  }
+
+  console.log(`[supabase-sync] Pulled "${meetName}": ${allResults.length} results, ${allWinners.length} winners`);
+  return { success: true, resultsCount: allResults.length, winnersCount: allWinners.length };
 }
