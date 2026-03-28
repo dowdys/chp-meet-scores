@@ -45,7 +45,7 @@ export function PodiumReveal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 }}
-        className="text-lg text-yellow-300"
+        className="text-lg text-red-400"
       >
         {gym}
       </motion.p>
@@ -60,7 +60,7 @@ export function PodiumReveal({
             transition={{ delay: 1.0 + i * 0.15 }}
             className="flex items-center justify-center gap-3 text-white"
           >
-            <span className="text-yellow-400 text-xl">★</span>
+            <span className="text-red-500 text-xl">★</span>
             <span className="font-semibold">
               {EVENT_DISPLAY[evt.event as GymEvent] || evt.event}
             </span>

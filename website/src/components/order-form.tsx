@@ -62,7 +62,7 @@ export function OrderForm({
       <div className="bg-white/5 rounded-xl p-4">
         <p className="text-sm text-gray-400">Ordering for</p>
         <p className="text-xl font-bold text-white">{athleteName}</p>
-        <p className="text-sm text-yellow-300">{gym}</p>
+        <p className="text-sm text-red-400">{gym}</p>
         <p className="text-sm text-gray-400">
           Level {level} • {state}
         </p>
@@ -104,7 +104,7 @@ export function OrderForm({
               onClick={() => setSize(s)}
               className={`py-2 rounded-lg text-sm font-medium transition ${
                 size === s
-                  ? "bg-yellow-400 text-black"
+                  ? "bg-red-600 text-black"
                   : "bg-white/10 text-white hover:bg-white/20"
               }`}
             >
@@ -146,7 +146,7 @@ export function OrderForm({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-yellow-400 font-medium">+$4.50</span>
+          <span className="text-red-500 font-medium">+$4.50</span>
           <input
             type="checkbox"
             checked={hasJewel}
@@ -164,7 +164,7 @@ export function OrderForm({
           className={`px-6 py-3 rounded-lg font-bold transition ${
             added
               ? "bg-green-500 text-white"
-              : "bg-yellow-400 text-black hover:bg-yellow-300"
+              : "bg-red-600 text-black hover:bg-red-500"
           }`}
         >
           {added ? "Added!" : "Add to Cart"}

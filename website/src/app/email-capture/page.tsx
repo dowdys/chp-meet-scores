@@ -53,7 +53,7 @@ export default function EmailCapturePage() {
           </p>
           <Link
             href="/"
-            className="text-yellow-400 hover:underline"
+            className="text-red-500 hover:underline"
           >
             Back to home
           </Link>
@@ -163,7 +163,7 @@ export default function EmailCapturePage() {
           <button
             type="submit"
             disabled={status === "loading"}
-            className="w-full bg-yellow-400 text-black py-3 rounded-lg font-bold hover:bg-yellow-300 transition disabled:opacity-50"
+            className="w-full bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
           >
             {status === "loading" ? "Submitting..." : "Notify Me"}
           </button>

@@ -33,7 +33,7 @@ function ConfirmationContent() {
         <div className="flex gap-4 justify-center">
           <Link
             href="/order-status"
-            className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold hover:bg-yellow-300 transition"
+            className="bg-red-600 text-black px-6 py-3 rounded-lg font-bold hover:bg-red-500 transition"
           >
             Track Your Order
           </Link>

@@ -48,8 +48,8 @@ export default function FindYourChampionPage() {
         />
 
         {showEmailCapture && (
-          <div className="mt-8 p-6 bg-yellow-400/10 border border-yellow-400/30 rounded-xl">
-            <h3 className="font-bold text-yellow-400 mb-2">
+          <div className="mt-8 p-6 bg-red-600/10 border border-red-500/30 rounded-xl">
+            <h3 className="font-bold text-red-500 mb-2">
               Results Not Ready Yet
             </h3>
             <p className="text-sm text-gray-300 mb-4">
@@ -58,7 +58,7 @@ export default function FindYourChampionPage() {
             </p>
             <Link
               href="/email-capture"
-              className="text-yellow-400 underline text-sm"
+              className="text-red-500 underline text-sm"
             >
               Sign up for notifications
             </Link>

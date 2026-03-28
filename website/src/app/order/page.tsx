@@ -21,7 +21,7 @@ function OrderContent() {
         <Link href="/" className="text-xl font-bold">
           The State Champion
         </Link>
-        <Link href="/find" className="text-sm hover:text-yellow-400">
+        <Link href="/find" className="text-sm hover:text-red-500">
           Find Another Athlete
         </Link>
       </header>
@@ -46,7 +46,7 @@ function OrderContent() {
                 <p className="text-gray-400 mb-4">No athlete selected.</p>
                 <Link
                   href="/find"
-                  className="text-yellow-400 underline"
+                  className="text-red-500 underline"
                 >
                   Find your champion first
                 </Link>
@@ -58,7 +58,7 @@ function OrderContent() {
               <div className="mt-6 text-center">
                 <Link
                   href="/find"
-                  className="text-sm text-yellow-400 hover:underline"
+                  className="text-sm text-red-500 hover:underline"
                 >
                   + Add a shirt for another athlete
                 </Link>

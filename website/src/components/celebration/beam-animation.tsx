@@ -19,7 +19,7 @@ export function BeamAnimation() {
         🤸
       </motion.div>
       <motion.p
-        className="text-sm text-yellow-300/70 italic"
+        className="text-sm text-red-400/70 italic"
         initial={ { opacity: 0, y: 10 } }
         animate={ { opacity: 1, y: 0 } }
         transition={ { delay: 0.6 } }

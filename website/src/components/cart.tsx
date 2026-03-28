@@ -31,7 +31,7 @@ export function Cart() {
             <p className="font-medium text-white">
               {item.correctedName || item.athleteName}
               {item.correctedName && (
-                <span className="text-xs text-yellow-400 ml-2">
+                <span className="text-xs text-red-500 ml-2">
                   (corrected)
                 </span>
               )}
@@ -77,7 +77,7 @@ export function Cart() {
 
       <Link
         href="/checkout"
-        className="block w-full text-center bg-yellow-400 text-black py-3 rounded-lg font-bold hover:bg-yellow-300 transition"
+        className="block w-full text-center bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition"
       >
         Proceed to Checkout
       </Link>

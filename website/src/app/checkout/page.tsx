@@ -17,7 +17,7 @@ export default function CheckoutPage() {
       <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Your cart is empty</h1>
-          <Link href="/find" className="text-yellow-400 hover:underline">
+          <Link href="/find" className="text-red-500 hover:underline">
             Find your champion
           </Link>
         </div>
@@ -76,7 +76,7 @@ export default function CheckoutPage() {
         <button
           onClick={handleCheckout}
           disabled={loading}
-          className="mt-6 w-full bg-yellow-400 text-black py-4 rounded-lg text-lg font-bold hover:bg-yellow-300 transition disabled:opacity-50"
+          className="mt-6 w-full bg-red-600 text-black py-4 rounded-lg text-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
         >
           {loading ? "Redirecting to payment..." : "Pay with Stripe"}
         </button>

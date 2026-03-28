@@ -54,7 +54,7 @@ export default async function CelebrationPage({ params }: PageProps) {
           </p>
           <Link
             href="/find"
-            className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+            className="bg-red-600 text-black px-6 py-3 rounded-lg font-bold"
           >
             Find Your Champion
           </Link>
@@ -71,13 +71,13 @@ export default async function CelebrationPage({ params }: PageProps) {
         <div className="text-center text-white py-20 px-6">
           <div className="text-7xl mb-6">🏆</div>
           <h1 className="text-4xl font-bold mb-4">{data.athlete_name}</h1>
-          <p className="text-yellow-300 mb-4">{data.gym}</p>
+          <p className="text-red-400 mb-4">{data.gym}</p>
           <p className="text-gray-400">
             Level {data.level} • {data.meet_name.split(" - ")[2]?.split(" -")[0] || "State"} Champion
           </p>
           <Link
             href={`/order?name=${encodeURIComponent(data.athlete_name)}&gym=${encodeURIComponent(data.gym)}&meet=${encodeURIComponent(data.meet_name)}&level=${encodeURIComponent(data.level)}`}
-            className="inline-block mt-8 bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
+            className="inline-block mt-8 bg-red-600 text-black px-8 py-4 rounded-lg font-bold"
           >
             Order Your Championship Shirt
           </Link>

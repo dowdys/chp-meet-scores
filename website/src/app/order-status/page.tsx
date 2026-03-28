@@ -112,7 +112,7 @@ export default function OrderStatusPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-yellow-400 text-black py-3 rounded-lg font-bold hover:bg-yellow-300 transition disabled:opacity-50"
+            className="w-full bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
           >
             {loading ? "Looking up..." : "Find My Order"}
           </button>
