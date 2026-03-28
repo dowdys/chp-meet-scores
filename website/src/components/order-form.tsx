@@ -63,9 +63,9 @@ export function OrderForm({
   return (
     <div className="space-y-6">
       {/* Athlete info */}
-      <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-4">
+      <div className="bg-gray-50 rounded-xl p-4">
         <p className="text-sm text-gray-400">Ordering for</p>
-        <p className="text-xl font-bold text-gray-900 dark:text-white">{athleteName}</p>
+        <p className="text-xl font-bold text-gray-900">{athleteName}</p>
         <p className="text-sm text-red-400">{gym}</p>
         <p className="text-sm text-gray-400">
           Level {level} • {state}
@@ -109,7 +109,7 @@ export function OrderForm({
               className={`py-2 rounded-lg text-sm font-medium transition ${
                 size === s
                   ? "bg-red-600 text-white"
-                  : "bg-gray-100 dark:bg-white/10 text-white hover:bg-white/20"
+                  : "bg-gray-100 text-white hover:bg-white/20"
               }`}
             >
               {s}
@@ -132,7 +132,7 @@ export function OrderForm({
               className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition ${
                 color === c
                   ? "ring-2 ring-yellow-400 bg-white/20 text-white"
-                  : "bg-gray-100 dark:bg-white/10 text-gray-300 hover:bg-white/20"
+                  : "bg-gray-100 text-gray-300 hover:bg-white/20"
               }`}
             >
               {c}
@@ -142,9 +142,9 @@ export function OrderForm({
       </div>
 
       {/* Jewel */}
-      <label className="flex items-center justify-between bg-gray-50 dark:bg-white/5 rounded-xl p-4 cursor-pointer">
+      <label className="flex items-center justify-between bg-gray-50 rounded-xl p-4 cursor-pointer">
         <div>
-          <p className="text-gray-900 dark:text-white font-medium">Add Jewel Accent</p>
+          <p className="text-gray-900 font-medium">Add Jewel Accent</p>
           <p className="text-sm text-gray-400">
             Rhinestone crystal on the design
           </p>
@@ -162,7 +162,7 @@ export function OrderForm({
 
       {/* Price + Add to Cart */}
       <div className="flex items-center justify-between">
-        <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatPrice(price)}</p>
+        <p className="text-2xl font-bold text-gray-900">{formatPrice(price)}</p>
         <button
           onClick={handleAddToCart}
           className={`px-6 py-3 rounded-lg font-bold transition ${

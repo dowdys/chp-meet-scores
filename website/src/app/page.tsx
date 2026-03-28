@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-white text-gray-900 dark:bg-black dark:text-white">
+    <div className="min-h-screen bg-white text-gray-900">
       {/* Header */}
       <header className="flex items-center justify-between p-6 max-w-6xl mx-auto">
         <div>
@@ -51,7 +51,7 @@ export default function HomePage() {
               </Link>
               <Link
                 href="/order-status"
-                className="border border-gray-300 dark:border-gray-700 text-gray-300 px-10 py-4 rounded text-lg hover:bg-white/5 transition"
+                className="border border-gray-300 text-gray-300 px-10 py-4 rounded text-lg hover:bg-white/5 transition"
               >
                 Track Your Order
               </Link>
@@ -60,7 +60,7 @@ export default function HomePage() {
         </section>
 
         {/* Features */}
-        <section className="border-t border-gray-200 dark:border-gray-800">
+        <section className="border-t border-gray-200">
           <div className="max-w-5xl mx-auto px-6 py-16">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
               <div className="text-center">
@@ -68,7 +68,7 @@ export default function HomePage() {
                   <span className="text-red-500 text-2xl font-bold">1</span>
                 </div>
                 <h3 className="font-bold text-lg mb-2">Find Your Athlete</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+                <p className="text-gray-500 text-sm leading-relaxed">
                   Search by state, gym, and name — or scan the QR code on your
                   order form mailed to your gym.
                 </p>
@@ -78,7 +78,7 @@ export default function HomePage() {
                   <span className="text-red-500 text-2xl font-bold">2</span>
                 </div>
                 <h3 className="font-bold text-lg mb-2">Choose Your Shirt</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+                <p className="text-gray-500 text-sm leading-relaxed">
                   Pick your size and color. Add a jewel rhinestone accent.
                   Order for the whole family.
                 </p>
@@ -88,7 +88,7 @@ export default function HomePage() {
                   <span className="text-red-500 text-2xl font-bold">3</span>
                 </div>
                 <h3 className="font-bold text-lg mb-2">Shipped to Your Door</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+                <p className="text-gray-500 text-sm leading-relaxed">
                   We screen-print your championship shirt and ship it directly
                   to you with tracking included.
                 </p>
@@ -98,18 +98,18 @@ export default function HomePage() {
         </section>
 
         {/* Pricing */}
-        <section className="border-t border-gray-200 dark:border-gray-800">
+        <section className="border-t border-gray-200">
           <div className="max-w-3xl mx-auto px-6 py-16 text-center">
             <h3 className="text-2xl font-bold mb-8">Simple Pricing</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div className="bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+              <div className="bg-gray-900 border border-gray-200 rounded-lg p-6">
                 <p className="text-gray-400 text-sm mb-1">Championship T-Shirt</p>
                 <p className="text-4xl font-bold">
                   $27<span className="text-xl">.95</span>
                 </p>
                 <p className="text-gray-500 text-xs mt-2">White or grey</p>
               </div>
-              <div className="bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+              <div className="bg-gray-900 border border-gray-200 rounded-lg p-6">
                 <p className="text-gray-400 text-sm mb-1">Jewel Accent Add-On</p>
                 <p className="text-4xl font-bold">
                   +$4<span className="text-xl">.50</span>
@@ -117,14 +117,14 @@ export default function HomePage() {
                 <p className="text-gray-500 text-xs mt-2">Rhinestone crystal on design</p>
               </div>
             </div>
-            <p className="text-gray-500 dark:text-gray-600 text-xs mt-4">
+            <p className="text-gray-500 text-xs mt-4">
               Shipping: $5.25 first shirt + $2.90 each additional. Tax calculated at checkout.
             </p>
           </div>
         </section>
 
         {/* Footer */}
-        <footer className="border-t border-gray-200 dark:border-gray-800 py-8">
+        <footer className="border-t border-gray-200 py-8">
           <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="text-sm text-gray-600">
               &copy; {new Date().getFullYear()} The State Champion / C.H. Publishing

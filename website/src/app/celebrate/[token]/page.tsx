@@ -46,7 +46,7 @@ export default async function CelebrationPage({ params }: PageProps) {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white flex items-center justify-center">
+      <div className="min-h-screen bg-white text-gray-900 flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Page Not Found</h1>
           <p className="text-gray-400 mb-6">
@@ -65,7 +65,7 @@ export default async function CelebrationPage({ params }: PageProps) {
 
   // Server-render the athlete data immediately (visible before JS loads)
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950">
+    <div className="min-h-screen bg-white">
       {/* Server-rendered fallback visible immediately */}
       <noscript>
         <div className="text-center text-white py-20 px-6">

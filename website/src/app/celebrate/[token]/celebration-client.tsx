@@ -121,7 +121,7 @@ export function CelebrationClient({
         </Link>
       </div>
 
-      <p className="absolute bottom-6 text-gray-500 dark:text-gray-600 text-xs">
+      <p className="absolute bottom-6 text-gray-500 text-xs">
         thestatechampion.com
       </p>
     </div>

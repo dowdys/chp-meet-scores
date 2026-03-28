@@ -54,7 +54,7 @@ function OrderContent() {
   }, [name, showCelebration]);
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
+    <div className="min-h-screen bg-white text-gray-900">
       <header className="flex items-center justify-between p-6 max-w-6xl mx-auto">
         <Link href="/" className="text-xl font-bold">
           The State Champion

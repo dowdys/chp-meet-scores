@@ -308,7 +308,7 @@ export function AthleteLookup({
               <ComboboxOption
                 key={s}
                 value={s}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 dark:data-[focus]:bg-red-900/20 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50[focus]:bg-red-900/20 text-black"
               >
                 {stateName(s)}
               </ComboboxOption>
@@ -350,7 +350,7 @@ export function AthleteLookup({
               <ComboboxOption
                 key={g}
                 value={g}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 dark:data-[focus]:bg-red-900/20 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50[focus]:bg-red-900/20 text-black"
               >
                 {g}
               </ComboboxOption>
@@ -386,7 +386,7 @@ export function AthleteLookup({
               <ComboboxOption
                 key={`${a.name}-${a.meet_name}`}
                 value={a}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 dark:data-[focus]:bg-red-900/20 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50[focus]:bg-red-900/20 text-black"
               >
                 <span className="font-medium">{a.name}</span>
                 <span className="ml-2 text-sm text-gray-500">

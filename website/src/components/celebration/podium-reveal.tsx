@@ -68,7 +68,7 @@ export function PodiumReveal({
               {evt.score.toFixed(3)}
             </span>
             {evt.is_tie && (
-              <span className="text-xs bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded">
+              <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
                 Co-Champion
               </span>
             )}
@@ -81,7 +81,7 @@ export function PodiumReveal({
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 1.5, type: "spring" }}
-        className="inline-block bg-gray-100 dark:bg-white/10 backdrop-blur px-6 py-2 rounded-full text-sm text-gray-300"
+        className="inline-block bg-gray-100 backdrop-blur px-6 py-2 rounded-full text-sm text-gray-300"
       >
         Level {level} • {state} State Champion
       </motion.div>
