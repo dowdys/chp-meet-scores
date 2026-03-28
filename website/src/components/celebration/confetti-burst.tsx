@@ -33,7 +33,7 @@ export function ConfettiBurst({ trigger }: { trigger: boolean }) {
     });
 
     // Second burst slightly delayed for a richer effect
-    setTimeout(() => {
+    const burstTimer = setTimeout(() => {
       confetti({
         particleCount: Math.floor(particleCount * 0.6),
         spread: 100,
@@ -49,6 +49,8 @@ export function ConfettiBurst({ trigger }: { trigger: boolean }) {
         disableForReducedMotion: true,
       });
     }, 300);
+
+    return () => clearTimeout(burstTimer);
   }, [trigger]);
 
   return null;

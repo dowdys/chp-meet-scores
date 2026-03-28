@@ -27,7 +27,12 @@ function OrderContent() {
   const state = searchParams.get("state") || "";
   const level = searchParams.get("level") || "";
 
-  const [showCelebration, setShowCelebration] = useState(!!name);
+  // Skip celebration if already seen via /celebrate page
+  const alreadyCelebrated = typeof window !== "undefined" &&
+    Array.from({ length: sessionStorage.length }).some((_, i) =>
+      sessionStorage.key(i)?.startsWith("celebrated-")
+    );
+  const [showCelebration, setShowCelebration] = useState(!!name && !alreadyCelebrated);
   const [confettiTrigger, setConfettiTrigger] = useState(false);
   const [shirtColor, setShirtColor] = useState<"white" | "grey">("white");
   const [hasJewel, setHasJewel] = useState(false);
@@ -66,8 +71,12 @@ function OrderContent() {
 
       <main className="max-w-4xl mx-auto px-6 py-8">
         {/* Celebration animation when arriving from /find */}
-        {showCelebration && name && (
-          <div className="mb-8 text-center py-8">
+        {name && (
+          <div
+            className={`mb-8 text-center py-8 transition-opacity duration-500 ${
+              showCelebration ? "opacity-100" : "opacity-0 pointer-events-none h-0 overflow-hidden"
+            }`}
+          >
             <ConfettiBurst trigger={confettiTrigger} />
             <PodiumReveal
               athleteName={name}

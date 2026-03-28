@@ -1,7 +1,8 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { CelebrationClient } from "./celebration-client";
 import Link from "next/link";
 import type { Metadata } from "next";
+import type { GymEvent, ChampionshipEvent } from "@/lib/utils";
+import { CelebrationPageClient } from "./celebration-client";
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -85,14 +86,25 @@ export default async function CelebrationPage({ params }: PageProps) {
       </noscript>
 
       {/* Client-side animated version (loads on top of server content) */}
-      <CelebrationClient
+      <CelebrationPageClient
         token={data.token}
         athleteName={data.athlete_name}
         gym={data.gym}
         level={data.level}
         meetName={data.meet_name}
-        events={data.events || []}
+        events={parseEvents(data.events)}
       />
     </div>
+  );
+}
+
+function parseEvents(raw: unknown): ChampionshipEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (e): e is ChampionshipEvent =>
+      typeof e === "object" &&
+      e !== null &&
+      "event" in e &&
+      "is_tie" in e
   );
 }

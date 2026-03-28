@@ -58,3 +58,12 @@ export const EVENT_DISPLAY: Record<GymEvent, string> = {
   floor: "Floor",
   aa: "All Around",
 };
+
+/**
+ * A championship event result for an athlete.
+ */
+export interface ChampionshipEvent {
+  event: GymEvent;
+  score: number | null;
+  is_tie: boolean;
+}
