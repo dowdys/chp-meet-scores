@@ -88,7 +88,7 @@ function ShirtMockup({
             <img
               src={imageUrl}
               alt={label}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               crossOrigin="anonymous"
               style={{
                 mixBlendMode: color === "white" ? "multiply" : "screen",
