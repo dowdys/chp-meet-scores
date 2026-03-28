@@ -18,7 +18,7 @@ function ConfirmationContent() {
   }, [sessionId, clearCart]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex items-center justify-center px-6">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white flex items-center justify-center px-6">
       <div className="text-center max-w-lg">
         <div className="text-6xl mb-6">🎉</div>
         <h1 className="text-3xl font-bold mb-4">Order Confirmed!</h1>
@@ -33,7 +33,7 @@ function ConfirmationContent() {
         <div className="flex gap-4 justify-center">
           <Link
             href="/order-status"
-            className="bg-red-600 text-black px-6 py-3 rounded-lg font-bold hover:bg-red-500 transition"
+            className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-500 transition"
           >
             Track Your Order
           </Link>
@@ -53,7 +53,7 @@ export default function ConfirmationPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white flex items-center justify-center">
           Loading...
         </div>
       }

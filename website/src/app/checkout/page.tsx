@@ -14,7 +14,7 @@ export default function CheckoutPage() {
 
   if (items.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex items-center justify-center">
+      <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Your cart is empty</h1>
           <Link href="/find" className="text-red-500 hover:underline">
@@ -55,7 +55,7 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
       <header className="p-6 max-w-6xl mx-auto">
         <Link href="/" className="text-xl font-bold">
           The State Champion

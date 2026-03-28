@@ -66,7 +66,7 @@ export default function OrderStatusPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
       <header className="p-6 max-w-6xl mx-auto">
         <Link href="/" className="text-xl font-bold">
           The State Champion
@@ -77,7 +77,7 @@ export default function OrderStatusPage() {
         <h1 className="text-3xl font-bold mb-2 text-center">
           Track Your Order
         </h1>
-        <p className="text-gray-400 mb-8 text-center">
+        <p className="text-gray-500 dark:text-gray-400 mb-8 text-center">
           Enter your order number and email to check your order status.
         </p>
 
@@ -92,7 +92,7 @@ export default function OrderStatusPage() {
               value={orderNumber}
               onChange={(e) => setOrderNumber(e.target.value)}
               placeholder="CHP-2026-A7K3F001"
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white font-mono"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white font-mono"
             />
           </div>
           <div>
@@ -103,7 +103,7 @@ export default function OrderStatusPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
             />
           </div>
 
@@ -112,7 +112,7 @@ export default function OrderStatusPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
+            className="w-full bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
           >
             {loading ? "Looking up..." : "Find My Order"}
           </button>

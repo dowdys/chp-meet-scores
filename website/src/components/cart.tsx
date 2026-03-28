@@ -18,17 +18,17 @@ export function Cart({ hideCheckoutButton = false }: { hideCheckoutButton?: bool
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-bold text-white">
+      <h3 className="text-lg font-bold text-gray-900 dark:text-white">
         Your Cart ({items.length} {items.length === 1 ? "shirt" : "shirts"})
       </h3>
 
       {items.map((item) => (
         <div
           key={item.id}
-          className="bg-white/5 rounded-xl p-4 flex justify-between items-start"
+          className="bg-gray-50 dark:bg-white/5 rounded-xl p-4 flex justify-between items-start"
         >
           <div>
-            <p className="font-medium text-white">
+            <p className="font-medium text-gray-900 dark:text-white">
               {item.correctedName || item.athleteName}
               {item.correctedName && (
                 <span className="text-xs text-red-500 ml-2">
@@ -45,7 +45,7 @@ export function Cart({ hideCheckoutButton = false }: { hideCheckoutButton?: bool
             </p>
           </div>
           <div className="text-right">
-            <p className="font-medium text-white">
+            <p className="font-medium text-gray-900 dark:text-white">
               {formatPrice(calculateItemPrice(item.hasJewel))}
             </p>
             <button
@@ -59,16 +59,16 @@ export function Cart({ hideCheckoutButton = false }: { hideCheckoutButton?: bool
       ))}
 
       {/* Totals */}
-      <div className="border-t border-white/10 pt-4 space-y-2">
-        <div className="flex justify-between text-sm text-gray-300">
+      <div className="border-t border-gray-200 dark:border-white/10 pt-4 space-y-2">
+        <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300">
           <span>Subtotal</span>
           <span>{formatPrice(getSubtotal())}</span>
         </div>
-        <div className="flex justify-between text-sm text-gray-300">
+        <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300">
           <span>Shipping</span>
           <span>{formatPrice(getShippingCost())}</span>
         </div>
-        <div className="flex justify-between text-lg font-bold text-white">
+        <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white">
           <span>Total</span>
           <span>{formatPrice(getTotal())}</span>
         </div>

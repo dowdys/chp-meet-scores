@@ -115,13 +115,13 @@ export function CelebrationClient({
       >
         <Link
           href={`/order?${orderParams.toString()}`}
-          className="inline-block bg-red-600 text-black px-10 py-4 rounded-xl text-xl font-bold hover:bg-red-500 transition shadow-lg shadow-red-900/20"
+          className="inline-block bg-red-600 text-white px-10 py-4 rounded-xl text-xl font-bold hover:bg-red-500 transition shadow-lg shadow-red-900/20"
         >
           Order Your Championship Shirt →
         </Link>
       </div>
 
-      <p className="absolute bottom-6 text-gray-600 text-xs">
+      <p className="absolute bottom-6 text-gray-500 dark:text-gray-600 text-xs">
         thestatechampion.com
       </p>
     </div>

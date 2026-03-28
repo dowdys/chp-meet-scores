@@ -43,7 +43,7 @@ export default function EmailCapturePage() {
 
   if (status === "success") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex items-center justify-center px-6">
+      <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white flex items-center justify-center px-6">
         <div className="text-center max-w-md">
           <div className="text-5xl mb-4">📬</div>
           <h1 className="text-2xl font-bold mb-3">You&apos;re on the list!</h1>
@@ -63,7 +63,7 @@ export default function EmailCapturePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
       <header className="p-6 max-w-6xl mx-auto">
         <Link href="/" className="text-xl font-bold">
           The State Champion
@@ -72,7 +72,7 @@ export default function EmailCapturePage() {
 
       <main className="max-w-md mx-auto px-6 py-12">
         <h1 className="text-2xl font-bold mb-2">Get Notified</h1>
-        <p className="text-gray-400 mb-8">
+        <p className="text-gray-500 dark:text-gray-400 mb-8">
           We&apos;re still processing results for this meet. Enter your info
           and we&apos;ll let you know when everything is ready to order!
         </p>
@@ -87,7 +87,7 @@ export default function EmailCapturePage() {
               required
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
               placeholder="parent@email.com"
             />
           </div>
@@ -100,7 +100,7 @@ export default function EmailCapturePage() {
               type="tel"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
               placeholder="(555) 123-4567"
             />
           </div>
@@ -116,7 +116,7 @@ export default function EmailCapturePage() {
               onChange={(e) =>
                 setForm({ ...form, athlete_name: e.target.value })
               }
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
               placeholder="Jane Smith"
               maxLength={100}
             />
@@ -129,7 +129,7 @@ export default function EmailCapturePage() {
                 type="text"
                 value={form.state}
                 onChange={(e) => setForm({ ...form, state: e.target.value })}
-                className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+                className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
                 placeholder="Nevada"
               />
             </div>
@@ -139,7 +139,7 @@ export default function EmailCapturePage() {
                 type="text"
                 value={form.level}
                 onChange={(e) => setForm({ ...form, level: e.target.value })}
-                className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+                className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
                 placeholder="Level 7"
               />
             </div>
@@ -151,7 +151,7 @@ export default function EmailCapturePage() {
               type="text"
               value={form.gym}
               onChange={(e) => setForm({ ...form, gym: e.target.value })}
-              className="w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+              className="w-full rounded-lg border border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-white"
               placeholder="Gold Medal Gymnastics"
             />
           </div>
@@ -163,7 +163,7 @@ export default function EmailCapturePage() {
           <button
             type="submit"
             disabled={status === "loading"}
-            className="w-full bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
+            className="w-full bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
           >
             {status === "loading" ? "Submitting..." : "Notify Me"}
           </button>

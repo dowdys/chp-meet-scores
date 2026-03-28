@@ -15,7 +15,7 @@ export default function FindYourChampionPage() {
   const [showEmailCapture, setShowEmailCapture] = useState(false);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
       <header className="flex items-center justify-between p-6 max-w-6xl mx-auto">
         <Link href="/" className="text-xl font-bold">
           The State Champion
@@ -26,7 +26,7 @@ export default function FindYourChampionPage() {
         <h1 className="text-3xl font-bold mb-2 text-center">
           Find Your Champion
         </h1>
-        <p className="text-gray-400 mb-8 text-center">
+        <p className="text-gray-500 dark:text-gray-400 mb-8 text-center">
           Search for your athlete to see their achievements and order their
           championship shirt.
         </p>
