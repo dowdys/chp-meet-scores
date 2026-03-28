@@ -10,10 +10,12 @@ function ShirtMockup({
   imageUrl,
   label,
   color,
+  isBack = false,
 }: {
   imageUrl: string | null;
   label: string;
   color: "white" | "grey";
+  isBack?: boolean;
 }) {
   const shirtBg = color === "white" ? "#f0f0f0" : "#444";
   const shirtHighlight = color === "white" ? "#fafafa" : "#555";
@@ -74,14 +76,14 @@ function ShirtMockup({
           }}
         />
 
-        {/* Design overlay */}
+        {/* Design overlay — back gets more vertical space */}
         <div
           className="absolute flex items-center justify-center"
           style={{
-            top: "14%",
-            left: "10%",
-            width: "80%",
-            height: "70%",
+            top: isBack ? "8%" : "14%",
+            left: isBack ? "8%" : "10%",
+            width: isBack ? "84%" : "80%",
+            height: isBack ? "82%" : "70%",
           }}
         >
           {imageUrl ? (
@@ -130,7 +132,7 @@ export function ShirtPreview({
   return (
     <div className="flex gap-8 justify-center items-start max-w-5xl mx-auto px-4">
       <ShirtMockup imageUrl={frontImageUrl} label="Front" color={color} />
-      <ShirtMockup imageUrl={backImageUrl} label="Back" color={color} />
+      <ShirtMockup imageUrl={backImageUrl} label="Back" color={color} isBack />
     </div>
   );
 }
