@@ -796,27 +796,62 @@ def generate_gym_highlights_from_pdf(shirt_pdf_path, db_path, meet_name, output_
                 annot.set_colors(stroke=(1, 1, 0))
                 annot.update()
 
-            # Draw gym name in BOTH top corners with a large font
+            # Draw gym name in BOTH top corners
             gym_display = gym.upper()
-            gym_fs = 14  # larger font for corners
+            gym_fs = 14
             gym_font = fitz.Font(_fitz_bold_key)
-            tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
-            # Scale down if gym name is very long
-            while tw > pw * 0.4 and gym_fs > 9:
-                gym_fs -= 0.5
-                tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
-
-            # Position: top of page, in both corners
-            _corner_y = 18  # near the top
-            _margin = 12    # inset from page edge
-
+            max_w = pw * 0.33  # max width per corner (center title needs ~34%)
+            _corner_y = 18
+            _margin = 12
             gym_tw = fitz.TextWriter(page.rect)
-            # Top-left corner
-            gym_tw.append(fitz.Point(_margin, _corner_y),
-                          gym_display, font=gym_font, fontsize=gym_fs)
-            # Top-right corner (right-aligned)
-            gym_tw.append(fitz.Point(pw - _margin - tw, _corner_y),
-                          gym_display, font=gym_font, fontsize=gym_fs)
+
+            tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
+            needs_wrap = tw > max_w and len(gym_display.split()) > 1
+
+            if not needs_wrap:
+                # Short name — single line, scale down if needed
+                while tw > max_w and gym_fs > 9:
+                    gym_fs -= 0.5
+                    tw = fitz.get_text_length(gym_display, fontname=_fb, fontsize=gym_fs)
+                gym_tw.append(fitz.Point(_margin, _corner_y),
+                              gym_display, font=gym_font, fontsize=gym_fs)
+                gym_tw.append(fitz.Point(pw - _margin - tw, _corner_y),
+                              gym_display, font=gym_font, fontsize=gym_fs)
+            else:
+                # Long name — wrap to 2 lines of whole words, edge-aligned
+                # Keep font at 12pt (readable) rather than shrinking to fit one line
+                gym_fs = min(gym_fs, 12)
+                words = gym_display.split()
+                # Split at the word boundary giving most balanced line widths
+                best_split, best_diff = 1, float('inf')
+                for s in range(1, len(words)):
+                    w1 = fitz.get_text_length(' '.join(words[:s]), fontname=_fb, fontsize=gym_fs)
+                    w2 = fitz.get_text_length(' '.join(words[s:]), fontname=_fb, fontsize=gym_fs)
+                    if abs(w1 - w2) < best_diff:
+                        best_diff = abs(w1 - w2)
+                        best_split = s
+                line1 = ' '.join(words[:best_split])
+                line2 = ' '.join(words[best_split:])
+                # Scale down only if a line still exceeds max_w
+                longer = line1 if len(line1) >= len(line2) else line2
+                tw_fit = fitz.get_text_length(longer, fontname=_fb, fontsize=gym_fs)
+                while tw_fit > max_w and gym_fs > 8:
+                    gym_fs -= 0.5
+                    tw_fit = fitz.get_text_length(longer, fontname=_fb, fontsize=gym_fs)
+                line_h = gym_fs + 2
+                # Top-left corner (left-aligned)
+                gym_tw.append(fitz.Point(_margin, _corner_y),
+                              line1, font=gym_font, fontsize=gym_fs)
+                gym_tw.append(fitz.Point(_margin, _corner_y + line_h),
+                              line2, font=gym_font, fontsize=gym_fs)
+                # Top-right corner (right-aligned)
+                tw_r1 = fitz.get_text_length(line1, fontname=_fb, fontsize=gym_fs)
+                gym_tw.append(fitz.Point(pw - _margin - tw_r1, _corner_y),
+                              line1, font=gym_font, fontsize=gym_fs)
+                tw_r2 = fitz.get_text_length(line2, fontname=_fb, fontsize=gym_fs)
+                gym_tw.append(fitz.Point(pw - _margin - tw_r2, _corner_y + line_h),
+                              line2, font=gym_font, fontsize=gym_fs)
+
             gym_tw.write_text(page, color=_accent)
 
     shirt_doc.close()
