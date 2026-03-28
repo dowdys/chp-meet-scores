@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 
 interface ShirtPreviewProps {
-  frontPdfUrl: string | null;
+  frontImageUrl: string | null;
   backPdfUrl: string | null;
   color: "white" | "grey";
   athleteName?: string;
@@ -11,7 +11,7 @@ interface ShirtPreviewProps {
 }
 
 export function ShirtPreview({
-  frontPdfUrl,
+  frontImageUrl,
   backPdfUrl,
   color,
   athleteName,
@@ -19,14 +19,16 @@ export function ShirtPreview({
 }: ShirtPreviewProps) {
   const [side, setSide] = useState<"front" | "back">("front");
 
-  // For the back with jewel, route through our star-drawing API
-  const effectiveBackUrl = useMemo(() => {
+  // Back preview: route through API that adds stars when jewel is checked
+  // TODO: Convert back PDFs to PNGs too once Electron publishes them
+  const backImageUrl = useMemo(() => {
     if (!backPdfUrl) return null;
-    if (!hasJewel || !athleteName) return backPdfUrl;
-    return `/api/shirt-preview?pdf_url=${encodeURIComponent(backPdfUrl)}&name=${encodeURIComponent(athleteName)}&jewel=true`;
-  }, [backPdfUrl, athleteName, hasJewel]);
+    // For now, back PDFs can't be rendered as images client-side
+    // This will work once we convert backs to PNGs during Electron publish
+    return null;
+  }, [backPdfUrl]);
 
-  const pdfUrl = side === "front" ? frontPdfUrl : effectiveBackUrl;
+  const currentImage = side === "front" ? frontImageUrl : backImageUrl;
 
   return (
     <div className="space-y-3">
@@ -79,25 +81,23 @@ export function ShirtPreview({
           />
         </svg>
 
-        {/* Design overlay — use iframe for PDF rendering (most reliable cross-browser) */}
+        {/* Design image overlay */}
         <div
-          className="absolute overflow-hidden z-10"
+          className="absolute overflow-hidden z-10 flex items-center justify-center"
           style={{ top: 65, left: 70, width: 160, height: 230, borderRadius: 4 }}
         >
-          {pdfUrl ? (
-            <iframe
-              key={pdfUrl} // Force re-render when URL changes (jewel toggle)
-              src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-              width="160"
-              height="230"
-              className="border-0 pointer-events-none"
-              title={`${side} of shirt preview`}
+          {currentImage ? (
+            <img
+              src={currentImage}
+              alt={`${side} of shirt`}
+              className="w-full h-full object-contain"
+              crossOrigin="anonymous"
             />
           ) : (
-            <div className="flex items-center justify-center h-full bg-white/5 text-gray-500 text-xs text-center px-2">
+            <div className="text-gray-500 text-xs text-center px-2">
               {side === "front"
-                ? "Front preview not available"
-                : "Back preview not available"}
+                ? "Front preview loading..."
+                : "Back preview available after meet processing"}
             </div>
           )}
         </div>

@@ -6,7 +6,7 @@ export function getFrontUrl(state: string): string {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   // State abbreviation from meet_name: "USAG W Gymnastics - 2026 MN - March 20" → "MN"
   const abbrev = extractStateAbbrev(state);
-  return `${supabaseUrl}/storage/v1/object/public/shirt-fronts/${abbrev}.pdf`;
+  return `${supabaseUrl}/storage/v1/object/public/shirt-fronts/${abbrev}.png`;
 }
 
 /**

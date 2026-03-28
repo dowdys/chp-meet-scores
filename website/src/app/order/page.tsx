@@ -34,7 +34,7 @@ function OrderContent() {
   const [backPdfUrl, setBackPdfUrl] = useState<string | null>(null);
 
   // Get the front PDF URL from the state
-  const frontPdfUrl = meet ? getFrontUrl(meet) : null;
+  const frontImageUrl = meet ? getFrontUrl(meet) : null;
 
   useEffect(() => {
     if (name && showCelebration) {
@@ -94,10 +94,10 @@ function OrderContent() {
         )}
 
         {/* Shirt Preview */}
-        {name && (frontPdfUrl || backPdfUrl) && (
+        {name && (frontImageUrl || backPdfUrl) && (
           <div className="mb-8">
             <ShirtPreview
-              frontPdfUrl={frontPdfUrl}
+              frontImageUrl={frontImageUrl}
               backPdfUrl={backPdfUrl}
               color={shirtColor}
               athleteName={name}
