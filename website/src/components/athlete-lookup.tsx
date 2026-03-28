@@ -30,6 +30,24 @@ interface AthleteLookupProps {
 
 const currentYear = new Date().getFullYear().toString();
 
+const STATE_NAMES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi",
+  MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire",
+  NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina",
+  ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania",
+  RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee",
+  TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington",
+  WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", DC: "Washington D.C.",
+};
+
+function stateName(abbrev: string): string {
+  return STATE_NAMES[abbrev] || abbrev;
+}
+
 export function AthleteLookup({
   onAthleteSelected,
   onNoResults,
@@ -183,9 +201,10 @@ export function AthleteLookup({
 
   // Filter options based on search query
   const filteredStates = stateQuery
-    ? states.filter((s) =>
-        s.toLowerCase().includes(stateQuery.toLowerCase())
-      )
+    ? states.filter((s) => {
+        const q = stateQuery.toLowerCase();
+        return s.toLowerCase().includes(q) || stateName(s).toLowerCase().includes(q);
+      })
     : states;
 
   const filteredGyms = gymQuery
@@ -266,25 +285,29 @@ export function AthleteLookup({
             }))
           }
           onClose={() => setStateQuery("")}
+          immediate
         >
           <ComboboxInput
             className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
-            placeholder="Type to search states..."
-            displayValue={(val: string) => val}
+            placeholder="Select or search state..."
+            displayValue={(val: string) => stateName(val)}
             onChange={(e) => setStateQuery(e.target.value)}
             disabled={!selection.league}
           />
           <ComboboxOptions
             anchor="bottom"
-            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto empty:invisible"
+            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto z-50"
           >
+            {filteredStates.length === 0 && (
+              <div className="px-3 py-2 text-gray-400 text-sm">No states found</div>
+            )}
             {filteredStates.map((s) => (
               <ComboboxOption
                 key={s}
                 value={s}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-yellow-50 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 text-black"
               >
-                {s}
+                {stateName(s)}
               </ComboboxOption>
             ))}
           </ComboboxOptions>
@@ -304,23 +327,27 @@ export function AthleteLookup({
             }))
           }
           onClose={() => setGymQuery("")}
+          immediate
         >
           <ComboboxInput
             className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
-            placeholder="Type to search gyms..."
+            placeholder="Select or search gym..."
             displayValue={(val: string) => val}
             onChange={(e) => setGymQuery(e.target.value)}
             disabled={!selection.state}
           />
           <ComboboxOptions
             anchor="bottom"
-            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto empty:invisible"
+            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto z-50"
           >
+            {filteredGyms.length === 0 && (
+              <div className="px-3 py-2 text-gray-400 text-sm">No gyms found</div>
+            )}
             {filteredGyms.map((g) => (
               <ComboboxOption
                 key={g}
                 value={g}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-yellow-50 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 text-black"
               >
                 {g}
               </ComboboxOption>
@@ -336,23 +363,27 @@ export function AthleteLookup({
           value={selection.athlete as { name: string; meet_name: string; level: string } | null}
           onChange={handleAthleteSelect}
           onClose={() => setAthleteQuery("")}
+          immediate
         >
           <ComboboxInput
             className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
-            placeholder="Type to search athletes..."
+            placeholder="Select or search athlete..."
             displayValue={(val: { name: string } | null) => val?.name || ""}
             onChange={(e) => setAthleteQuery(e.target.value)}
             disabled={!selection.gym}
           />
           <ComboboxOptions
             anchor="bottom"
-            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto empty:invisible"
+            className="w-[var(--input-width)] rounded-lg border border-gray-200 bg-white shadow-lg max-h-60 overflow-auto z-50"
           >
+            {filteredAthletes.length === 0 && (
+              <div className="px-3 py-2 text-gray-400 text-sm">No athletes found</div>
+            )}
             {filteredAthletes.map((a) => (
               <ComboboxOption
                 key={`${a.name}-${a.meet_name}`}
                 value={a}
-                className="px-3 py-2 cursor-pointer data-[focus]:bg-yellow-50 text-black"
+                className="px-3 py-2 cursor-pointer data-[focus]:bg-red-50 text-black"
               >
                 <span className="font-medium">{a.name}</span>
                 <span className="ml-2 text-sm text-gray-500">
