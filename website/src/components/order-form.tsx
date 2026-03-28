@@ -17,6 +17,7 @@ interface OrderFormProps {
   state: string;
   level: string;
   gym: string;
+  onColorChange?: (color: "white" | "grey") => void;
 }
 
 export function OrderForm({
@@ -25,6 +26,7 @@ export function OrderForm({
   state,
   level,
   gym,
+  onColorChange,
 }: OrderFormProps) {
   const { addItem } = useCartStore();
 
@@ -124,7 +126,7 @@ export function OrderForm({
             <button
               key={c}
               type="button"
-              onClick={() => setColor(c)}
+              onClick={() => { setColor(c); onColorChange?.(c); }}
               className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition ${
                 color === c
                   ? "ring-2 ring-yellow-400 bg-white/20 text-white"
