@@ -18,6 +18,7 @@ interface OrderFormProps {
   level: string;
   gym: string;
   onColorChange?: (color: "white" | "grey") => void;
+  onJewelChange?: (hasJewel: boolean) => void;
 }
 
 export function OrderForm({
@@ -27,6 +28,7 @@ export function OrderForm({
   level,
   gym,
   onColorChange,
+  onJewelChange,
 }: OrderFormProps) {
   const { addItem } = useCartStore();
 
@@ -152,7 +154,7 @@ export function OrderForm({
           <input
             type="checkbox"
             checked={hasJewel}
-            onChange={(e) => setHasJewel(e.target.checked)}
+            onChange={(e) => { setHasJewel(e.target.checked); onJewelChange?.(e.target.checked); }}
             className="w-5 h-5 rounded"
           />
         </div>

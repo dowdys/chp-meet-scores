@@ -30,6 +30,7 @@ function OrderContent() {
   const [showCelebration, setShowCelebration] = useState(!!name);
   const [confettiTrigger, setConfettiTrigger] = useState(false);
   const [shirtColor, setShirtColor] = useState<"white" | "grey">("white");
+  const [hasJewel, setHasJewel] = useState(false);
   const [backPdfUrl, setBackPdfUrl] = useState<string | null>(null);
 
   // Get the front PDF URL from the state
@@ -99,6 +100,8 @@ function OrderContent() {
               frontPdfUrl={frontPdfUrl}
               backPdfUrl={backPdfUrl}
               color={shirtColor}
+              athleteName={name}
+              hasJewel={hasJewel}
             />
           </div>
         )}
@@ -117,6 +120,7 @@ function OrderContent() {
                 level={level}
                 gym={gym}
                 onColorChange={setShirtColor}
+                onJewelChange={setHasJewel}
               />
             ) : (
               <div className="bg-white/5 rounded-xl p-6 text-center">

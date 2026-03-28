@@ -1,19 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 interface ShirtPreviewProps {
   frontPdfUrl: string | null;
   backPdfUrl: string | null;
   color: "white" | "grey";
+  athleteName?: string;
+  hasJewel?: boolean;
 }
 
-export function ShirtPreview({ frontPdfUrl, backPdfUrl, color }: ShirtPreviewProps) {
+export function ShirtPreview({
+  frontPdfUrl,
+  backPdfUrl,
+  color,
+  athleteName,
+  hasJewel = false,
+}: ShirtPreviewProps) {
   const [side, setSide] = useState<"front" | "back">("front");
-  const pdfUrl = side === "front" ? frontPdfUrl : backPdfUrl;
 
-  const bgColor = color === "white" ? "bg-white" : "bg-gray-300";
-  const borderColor = color === "white" ? "border-gray-200" : "border-gray-400";
+  // For the back, use the star-annotated version when jewel is checked
+  const effectiveBackUrl = useMemo(() => {
+    if (!backPdfUrl) return null;
+    if (!hasJewel || !athleteName) return backPdfUrl;
+    // Route through our API that adds red stars next to the athlete's name
+    return `/api/shirt-preview?pdf_url=${encodeURIComponent(backPdfUrl)}&name=${encodeURIComponent(athleteName)}&jewel=true`;
+  }, [backPdfUrl, athleteName, hasJewel]);
+
+  const pdfUrl = side === "front" ? frontPdfUrl : effectiveBackUrl;
 
   return (
     <div className="space-y-3">
@@ -49,7 +63,6 @@ export function ShirtPreview({ frontPdfUrl, backPdfUrl, color }: ShirtPreviewPro
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* T-shirt shape */}
           <path
             d={`
               M 70 0
@@ -70,7 +83,6 @@ export function ShirtPreview({ frontPdfUrl, backPdfUrl, color }: ShirtPreviewPro
             stroke={color === "white" ? "#e0e0e0" : "#999999"}
             strokeWidth="1.5"
           />
-          {/* Neckline */}
           <path
             d={`
               M 70 0
@@ -83,15 +95,10 @@ export function ShirtPreview({ frontPdfUrl, backPdfUrl, color }: ShirtPreviewPro
           />
         </svg>
 
-        {/* PDF overlay area (centered on shirt body) */}
+        {/* PDF overlay area */}
         <div
           className="absolute overflow-hidden rounded"
-          style={{
-            top: 70,
-            left: 65,
-            width: 150,
-            height: 200,
-          }}
+          style={{ top: 70, left: 65, width: 150, height: 200 }}
         >
           {pdfUrl ? (
             <object
@@ -118,6 +125,7 @@ export function ShirtPreview({ frontPdfUrl, backPdfUrl, color }: ShirtPreviewPro
       <p className="text-center text-xs text-gray-500">
         {side === "front" ? "Front of shirt" : "Back of shirt"} •{" "}
         {color === "white" ? "White" : "Grey"}
+        {side === "back" && hasJewel && " • ★ Jewel accent"}
       </p>
     </div>
   );
