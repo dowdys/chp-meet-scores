@@ -12,7 +12,9 @@ export default async function BacksPage() {
     const backId = item.back_id || 0;
     const back = (item as any).shirt_backs;
     // Fall back to order_items.meet_name when shirt_backs not published yet
-    const meetName = back?.meet_name || item.meet_name || "Unknown";
+    // Strip the date portion from meet name: "USAG W Gymnastics - 2026 MN - March 20" → "USAG W Gymnastics - 2026 MN"
+    const rawMeetName = back?.meet_name || item.meet_name || "Unknown";
+    const meetName = rawMeetName.replace(/\s*-\s*[A-Z][a-z]+ \d{1,2}(?:-\d{1,2})?$/, "");
     if (!backGroups.has(backId)) {
       backGroups.set(backId, {
         label: back?.level_group_label || "All Levels",

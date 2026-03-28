@@ -32,17 +32,33 @@ export default function FindYourChampionPage() {
         </p>
 
         <AthleteLookup
-          onAthleteSelected={(athlete) => {
-            // Navigate to celebration page — in a real implementation,
-            // we'd look up the athlete's token first
-            const params = new URLSearchParams({
-              name: athlete.name,
-              gym: athlete.gym,
-              meet: athlete.meet_name,
-              state: athlete.state,
-              level: athlete.level,
-            });
-            router.push(`/order?${params.toString()}`);
+          onAthleteSelected={async (athlete) => {
+            // Try to find athlete's QR token for full celebration experience
+            const { createClient } = await import("@/lib/supabase/client");
+            const supabase = createClient();
+            const { data: token } = await supabase
+              .from("athlete_tokens")
+              .select("token")
+              .eq("meet_name", athlete.meet_name)
+              .eq("athlete_name", athlete.name)
+              .eq("gym", athlete.gym)
+              .limit(1)
+              .single();
+
+            if (token?.token) {
+              // Full celebration experience with event-specific animation
+              router.push(`/celebrate/${token.token}`);
+            } else {
+              // No token yet — go to order page with inline celebration
+              const params = new URLSearchParams({
+                name: athlete.name,
+                gym: athlete.gym,
+                meet: athlete.meet_name,
+                state: athlete.state,
+                level: athlete.level,
+              });
+              router.push(`/order?${params.toString()}`);
+            }
           }}
           onNoResults={() => setShowEmailCapture(true)}
         />
