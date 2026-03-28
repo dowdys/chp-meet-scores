@@ -131,15 +131,17 @@ export function AthleteLookup({
   }, [supabase, selection.year, selection.league]);
 
   // Load gyms when state selected
+  // Note: meets stores abbreviations ("MN"), winners stores full names ("Minnesota")
   useEffect(() => {
     if (!selection.state) {
       setGyms([]);
       return;
     }
+    const fullName = stateName(selection.state);
     supabase
       .from("winners")
       .select("gym")
-      .eq("state", selection.state)
+      .eq("state", fullName)
       .limit(5000) // Prevent silent 1000-row truncation
       .then(({ data }) => {
         if (data) {
@@ -157,10 +159,11 @@ export function AthleteLookup({
       setAthletes([]);
       return;
     }
+    const fullName = stateName(selection.state);
     supabase
       .from("winners")
       .select("name, meet_name, level")
-      .eq("state", selection.state)
+      .eq("state", fullName)
       .eq("gym", selection.gym)
       .limit(5000) // Prevent silent 1000-row truncation
       .then(({ data }) => {

@@ -25,17 +25,13 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Only verify auth for admin routes (saves 50-150ms on public pages)
-  if (request.nextUrl.pathname === "/admin/login") {
-    return supabaseResponse;
-  }
-
+  // All routes hitting this middleware are /admin/* (see matcher below)
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/admin/login", request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // Verify user is in admin_users table
@@ -46,7 +42,7 @@ export async function middleware(request: NextRequest) {
     .single();
 
   if (!admin) {
-    return NextResponse.redirect(new URL("/admin/login", request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return supabaseResponse;

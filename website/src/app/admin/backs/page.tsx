@@ -11,10 +11,12 @@ export default async function BacksPage() {
   for (const item of items) {
     const backId = item.back_id || 0;
     const back = (item as any).shirt_backs;
+    // Fall back to order_items.meet_name when shirt_backs not published yet
+    const meetName = back?.meet_name || item.meet_name || "Unknown";
     if (!backGroups.has(backId)) {
       backGroups.set(backId, {
-        label: back?.level_group_label || "Unknown",
-        meetName: back?.meet_name || "Unknown",
+        label: back?.level_group_label || "All Levels",
+        meetName,
         items: [],
       });
     }

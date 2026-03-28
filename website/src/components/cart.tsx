@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCartStore } from "@/lib/cart-store";
 import { formatPrice, calculateItemPrice } from "@/lib/utils";
 
-export function Cart() {
+export function Cart({ hideCheckoutButton = false }: { hideCheckoutButton?: boolean } = {}) {
   const { items, removeItem, getSubtotal, getShippingCost, getTotal } =
     useCartStore();
 
@@ -75,12 +75,14 @@ export function Cart() {
         <p className="text-xs text-gray-500">+ applicable tax at checkout</p>
       </div>
 
-      <Link
-        href="/checkout"
-        className="block w-full text-center bg-red-600 text-black py-3 rounded-lg font-bold hover:bg-red-500 transition"
-      >
-        Proceed to Checkout
-      </Link>
+      {!hideCheckoutButton && (
+        <Link
+          href="/checkout"
+          className="block w-full text-center bg-red-600 text-white py-3 rounded-lg font-bold hover:bg-red-500 transition"
+        >
+          Proceed to Checkout
+        </Link>
+      )}
     </div>
   );
 }

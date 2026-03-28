@@ -7,19 +7,31 @@ import {
   dismissNameCorrection,
 } from "@/lib/admin-actions";
 
-export function CorrectionActions({ itemId }: { itemId: number }) {
+export function CorrectionActions({
+  itemId,
+  allItemIds,
+}: {
+  itemId: number;
+  allItemIds?: number[];
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState<"apply" | "dismiss" | null>(null);
 
+  const ids = allItemIds || [itemId];
+
   const handleApply = async () => {
     setLoading("apply");
-    await applyNameCorrection(itemId);
+    for (const id of ids) {
+      await applyNameCorrection(id);
+    }
     router.refresh();
   };
 
   const handleDismiss = async () => {
     setLoading("dismiss");
-    await dismissNameCorrection(itemId);
+    for (const id of ids) {
+      await dismissNameCorrection(id);
+    }
     router.refresh();
   };
 

@@ -41,16 +41,16 @@ export default async function MeetsPage() {
                   <td className="p-3">{meet.winner_count}</td>
                   <td className="p-3">
                     {hasBacks ? (
-                      <span className="text-green-600">\u2713 {meet.shirt_backs.length}</span>
+                      <span className="text-green-600">{"✓"} {meet.shirt_backs.length}</span>
                     ) : (
-                      <span className="text-gray-400">\u2014</span>
+                      <span className="text-gray-400">0</span>
                     )}
                   </td>
                   <td className="p-3">
                     {hasTokens ? (
-                      <span className="text-green-600">\u2713 {meet.athlete_tokens.length}</span>
+                      <span className="text-green-600">{"✓"} {meet.athlete_tokens.length}</span>
                     ) : (
-                      <span className="text-gray-400">\u2014</span>
+                      <span className="text-gray-400">0</span>
                     )}
                   </td>
                   <td className="p-3">

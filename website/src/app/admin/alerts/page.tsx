@@ -6,13 +6,34 @@ export const dynamic = "force-dynamic";
 export default async function AlertsPage() {
   const { data: corrections } = await getNameCorrections();
 
+  // Dedup: group corrections by (athlete_name, corrected_name, meet_name)
+  const groups = new Map<
+    string,
+    { items: typeof corrections; athlete_name: string; corrected_name: string; meet_name: string }
+  >();
+
+  for (const item of corrections) {
+    const key = `${item.athlete_name}|${item.corrected_name}|${item.meet_name}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        items: [],
+        athlete_name: item.athlete_name,
+        corrected_name: item.corrected_name,
+        meet_name: item.meet_name,
+      });
+    }
+    groups.get(key)!.items.push(item);
+  }
+
+  const uniqueCorrections = Array.from(groups.values());
+
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-6">
         Alerts
-        {corrections.length > 0 && (
+        {uniqueCorrections.length > 0 && (
           <span className="ml-2 bg-red-100 text-red-700 px-2 py-0.5 rounded text-sm">
-            {corrections.length} pending
+            {uniqueCorrections.length} pending
           </span>
         )}
       </h1>
@@ -20,34 +41,41 @@ export default async function AlertsPage() {
       <h2 className="text-lg font-semibold mb-4">Name Corrections</h2>
 
       <div className="space-y-3">
-        {corrections.map((item: any) => (
-          <div key={item.id} className="bg-white rounded-xl border p-4">
+        {uniqueCorrections.map((group) => (
+          <div
+            key={`${group.athlete_name}-${group.corrected_name}`}
+            className="bg-white rounded-xl border p-4"
+          >
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-sm text-gray-500">
-                  Order {item.orders?.order_number || "Unknown"}
+                  {group.items.length} shirt{group.items.length > 1 ? "s" : ""} affected
+                  {" \u2022 "}
+                  Order {(group.items[0] as any).orders?.order_number || "Unknown"}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="line-through text-red-500">
-                    {item.athlete_name}
+                    {group.athlete_name}
                   </span>
                   <span className="text-gray-400">{"\u2192"}</span>
                   <span className="font-bold text-green-700">
-                    {item.corrected_name}
+                    {group.corrected_name}
                   </span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {item.shirt_backs?.meet_name || item.meet_name}
-                  {" \u2022 "}
-                  {item.shirt_backs?.level_group_label || ""}
+                  {group.meet_name}
                 </p>
               </div>
-              <CorrectionActions itemId={item.id} />
+              {/* Apply/Dismiss applies to ALL items in the group */}
+              <CorrectionActions
+                itemId={group.items[0].id}
+                allItemIds={group.items.map((i) => i.id)}
+              />
             </div>
           </div>
         ))}
 
-        {corrections.length === 0 && (
+        {uniqueCorrections.length === 0 && (
           <p className="text-gray-400 text-center py-8">
             No pending corrections
           </p>

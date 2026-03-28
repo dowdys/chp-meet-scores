@@ -65,7 +65,7 @@ export default function CheckoutPage() {
       <main className="max-w-lg mx-auto px-6 py-8">
         <h1 className="text-3xl font-bold mb-8">Review & Pay</h1>
 
-        <Cart />
+        <Cart hideCheckoutButton />
 
         {error && (
           <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
@@ -76,7 +76,7 @@ export default function CheckoutPage() {
         <button
           onClick={handleCheckout}
           disabled={loading}
-          className="mt-6 w-full bg-red-600 text-black py-4 rounded-lg text-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
+          className="mt-6 w-full bg-red-600 text-white py-4 rounded-lg text-lg font-bold hover:bg-red-500 transition disabled:opacity-50"
         >
           {loading ? "Redirecting to payment..." : "Pay with Stripe"}
         </button>

@@ -5,10 +5,11 @@ export const dynamic = "force-dynamic";
 export default async function AnalyticsPage() {
   const supabase = createServiceClient();
 
-  const [scansResult, capturesResult, ordersResult] = await Promise.all([
+  const [scansResult, capturesResult, ordersResult, itemsResult] = await Promise.all([
     supabase.from("athlete_tokens").select("scan_count").gt("scan_count", 0),
     supabase.from("email_captures").select("source"),
-    supabase.from("orders").select("total, shipping_state, created_at"),
+    supabase.from("orders").select("id, total, created_at"),
+    supabase.from("order_items").select("order_id, meet_name").limit(5000),
   ]);
 
   const tokens = scansResult.data || [];
@@ -17,11 +18,24 @@ export default async function AnalyticsPage() {
 
   const captures = capturesResult.data || [];
   const orders = ordersResult.data || [];
+  const items = itemsResult.data || [];
 
-  // Revenue by state
+  // Build order → meet state mapping from order_items.meet_name
+  // Meet name format: "USAG W Gymnastics - 2026 MN - March 20"
+  const orderMeetState = new Map<number, string>();
+  for (const item of items) {
+    if (!orderMeetState.has(item.order_id)) {
+      const parts = (item.meet_name || "").split(" - ");
+      const stateMatch = parts[1]?.match(/\d{4}\s+(.+)/);
+      const meetState = stateMatch ? stateMatch[1].trim() : "Unknown";
+      orderMeetState.set(item.order_id, meetState);
+    }
+  }
+
+  // Revenue by MEET state (not shipping address state)
   const revenueByState = new Map<string, number>();
   for (const o of orders) {
-    const state = o.shipping_state || "Unknown";
+    const state = orderMeetState.get(o.id) || "Unknown";
     revenueByState.set(state, (revenueByState.get(state) || 0) + (o.total || 0));
   }
 
@@ -61,7 +75,7 @@ export default async function AnalyticsPage() {
               .map(([state, revenue]) => (
                 <tr key={state} className="border-b">
                   <td className="p-3 font-medium">{state}</td>
-                  <td className="p-3">{orders.filter((o: { shipping_state: string }) => o.shipping_state === state).length}</td>
+                  <td className="p-3">{orders.filter((o) => orderMeetState.get(o.id) === state).length}</td>
                   <td className="p-3">${(revenue / 100).toFixed(2)}</td>
                 </tr>
               ))}

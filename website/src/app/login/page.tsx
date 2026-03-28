@@ -28,8 +28,8 @@ export default function AdminLoginPage() {
       return;
     }
 
-    router.push("/admin");
-    router.refresh();
+    // Full page navigation to ensure cookies are set before middleware runs
+    window.location.href = "/admin";
   };
 
   return (

@@ -1,10 +1,20 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { OrderForm } from "@/components/order-form";
 import { Cart } from "@/components/cart";
+
+const ConfettiBurst = dynamic(
+  () => import("@/components/celebration/confetti-burst").then((m) => m.ConfettiBurst),
+  { ssr: false }
+);
+const PodiumReveal = dynamic(
+  () => import("@/components/celebration/podium-reveal").then((m) => m.PodiumReveal),
+  { ssr: false }
+);
 
 function OrderContent() {
   const searchParams = useSearchParams();
@@ -14,6 +24,17 @@ function OrderContent() {
   const meet = searchParams.get("meet") || "";
   const state = searchParams.get("state") || "";
   const level = searchParams.get("level") || "";
+
+  const [showCelebration, setShowCelebration] = useState(!!name);
+  const [confettiTrigger, setConfettiTrigger] = useState(false);
+
+  useEffect(() => {
+    if (name && showCelebration) {
+      const timer = setTimeout(() => setConfettiTrigger(true), 300);
+      const hideTimer = setTimeout(() => setShowCelebration(false), 4000);
+      return () => { clearTimeout(timer); clearTimeout(hideTimer); };
+    }
+  }, [name, showCelebration]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
@@ -27,6 +48,20 @@ function OrderContent() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8">
+        {/* Celebration animation when arriving from /find */}
+        {showCelebration && name && (
+          <div className="mb-8 text-center py-8">
+            <ConfettiBurst trigger={confettiTrigger} />
+            <PodiumReveal
+              athleteName={name}
+              events={[]}
+              level={level}
+              state={state}
+              gym={gym}
+            />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Left: Order Form */}
           <div>
