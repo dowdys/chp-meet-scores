@@ -64,17 +64,17 @@ export function OrderForm({
     <div className="space-y-6">
       {/* Athlete info */}
       <div className="bg-gray-50 rounded-xl p-4">
-        <p className="text-sm text-gray-400">Ordering for</p>
+        <p className="text-sm text-gray-500">Ordering for</p>
         <p className="text-xl font-bold text-gray-900">{athleteName}</p>
         <p className="text-sm text-red-400">{gym}</p>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-500">
           Level {level} • {state}
         </p>
       </div>
 
       {/* Name correction */}
       <div>
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
           <input
             type="checkbox"
             checked={showNameCorrection}
@@ -89,7 +89,7 @@ export function OrderForm({
             value={nameCorrection}
             onChange={(e) => setNameCorrection(e.target.value)}
             placeholder="Enter correct spelling..."
-            className="mt-2 w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white"
+            className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-white"
             maxLength={100}
           />
         )}
@@ -97,7 +97,7 @@ export function OrderForm({
 
       {/* Size */}
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           Shirt Size
         </label>
         <div className="grid grid-cols-4 gap-2">
@@ -109,7 +109,7 @@ export function OrderForm({
               className={`py-2 rounded-lg text-sm font-medium transition ${
                 size === s
                   ? "bg-red-600 text-white"
-                  : "bg-gray-100 text-white hover:bg-white/20"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
               {s}
@@ -120,7 +120,7 @@ export function OrderForm({
 
       {/* Color */}
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           Shirt Color
         </label>
         <div className="flex gap-3">
@@ -131,8 +131,8 @@ export function OrderForm({
               onClick={() => { setColor(c); onColorChange?.(c); }}
               className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition ${
                 color === c
-                  ? "ring-2 ring-yellow-400 bg-white/20 text-white"
-                  : "bg-gray-100 text-gray-300 hover:bg-white/20"
+                  ? "ring-2 ring-red-500 bg-red-50 text-gray-900"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
               {c}
@@ -145,7 +145,7 @@ export function OrderForm({
       <label className="flex items-center justify-between bg-gray-50 rounded-xl p-4 cursor-pointer">
         <div>
           <p className="text-gray-900 font-medium">Add Jewel Accent</p>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-500">
             Rhinestone crystal on the design
           </p>
         </div>

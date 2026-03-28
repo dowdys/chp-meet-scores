@@ -20,7 +20,6 @@ function ShirtMockup({
   const shirtBg = color === "white" ? "#f0f0f0" : "#444";
   const shirtHighlight = color === "white" ? "#fafafa" : "#555";
   const shirtDark = color === "white" ? "#e0e0e0" : "#2a2a2a";
-  const collarColor = color === "white" ? "#d0d0d0" : "#555";
   const sleeveColor = color === "white" ? "#d8d8d8" : "#4a4a4a";
 
   return (
@@ -29,25 +28,12 @@ function ShirtMockup({
         className="relative rounded-lg overflow-hidden"
         style={{
           width: "100%",
-          maxWidth: 460,
+          maxWidth: 550,
           aspectRatio: "3/4",
           background: `radial-gradient(ellipse at 50% 35%, ${shirtHighlight} 0%, ${shirtBg} 50%, ${shirtDark} 100%)`,
           boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
         }}
       >
-        {/* Collar */}
-        <div
-          className="absolute left-1/2 -translate-x-1/2"
-          style={{
-            top: "5%",
-            width: "24%",
-            height: "7%",
-            borderRadius: "0 0 50% 50%",
-            border: `2px solid ${collarColor}`,
-            borderTop: "none",
-          }}
-        />
-
         {/* Left sleeve seam */}
         <div
           className="absolute"
@@ -76,14 +62,14 @@ function ShirtMockup({
           }}
         />
 
-        {/* Design overlay — back gets more vertical space */}
+        {/* Design overlay */}
         <div
           className="absolute flex items-center justify-center"
           style={{
-            top: isBack ? "8%" : "14%",
-            left: isBack ? "8%" : "10%",
-            width: isBack ? "84%" : "80%",
-            height: isBack ? "82%" : "70%",
+            top: isBack ? "6%" : "14%",
+            left: isBack ? "6%" : "10%",
+            width: isBack ? "88%" : "80%",
+            height: isBack ? "88%" : "70%",
           }}
         >
           {imageUrl ? (
@@ -130,7 +116,7 @@ export function ShirtPreview({
   color,
 }: ShirtPreviewProps) {
   return (
-    <div className="flex gap-8 justify-center items-start max-w-5xl mx-auto px-4">
+    <div className="flex gap-8 justify-center items-start max-w-6xl mx-auto px-4">
       <ShirtMockup imageUrl={frontImageUrl} label="Front" color={color} />
       <ShirtMockup imageUrl={backImageUrl} label="Back" color={color} isBack />
     </div>

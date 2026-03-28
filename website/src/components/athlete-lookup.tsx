@@ -238,7 +238,7 @@ export function AthleteLookup({
               athlete: null,
             })
           }
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-900"
         >
           {years.map((y) => (
             <option key={y} value={y}>
@@ -262,7 +262,7 @@ export function AthleteLookup({
               athlete: null,
             }))
           }
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-900"
           disabled={leagues.length === 0}
         >
           <option value="">Select league...</option>
@@ -291,7 +291,7 @@ export function AthleteLookup({
           immediate
         >
           <ComboboxInput
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-900"
             placeholder="Select or search state..."
             displayValue={(val: string) => stateName(val)}
             onChange={(e) => setStateQuery(e.target.value)}
@@ -333,7 +333,7 @@ export function AthleteLookup({
           immediate
         >
           <ComboboxInput
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-900"
             placeholder="Select or search gym..."
             displayValue={(val: string) => val}
             onChange={(e) => setGymQuery(e.target.value)}
@@ -369,7 +369,7 @@ export function AthleteLookup({
           immediate
         >
           <ComboboxInput
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-black"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-900"
             placeholder="Select or search athlete..."
             displayValue={(val: { name: string } | null) => val?.name || ""}
             onChange={(e) => setAthleteQuery(e.target.value)}
