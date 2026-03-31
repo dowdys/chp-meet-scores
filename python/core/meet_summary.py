@@ -118,10 +118,20 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
             lines.append('Solo-session groups:  None')
         lines.append('')
 
-        # --- Levels ---
-        cur.execute('SELECT DISTINCT level FROM results WHERE meet_name = ? ORDER BY CAST(level AS INTEGER)',
+        # --- Levels (canonical order: Xcel prestige, then numbered descending) ---
+        cur.execute('SELECT DISTINCT level FROM results WHERE meet_name = ?',
                     (meet_name,))
         all_levels = [r[0] for r in cur.fetchall()]
+
+        def _level_sort_key(level):
+            mapped = XCEL_MAP.get(level)
+            if mapped in XCEL_ORDER:
+                return (0, XCEL_ORDER.index(mapped))  # Xcel: prestige order
+            if level.isdigit():
+                return (2, -int(level))  # numbered: descending
+            return (1, 0)  # other: between Xcel and numbered
+
+        all_levels.sort(key=_level_sort_key)
         lines.append(f'Levels:  {len(all_levels)}  ({", ".join(all_levels)})')
         lines.append('')
 

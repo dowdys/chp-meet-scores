@@ -65,8 +65,9 @@ const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
     name: 'discovery',
     description: 'Find the meet online, identify source and IDs, set output name, get dates',
     tools: [
-      'search_meets', 'lookup_meet', 'http_fetch', 'web_search', 'chrome_navigate', 'chrome_execute_js',
-      'chrome_screenshot', 'chrome_click', 'set_output_name',
+      'search_meets', 'lookup_meet', 'http_fetch',
+      'browse_mso', 'browse_scorecat',
+      'set_output_name',
     ],
     prompt: `## Current Phase: DISCOVERY
 Find the meet results online and prepare for extraction.
@@ -87,11 +88,14 @@ The meet name from MSO may not include the year (e.g., "Arkansas State Meet" ins
 
 **If search_meets returns NO Women's meet for the state:** Try ONE more search with different keywords, then ask the user for help.
 
+### Visual Verification (only if needed)
+Use \`browse_mso\` or \`browse_scorecat\` to visually inspect a specific meet page by ID. These tools construct the correct URL automatically — you cannot navigate to the wrong site.
+
 ### Fallback Search (only if search_meets fails)
 If \`search_meets\` returns no results:
 1. Try \`http_fetch\` with Algolia API directly
-2. Try \`web_search\` (Google) as last resort
-Do NOT browse MSO website, take screenshots, or try MyMeetScores unless search_meets completely fails.
+2. Ask the user for help — they may have the URL
+For unknown platforms, load the \`unknown_source_extraction\` skill which provides full browser access.
 
 ### State Championships
 A full state championship covers all competitive levels (numbered 1-10 + Xcel Bronze through Sapphire). Most sources split these across **multiple separate meets**. Find and combine all sub-meets.
@@ -293,6 +297,7 @@ Names are sorted by age division by default. Do NOT change to alphabetical unles
       'import_pdf_backs', 'list_meets', 'list_output_files',
       'open_file', 'render_pdf_page', 'get_meet_summary',
       'set_output_name', 'query_db', 'pull_meet',
+      'regenerate_output',
     ],
     prompt: `## Current Phase: IMPORT BACKS
 Import designer-edited back-of-shirt PDFs and regenerate order forms and gym highlights.
@@ -338,7 +343,10 @@ If the user provides custom PDFs for SOME page groups but not others, that's fin
 - NEVER ask the user about page sizes, dates, or other details — the tool auto-detects and auto-injects everything
 - NEVER ask the user what changes they made — the PDFs contain all changes
 - NEVER manually manipulate PDFs with \`run_script\` — use import_pdf_backs
-- NEVER use \`build_database\` or \`regenerate_output\` after import — they destroy designer edits
+- NEVER use \`build_database\` after import — it destroys designer edits
+- NEVER regenerate \`shirt\` or \`all\` after import — they overwrite imported backs
+- You CAN use \`regenerate_output\` with outputs: ["idml"], ["order_forms"], ["gym_highlights"], or ["summary"]
+- Note: IDML generated post-import reflects DATABASE layout, not the designer's visual edits
 - If the user provides IDML files, tell them IDML import is no longer supported and ask for PDFs instead
 
 ### How Outputs Use the Imported Back

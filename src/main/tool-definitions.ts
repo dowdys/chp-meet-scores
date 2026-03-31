@@ -175,6 +175,30 @@ export function getToolDefinitions(): ToolDefinition[] {
       },
     },
 
+    // --- Site-specific browse tools (URL-safe — agent cannot navigate to wrong sites) ---
+    {
+      name: 'browse_mso',
+      description: 'Navigate Chrome to a specific MeetScoresOnline meet page by ID. Takes a screenshot and extracts page metadata. Use when you need to visually inspect a meet on MSO.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_id: { type: 'string', description: 'The numeric MSO meet ID (e.g., "34670")' },
+        },
+        required: ['meet_id'],
+      },
+    },
+    {
+      name: 'browse_scorecat',
+      description: 'Navigate Chrome to a specific ScoreCat meet page by ID. Takes a screenshot and extracts page metadata. Use when you need to visually inspect a meet on ScoreCat.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_id: { type: 'string', description: 'The Algolia meet ID (e.g., "VQS0J5FI")' },
+        },
+        required: ['meet_id'],
+      },
+    },
+
     // --- Database tools ---
     {
       name: 'build_database',

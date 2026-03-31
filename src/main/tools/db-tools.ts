@@ -30,23 +30,21 @@ const PROCESSING_PHASES = new Set(['database', 'output_finalize']);
  */
 function openDb(): { db: Database.Database; label: string } {
   const stagingPath = getStagingDbPath();
-  const stagingExists = fs.existsSync(stagingPath);
 
   // During processing phases, enforce staging DB
   if (currentPhase && PROCESSING_PHASES.has(currentPhase)) {
-    if (stagingExists) {
+    if (stagingPath) {
       return { db: new Database(stagingPath, { readonly: true }), label: 'staging' };
     }
     // Staging doesn't exist yet — don't silently fall through to central
     throw new Error(
       `Staging database not found (phase: ${currentPhase}). ` +
-      `Run build_database first to create the staging DB. ` +
-      `Path expected: ${stagingPath}`
+      `Run build_database first to create the staging DB.`
     );
   }
 
   // Outside processing: prefer staging if it exists, otherwise central
-  if (stagingExists) {
+  if (stagingPath) {
     return { db: new Database(stagingPath, { readonly: true }), label: 'staging' };
   }
 

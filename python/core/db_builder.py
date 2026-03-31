@@ -22,8 +22,10 @@ from .constants import EVENTS
 #   Trailing:  "Bella Estrada VT,", "Name V/"
 # Applied once at database build time. Downstream functions can trust names are clean.
 
-# Event codes used in women's gymnastics (case-insensitive matching)
-_EC = r'(?:VT|UB|BB|FX|V|Be|Fl|Fx|AA)'
+# Event codes used in women's gymnastics (case-insensitive matching).
+# Note: single-char codes V/Be/Fl risk false positives on names ending
+# with initials (pre-existing limitation).
+_EC = r'(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx|AA)'
 _EC_SEQ = _EC + r'(?:[/,\s]+' + _EC + r')*'  # sequence with any separator
 
 # Ordered from most specific to least specific to avoid false positives
@@ -83,7 +85,7 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
     try:
         cur = conn.cursor()
 
-        # Create results table if it doesn't exist
+        # --- DDL (must be outside the data transaction) ---
         cur.execute('''CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT,
@@ -104,20 +106,15 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             num TEXT
         )''')
 
-        # Add club_num column to existing tables (safe if already present)
         try:
             cur.execute('ALTER TABLE results ADD COLUMN club_num TEXT')
         except Exception:
             pass  # Column already exists
 
-        # Unique index as safety net for any duplicate rows within the same extraction
         cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_results_unique
             ON results(meet_name, name, gym, session, level, division)''')
-
-        # Covering index for winner determination queries (WHERE meet_name + session + level + division)
         cur.execute('CREATE INDEX IF NOT EXISTS idx_results_meet_sld ON results(meet_name, session, level, division)')
 
-        # Meets metadata table — tracks source info and standardized names
         cur.execute('''CREATE TABLE IF NOT EXISTS meets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             meet_name TEXT UNIQUE,
@@ -130,18 +127,19 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
             dates TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         )''')
+        conn.commit()
 
-        # Clean slate: delete ALL data in staging DB (not just this meet name).
-        # The staging DB is single-meet by design. A previous build_database call
-        # with a wrong source type could have left garbled records under a different
-        # or empty meet_name that wouldn't be cleaned by a meet_name-specific DELETE.
+        # --- Data operations: atomic transaction ---
+        # All data changes (DELETE + INSERT + normalize + winners) commit together.
+        # If any step fails, the staging DB stays unchanged (no partial state).
+
+        # Clean slate: delete ALL data in staging DB (single-meet by design)
         cur.execute('DELETE FROM results')
-        # Winners and meets tables may not exist yet on first run — only delete if they do
         for table in ('winners', 'meets'):
             try:
                 cur.execute(f'DELETE FROM {table}')
             except Exception:
-                pass  # Table doesn't exist yet — will be created later
+                pass  # Table doesn't exist yet
 
         names_cleaned = 0
         for a in athletes:
@@ -161,17 +159,10 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
         if names_cleaned > 0:
             print(f"Name cleaning: stripped event code suffixes from {names_cleaned} athlete names")
 
-        conn.commit()
-
-        # Normalize division case: merge "JR A"/"Jr A"/"JRA" variants.
-        # When combining MSO + ScoreCat data, the same division may appear
-        # with different casing (MSO: "JR A", ScoreCat: "Jr A").
+        # Normalize division case (part of the same transaction)
         _normalize_division_case(cur, config.meet_name)
-        conn.commit()
 
-        # Always use score-based winner determination — ranks from data sources
-        # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
-        # to tied athletes instead of giving both rank 1)
+        # Winner determination (commits at end of _build_winners_score_based)
         _build_winners_score_based(conn, config)
     finally:
         conn.close()
@@ -300,9 +291,13 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
     cur = conn.cursor()
     _create_winners_table(cur, config.meet_name)
 
+    # Coalesce NULLs to empty strings so GROUP BY and comparisons work correctly
+    cur.execute('''UPDATE results SET session = COALESCE(session, ''),
+                   level = COALESCE(level, ''), division = COALESCE(division, ''),
+                   name = COALESCE(name, ''), gym = COALESCE(gym, '')
+                   WHERE meet_name = ?''', (config.meet_name,))
+
     # Find solo sessions (only 1 athlete in that session+level+division).
-    # These are "out of session" competitors (e.g., Sunday religious accommodation)
-    # who are NOT eligible for state champion status.
     solo_sessions = _find_solo_sessions(cur, config.meet_name)
 
     cur.execute('''SELECT DISTINCT session, level, division FROM results
@@ -310,6 +305,7 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
                    ORDER BY level, division, session''', (config.meet_name,))
     combos = cur.fetchall()
 
+    insert_errors = 0
     for session, level, division in combos:
         if (session, level, division) in solo_sessions:
             continue
@@ -332,12 +328,22 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
 
             is_tie = 1 if len(winners) > 1 else 0
             for name, gym in winners:
-                cur.execute('''INSERT OR REPLACE INTO winners
-                    (state, meet_name, association, name, gym, session, level, division,
-                     event, score, is_tie)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (config.state, config.meet_name, config.association,
-                     name, gym, session, level, division, event, max_score, is_tie))
+                try:
+                    cur.execute('''INSERT OR REPLACE INTO winners
+                        (state, meet_name, association, name, gym, session, level, division,
+                         event, score, is_tie)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (config.state, config.meet_name, config.association,
+                         name, gym or '', session, level, division, event, max_score, is_tie))
+                except Exception as e:
+                    insert_errors += 1
+                    if insert_errors <= 5:  # log first 5 errors to avoid flooding
+                        print(f"  Warning: Failed to insert winner: name={name!r} gym={gym!r} "
+                              f"session={session!r} level={level!r} division={division!r} "
+                              f"event={event} score={max_score}: {e}")
+
+    if insert_errors:
+        print(f"  Warning: {insert_errors} winner insert(s) failed (see above)")
 
     conn.commit()
 

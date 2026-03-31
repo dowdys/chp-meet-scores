@@ -275,6 +275,28 @@ def label_numbered_group(group: list) -> tuple[str, list]:
     return (label, group)
 
 
+def _sort_level_group(levels: list) -> list:
+    """Sort levels within a group using three-bucket sort.
+
+    1. Xcel levels — prestige order (Sapphire first, Bronze last)
+    2. Other non-numeric levels ("Senior", "2A", "Adults") — original relative order
+    3. Numbered levels — descending by int value (10, 9, 8, ...)
+    """
+    xcel = []
+    numbered = []
+    other = []
+    for lv in levels:
+        if XCEL_MAP.get(lv) in XCEL_ORDER:
+            xcel.append(lv)
+        elif lv.isdigit():
+            numbered.append(lv)
+        else:
+            other.append(lv)  # preserve original order
+    xcel.sort(key=lambda x: XCEL_ORDER.index(XCEL_MAP[x]))
+    numbered.sort(key=lambda x: -int(x))
+    return xcel + other + numbered
+
+
 def parse_level_groups(level_groups, level_set: set) -> list:
     """Parse custom level groups into page_groups list.
 
@@ -282,9 +304,10 @@ def parse_level_groups(level_groups, level_set: set) -> list:
         E.g. "XSA,XD,XP,XG,XS,XB;10,9,8,7,6;5,4,3,2,1"
     level_set: set of levels that exist in the data.
 
-    Any levels in level_set that are NOT mentioned in level_groups are
-    automatically appended to the last group so no winners are silently
-    dropped.
+    Levels within each group are auto-sorted (Xcel prestige, numbered
+    descending) regardless of caller input order.  Any levels in level_set
+    that are NOT mentioned in level_groups are automatically appended to
+    the last group so no winners are silently dropped.
     """
     if isinstance(level_groups, str):
         raw_groups = level_groups.split(';')
@@ -302,19 +325,15 @@ def parse_level_groups(level_groups, level_set: set) -> list:
         group_levels = [lv for lv in group_levels if lv in level_set]
         if not group_levels:
             continue
+        # Auto-sort within group so caller order doesn't matter
+        group_levels = _sort_level_group(group_levels)
         included.update(group_levels)
         page_groups.append((label_group(group_levels), group_levels))
 
     # Auto-include any levels with winners that were not mentioned
     missing = level_set - included
     if missing and page_groups:
-        # Sort missing levels consistently: numbered descending, then Xcel
-        missing_xcel = sorted([lv for lv in missing if lv in XCEL_MAP],
-                               key=lambda lv: XCEL_ORDER.index(XCEL_MAP[lv])
-                               if XCEL_MAP.get(lv) in XCEL_ORDER else 99)
-        missing_numbered = sorted([lv for lv in missing if lv not in XCEL_MAP],
-                                   key=lambda lv: -int(lv) if lv.isdigit() else 0)
-        missing_sorted = missing_numbered + missing_xcel
+        missing_sorted = _sort_level_group(list(missing))
         # Append to last group
         last_label, last_levels = page_groups[-1]
         last_levels.extend(missing_sorted)
@@ -348,8 +367,10 @@ def label_group(group_levels: list) -> str:
 
 # --- Data query ---
 
-# Event code patterns used for name cleaning
-_EVENT_CODES = r'(?:VT|UB|BB|FX|BX|V|Be|Fl|AA|IES)'
+# Event code patterns used for name cleaning.
+# Note: single-char codes V/Be/Fl risk false positives on names ending
+# with initials (pre-existing limitation).
+_EVENT_CODES = r'(?:VT|UB|BB|FX|BX|Bars?|Beam|BM|Floor|V|Be|Fl|AA|IES)'
 _EVENT_CODES_PATTERN = re.compile(
     rf'\s+{_EVENT_CODES}(?:[,\s]+{_EVENT_CODES})*\s*$', re.IGNORECASE)
 _DASH_EVENT_PATTERN = re.compile(

@@ -93,4 +93,64 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
     }
   },
 
+  // --- Site-specific browse tools (URL-safe) ---
+
+  browse_mso: async (args) => {
+    try {
+      const meetId = requireString(args, 'meet_id');
+      // Sanitize: only allow numeric IDs
+      if (!/^\d+$/.test(meetId)) {
+        return 'Error: meet_id must be a numeric MSO ID (e.g., "34670")';
+      }
+      const url = `https://www.meetscoresonline.com/R${meetId}`;
+      await chromeController.ensureConnected();
+      await chromeController.navigate(url);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const screenshotPath = await chromeController.screenshot();
+
+      // Extract key page text
+      const pageText = await chromeController.executeJS(`
+        JSON.stringify({
+          title: document.title || '',
+          h1: document.querySelector('h1')?.textContent?.trim() || '',
+          h2: document.querySelector('h2')?.textContent?.trim() || '',
+          meetInfo: document.querySelector('.meet-info, .header-info, [class*="meet"]')?.textContent?.trim()?.substring(0, 500) || '',
+        })
+      `);
+
+      return `Navigated to MSO meet page: ${url}\nScreenshot: ${screenshotPath}\nPage info: ${pageText}`;
+    } catch (err) {
+      return `Error browsing MSO: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+
+  browse_scorecat: async (args) => {
+    try {
+      const meetId = requireString(args, 'meet_id');
+      // Sanitize: only allow alphanumeric IDs
+      if (!/^[A-Za-z0-9]+$/.test(meetId)) {
+        return 'Error: meet_id must be an alphanumeric ScoreCat/Algolia ID (e.g., "VQS0J5FI")';
+      }
+      const url = `https://results.scorecatonline.com/meets/${meetId}`;
+      await chromeController.ensureConnected();
+      await chromeController.navigate(url);
+      await new Promise(resolve => setTimeout(resolve, 3000)); // ScoreCat is SPA — needs extra load time
+
+      const screenshotPath = await chromeController.screenshot();
+
+      // Extract key page text
+      const pageText = await chromeController.executeJS(`
+        JSON.stringify({
+          title: document.title || '',
+          meetName: document.querySelector('h1, h2, [class*="meet-name"], [class*="meetName"]')?.textContent?.trim() || '',
+          bodyText: document.body?.textContent?.trim()?.substring(0, 500) || '',
+        })
+      `);
+
+      return `Navigated to ScoreCat meet page: ${url}\nScreenshot: ${screenshotPath}\nPage info: ${pageText}`;
+    } catch (err) {
+      return `Error browsing ScoreCat: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+
 };

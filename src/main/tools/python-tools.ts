@@ -16,12 +16,28 @@ function getDbPath(): string {
 // Reset on resetStagingDb().
 let currentStagingDbPath: string | null = null;
 
-export function getStagingDbPath(): string {
+/**
+ * Get or create the staging DB path. Creates a new timestamped path if none exists.
+ * Use this ONLY from toolBuildDatabase (which needs to create on first use).
+ */
+export function getOrCreateStagingDbPath(): string {
   if (!currentStagingDbPath) {
     const timestamp = Date.now();
     currentStagingDbPath = path.join(getDataDir(), `staging_${timestamp}.db`);
   }
   return currentStagingDbPath;
+}
+
+/**
+ * Get the staging DB path if it exists on disk. Returns null if no staging DB exists.
+ * Use this from tools that should fall back to central DB when staging is gone
+ * (regenerate_output, import_pdf_backs, run_script).
+ */
+export function getStagingDbPath(): string | null {
+  if (currentStagingDbPath && fs.existsSync(currentStagingDbPath)) {
+    return currentStagingDbPath;
+  }
+  return null;
 }
 
 export function resetStagingDb(): void {

@@ -142,6 +142,7 @@ export class AgentLoop {
         if (savedProgress.postmark_date) context.postmarkDate = savedProgress.postmark_date;
         if (savedProgress.online_date) context.onlineDate = savedProgress.online_date;
         if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
+        if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
 
         const dataDir = getDataDir();
         let fileInventory = '';
@@ -340,15 +341,8 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
       let phaseTools = filterToolsForPhase(allTools, context.currentPhase, context.unlockedTools);
 
-      // After search_meets returns results, gate browse/Chrome tools in discovery.
-      // The agent should use the results, not browse websites to confirm.
-      if (context.currentPhase === 'discovery' && context.searchMeetsReturned) {
-        const GATED_AFTER_SEARCH = new Set([
-          'web_search', 'http_fetch',
-          'chrome_navigate', 'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
-        ]);
-        phaseTools = phaseTools.filter(t => !GATED_AFTER_SEARCH.has(t.name));
-      }
+      // Chrome tools removed from discovery phase entirely (2.6) — no gating needed.
+      // browse_mso and browse_scorecat provide URL-safe site access.
 
       let response: LLMResponse;
       try {
@@ -892,6 +886,28 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
     // Await the LLM summary (may be null if it failed or timed out)
     const llmSummary = await llmSummaryPromise;
+
+    // Safety net: if automated extraction produced no content at all, keep recent
+    // text from the last 5 messages instead of an empty handoff.
+    const hasContent = agentTexts.length > 0 || askUserExchanges.length > 0 || keyToolResults.length > 0;
+    if (!hasContent && !llmSummary) {
+      console.warn('[AGENT] Handoff empty — preserving recent text from last 5 messages');
+      const recentText = messages.slice(-5)
+        .flatMap(m => typeof m.content === 'string' ? [m.content] :
+          m.content.filter((b): b is import('./llm-client').TextBlock => b.type === 'text').map(b => b.text))
+        .join('\n\n');
+      context.messages = [{
+        role: 'user',
+        content: `[Phase: ${fromPhase} → ${context.currentPhase}]\n\nMeet: "${context.meetName}"${context.outputName ? ` | Output: "${context.outputName}"` : ''}${context.state ? ` | State: ${context.state}` : ''}\n\n${recentText || 'No context available — ask the user what to do.'}`,
+      }];
+      context.loadedSkills = [];
+      context.justPruned = true;
+      this.onActivity(
+        `Context pruned for ${fromPhase} → ${context.currentPhase} (empty handoff — preserved recent text)`,
+        'warning'
+      );
+      return;
+    }
 
     // Use the last few agent text blocks as automated summary (capped)
     const recentTexts = agentTexts.slice(-3);

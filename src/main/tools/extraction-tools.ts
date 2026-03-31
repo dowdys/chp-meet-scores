@@ -17,11 +17,14 @@ export function decodeHtml(html: string): string {
 
 /**
  * Strip MSO event annotations from athlete names.
- * e.g., "Jane Smith VT,BB,FX" → "Jane Smith"
+ * Handles comma-separated ("VT,BB,FX"), space-separated ("VT Bars BM"),
+ * and dash-prefixed ("- VT BM") patterns.
+ * Note: single-char codes V/Be/Fl risk false positives on names ending
+ * with initials (pre-existing limitation).
  */
 export function cleanName(raw: string): string {
   const decoded = decodeHtml(raw);
-  return decoded.replace(/\s*(?:IES\s+)?(?:VT|UB|BB|FX|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|V|Be|Fl|Fx))*[,\s]*$/, '').trim();
+  return decoded.replace(/\s*-?\s*(?:IES\s+)?(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx))*[,\s]*$/i, '').trim();
 }
 
 /**

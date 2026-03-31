@@ -555,11 +555,13 @@ def main():
                     setattr(import_layout, param, cli_val)
             import_layout.name_sort = args.name_sort
 
-            # Restore level_groups and page_size_legal from sticky params
+            # Restore level_groups, page_size_legal, division_order from sticky params
             if args.level_groups is None and 'level_groups' in saved_layout:
                 args.level_groups = saved_layout['level_groups']
             if args.page_size_legal is None and 'page_size_legal' in saved_layout:
                 args.page_size_legal = saved_layout['page_size_legal']
+            if args.division_order is None and 'division_order' in saved_layout:
+                args.division_order = saved_layout['division_order']
 
             # Restore saved dates if not provided on CLI
             if args.postmark_date == 'TBD' and 'postmark_date' in saved_layout:
@@ -759,11 +761,12 @@ def main():
             print(f"Error: Database not found at {db_path}. Run full pipeline first.")
             sys.exit(1)
 
-        # When shirt regenerates, also regenerate all shirt-dependent outputs
-        # so they use the updated layout (page groups, font sizes, etc.)
+        # When shirt regenerates, cascade to outputs that depend on the shirt PDF:
+        # - order_forms embeds actual shirt PDF pages
+        # - summary reads layout data (page groups, athlete counts)
+        # idml and gym_highlights are independent — don't cascade.
         if 'shirt' in regen_set:
-            for dep in ('summary', 'idml', 'order_forms', 'gym_highlights'):
-                regen_set.add(dep)
+            regen_set.update(['order_forms', 'summary'])
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
     else:
@@ -897,6 +900,8 @@ def main():
         args.level_groups = saved_layout['level_groups']
     if args.page_size_legal is None and 'page_size_legal' in saved_layout:
         args.page_size_legal = saved_layout['page_size_legal']
+    if args.division_order is None and 'division_order' in saved_layout:
+        args.division_order = saved_layout['division_order']
 
     # Restore saved dates if not provided on CLI
     if args.postmark_date == 'TBD' and 'postmark_date' in saved_layout:
@@ -950,6 +955,25 @@ def main():
                 print(f"  L{level} {event}: \"{cleaned}\" -{reason}")
             print("If any of these need fixing, you can update the names in the database "
                   "with query_db or re-run the data extraction.")
+            # Machine-readable JSON for TypeScript to parse and gate subsequent regenerations.
+            # "raw" = name as stored in DB (for UPDATE WHERE clause).
+            # "cleaned" = name after stripping the suspicious suffix.
+            import json as _json
+            _suspicious_items = []
+            _seen_names = set()
+            for cleaned_name, raw_name, event, level, reason in _flagged:
+                if 'event code' in reason.lower() or 'event keyword' in reason.lower():
+                    # raw_name is the DB name; cleaned_name already had clean_name_for_shirt applied
+                    # but still has the suspicious part. Strip it with our expanded regex.
+                    import re as _re
+                    _stripped = _re.sub(
+                        r'\s*-?\s*(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx))*[,\s]*$',
+                        '', raw_name, flags=_re.IGNORECASE).strip()
+                    if raw_name not in _seen_names:
+                        _seen_names.add(raw_name)
+                        _suspicious_items.append({"raw": raw_name, "cleaned": _stripped or raw_name})
+            if _suspicious_items:
+                print(f"SUSPICIOUS_NAMES_JSON: {_json.dumps(_suspicious_items)}")
 
     # Guard against --regenerate destroying designer-edited IDML imports
     if (do_all or 'shirt' in regen_set) and args.regenerate is not None:
@@ -983,6 +1007,10 @@ def main():
                 _sticky['level_groups'] = args.level_groups
             if args.page_size_legal is not None:
                 _sticky['page_size_legal'] = args.page_size_legal
+            # division_order reorders presentation (youngest→oldest) but does
+            # NOT exclude athletes, so it's safe to persist across regenerations
+            if args.division_order is not None:
+                _sticky['division_order'] = args.division_order
             # Persist dates so they survive across regenerations
             if args.postmark_date and args.postmark_date != 'TBD':
                 _sticky['postmark_date'] = args.postmark_date

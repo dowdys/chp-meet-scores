@@ -11,7 +11,7 @@ import { shell } from 'electron';
 import { ToolResultContent, ImageContentPart, TextContentPart } from './llm-client';
 import { pythonManager } from './python-manager';
 import Database from 'better-sqlite3';
-import { getStagingDbPath } from './tools/python-tools';
+import { getStagingDbPath, getOrCreateStagingDbPath } from './tools/python-tools';
 import { setDbToolsPhase } from './tools/db-tools';
 import { getDataDir, getOutputDir, getProjectRoot } from './paths';
 import { uploadMeetFiles } from './supabase-sync';
@@ -54,6 +54,10 @@ export interface AgentContext {
   searchMeetsReturned?: boolean;
   /** Tracks search_meets call count */
   searchMeetsCallCount?: number;
+  /** Set when build_database fails — blocks phase advancement to output_finalize/import_backs */
+  buildDatabaseFailed?: boolean;
+  /** Suspicious names detected by regenerate_output — gates subsequent regeneration */
+  suspiciousNames?: Array<{ raw: string; cleaned: string }>;
 }
 
 export interface ProgressData {
@@ -70,6 +74,7 @@ export interface ProgressData {
   postmark_date?: string;
   online_date?: string;
   ship_date?: string;
+  build_database_failed?: boolean;
 }
 
 // --- Helper functions ---
@@ -129,6 +134,11 @@ export function toolSetPhase(
   const validPhases = getAllPhases();
   if (!validPhases.includes(phase)) {
     return `Error: Invalid phase "${phase}". Valid phases: ${validPhases.join(', ')}`;
+  }
+
+  // Block advancement past database if build_database failed
+  if (context.buildDatabaseFailed && (phase === 'output_finalize' || phase === 'import_backs')) {
+    return 'Error: Cannot advance — build_database has not completed successfully. Fix the build error and re-run build_database.';
   }
 
   const oldPhase = context.currentPhase;
@@ -226,14 +236,21 @@ export async function toolBuildDatabase(
   const shipDate = optionalString(args, 'ship_date') || context.shipDate;
   if (shipDate) { argParts.push('--ship-date', shipDate); context.shipDate = shipDate; }
 
-  // Always use staging DB for full pipeline
-  const stagingPath = getStagingDbPath();
+  // Always use staging DB for full pipeline (getOrCreateStagingDbPath creates on first use)
+  const stagingPath = getOrCreateStagingDbPath();
   argParts.push('--db', stagingPath);
   argParts.push('--output', getOutputDir(context.outputName));
 
   const result = await runPython(argParts, context.onActivity);
 
-  // Populate meets metadata table in the staging DB
+  // Check for build failure — block phase advancement until resolved
+  if (result.includes('Python script failed')) {
+    context.buildDatabaseFailed = true;
+    return nameWarning ? nameWarning + result : result;
+  }
+  context.buildDatabaseFailed = false;
+
+  // Populate meets metadata table in the staging DB (only after successful build)
   try {
     const sourceId = optionalString(args, 'source_id') || '';
     const sourceName = optionalString(args, 'source_name') || '';
@@ -254,7 +271,6 @@ export async function toolBuildDatabase(
       db.close();
     }
   } catch (err) {
-    // Non-fatal but log it — silent failure here causes metadata loss during finalize
     console.warn('toolBuildDatabase: meets metadata insert failed:', err instanceof Error ? err.message : String(err));
   }
 
@@ -343,13 +359,34 @@ export async function toolRegenerateOutput(
   // Force flag
   if (args.force) argParts.push('--force');
 
-  // Use staging DB if available, otherwise central
+  // Use staging DB if it exists on disk, otherwise central
   const stagingPath = getStagingDbPath();
   const centralPath = getDbPath();
-  argParts.push('--db', fs.existsSync(stagingPath) ? stagingPath : centralPath);
+  argParts.push('--db', stagingPath || centralPath);
   argParts.push('--output', getOutputDir(context.outputName || meetName));
 
-  return runPython(argParts, context.onActivity);
+  const result = await runPython(argParts, context.onActivity);
+
+  // Parse SUSPICIOUS_NAMES_JSON if present — gate subsequent regenerations
+  const jsonMatch = result.match(/SUSPICIOUS_NAMES_JSON:\s*(\[.*\])/);
+  if (jsonMatch) {
+    try {
+      context.suspiciousNames = JSON.parse(jsonMatch[1]);
+    } catch { /* malformed JSON — ignore */ }
+  } else {
+    // No suspicious names in this run — clear the gate
+    context.suspiciousNames = undefined;
+  }
+
+  // If suspicious names were found AND this is not the first detection, block
+  if (context.suspiciousNames && context.suspiciousNames.length > 0) {
+    const fixCommands = context.suspiciousNames.map(n =>
+      `UPDATE results SET name = '${n.cleaned.replace(/'/g, "''")}' WHERE name = '${n.raw.replace(/'/g, "''")}' AND meet_name = '${(context.outputName || meetName).replace(/'/g, "''")}'`
+    ).join(';\n');
+    return result + `\n\nSUSPICIOUS_NAMES detected — these names have event code suffixes that will appear on the shirt.\nFIX REQUIRED before next regeneration: run these SQL updates via query_db, then call regenerate_output again:\n${fixCommands}`;
+  }
+
+  return result;
 }
 
 /**
@@ -398,11 +435,10 @@ export async function toolImportPdfBacks(
   const shipDate = optionalString(args, 'ship_date') || context.shipDate;
   if (shipDate) { argParts.push('--ship-date', shipDate); context.shipDate = shipDate; }
 
-  // DB: use staging DB if it exists (meet not yet finalized), otherwise central
+  // DB: use staging DB if it exists on disk, otherwise central
   const stagingPath = getStagingDbPath();
   const centralPath = getDbPath();
-  const dbPath = fs.existsSync(stagingPath) ? stagingPath : centralPath;
-  argParts.push('--db', dbPath);
+  argParts.push('--db', stagingPath || centralPath);
   argParts.push('--output', getOutputDir(meetName));
 
   const result = await runPython(argParts, context.onActivity);
@@ -585,6 +621,7 @@ export async function toolSaveProgress(
     postmark_date: context.postmarkDate,
     online_date: context.onlineDate,
     ship_date: context.shipDate,
+    build_database_failed: context.buildDatabaseFailed || undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -640,6 +677,7 @@ export async function autoSaveProgress(
     postmark_date: context.postmarkDate,
     online_date: context.onlineDate,
     ship_date: context.shipDate,
+    build_database_failed: context.buildDatabaseFailed || undefined,
   };
 
   const filePath = getProgressFilePath();
