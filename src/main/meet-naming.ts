@@ -58,8 +58,25 @@ export function normalizeMeetName(identity: MeetIdentity): string {
 
   if (identity.dates) {
     // Strip trailing year from dates: "March 20, 2026" -> "March 20"
-    const cleanDates = identity.dates.replace(/,?\s*\d{4}\s*$/, '').trim();
+    let cleanDates = identity.dates.replace(/,?\s*\d{4}\s*$/, '').trim();
+    // Normalize date separators: "March 13 & 21" → "March 13-21"
+    cleanDates = normalizeDateSeparators(cleanDates);
     if (cleanDates) return `${base} - ${cleanDates}`;
   }
   return base;
+}
+
+/**
+ * Normalize date range separators to prevent duplicate meet names.
+ * "March 13 & 21" → "March 13-21"
+ * "March 13 and 21" → "March 13-21"
+ * Collapses extra whitespace around separators.
+ */
+export function normalizeDateSeparators(dates: string): string {
+  return dates
+    .replace(/\s*&\s*/g, '-')
+    .replace(/\s+and\s+/gi, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }

@@ -372,7 +372,20 @@ export function getToolDefinitions(): ToolDefinition[] {
         required: ['skill_name'],
       },
     },
-    // --- Gym tools (database phase) ---
+    // --- Gym tools (database + output_finalize phases) ---
+    {
+      name: 'rename_gym',
+      description: 'Rename a gym across the local database AND Supabase in one atomic operation. Use after finalization when a gym name needs correction (e.g., "Aspiregymnasticsclub" → "Aspire Gymnastics"). Prevents the overwrite-on-pull problem.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          meet_name: { type: 'string', description: 'The meet name (must exist in the database)' },
+          old_name: { type: 'string', description: 'The current gym name to rename' },
+          new_name: { type: 'string', description: 'The corrected gym name' },
+        },
+        required: ['meet_name', 'old_name', 'new_name'],
+      },
+    },
     {
       name: 'perplexity_gym_lookup',
       description: 'Verify or enrich gym names using Perplexity AI. Verify mode checks if gym name pairs refer to the same gym. Enrich mode looks up official names and addresses.',

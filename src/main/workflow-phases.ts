@@ -158,7 +158,7 @@ If \`mso_extract\` or \`scorecat_extract\` return no data, do NOT start browsing
     description: 'Build the SQLite database, run quality checks, normalize gym names',
     tools: [
       'build_database', 'query_db', 'query_db_to_file', 'get_meet_summary',
-      'list_meets', 'list_skills', 'load_skill', 'perplexity_gym_lookup',
+      'list_meets', 'list_skills', 'load_skill', 'perplexity_gym_lookup', 'rename_gym',
     ],
     prompt: `## Current Phase: DATABASE
 Build the database from extracted data and verify quality.
@@ -233,7 +233,7 @@ If the user gives dates without a year, use the meet year (from the output name 
     tools: [
       'regenerate_output', 'render_pdf_page', 'open_file',
       'list_output_files', 'query_db', 'query_db_to_file', 'finalize_meet', 'pull_meet',
-      'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill',
+      'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill', 'rename_gym',
     ],
     prompt: `## Current Phase: OUTPUT & FINALIZE
 Generate deliverables from the database, review with user, and finalize.

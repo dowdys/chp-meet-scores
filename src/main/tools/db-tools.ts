@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDataDir, getOutputDir } from '../paths';
 import { getStagingDbPath } from './python-tools';
+import { isSupabaseEnabled, getSupabaseClient } from '../supabase-client';
 import { requireString, optionalString } from './validation';
 
 function getCentralDbPath(): string {
@@ -278,6 +279,81 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
       }
     } catch (err) {
       return `Error getting meet summary: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+
+  rename_gym: async (args) => {
+    try {
+      const meetName = requireString(args, 'meet_name');
+      const oldName = requireString(args, 'old_name');
+      const newName = requireString(args, 'new_name');
+
+      if (oldName === newName) {
+        return 'Error: old_name and new_name are identical.';
+      }
+
+      // Update local database (staging if exists, otherwise central)
+      const stagingPath = getStagingDbPath();
+      const centralPath = getCentralDbPath();
+      const dbPath = stagingPath || centralPath;
+
+      if (!fs.existsSync(dbPath)) {
+        return 'Error: No database found.';
+      }
+
+      const db = new Database(dbPath);
+      let resultsChanged = 0;
+      let winnersChanged = 0;
+      try {
+        const rename = db.transaction(() => {
+          const r = db.prepare('UPDATE results SET gym = ? WHERE meet_name = ? AND gym = ?')
+            .run(newName, meetName, oldName);
+          resultsChanged = r.changes;
+          const w = db.prepare('UPDATE winners SET gym = ? WHERE meet_name = ? AND gym = ?')
+            .run(newName, meetName, oldName);
+          winnersChanged = w.changes;
+        });
+        rename();
+      } finally {
+        db.close();
+      }
+
+      if (resultsChanged === 0 && winnersChanged === 0) {
+        return `No rows matched gym "${oldName}" for meet "${meetName}". Check the spelling.`;
+      }
+
+      let msg = `Renamed "${oldName}" → "${newName}" locally: ${resultsChanged} results, ${winnersChanged} winners updated.`;
+
+      // Also update Supabase so pull_meet won't overwrite the fix
+      if (isSupabaseEnabled()) {
+        try {
+          const supabase = await getSupabaseClient();
+          if (supabase) {
+            const { error: rErr } = await supabase
+              .from('results')
+              .update({ gym: newName })
+              .eq('meet_name', meetName)
+              .eq('gym', oldName);
+            const { error: wErr } = await supabase
+              .from('winners')
+              .update({ gym: newName })
+              .eq('meet_name', meetName)
+              .eq('gym', oldName);
+
+            if (rErr || wErr) {
+              msg += ` Supabase update failed: ${rErr?.message || wErr?.message}. Local DB is correct but pull_meet may overwrite.`;
+            } else {
+              msg += ` Also updated in Supabase — pull_meet will now use the corrected name.`;
+            }
+          }
+        } catch (err) {
+          msg += ` Supabase sync failed: ${err instanceof Error ? err.message : String(err)}. Local DB is correct.`;
+        }
+      }
+
+      return msg;
+    } catch (err) {
+      return `Error renaming gym: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
 };

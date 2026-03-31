@@ -109,24 +109,35 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None,
             gym_counts[key] = {}
         gym_counts[key][gym.strip()] = gym_counts[key].get(gym.strip(), 0) + 1
 
-    # For each group, pick the best canonical form
+    # For each group, pick the best canonical form.
+    # When multiple variants exist, prefer the one with more uppercase characters
+    # (preserves brand capitalization like "KCGym", "GymQuarters") over blind title-casing.
+    # Tiebreaker: longer name, then most common occurrence.
     canonical_map: dict[str, str] = {}  # any original form -> canonical
     for key, variants in gym_counts.items():
         if len(variants) == 1:
             original = next(iter(variants))
-            # Protect Phase 0 canonical values from being overridden
             if original in alias_canonical_values:
                 canonical = original
             else:
                 canonical = _title_case_gym(original)
         else:
-            # Multiple variants — title-case the most common one
-            most_common = max(variants, key=lambda v: variants[v])
-            # Protect Phase 0 canonical values from being overridden
-            if most_common in alias_canonical_values:
-                canonical = most_common
+            # Multiple variants — pick the best one:
+            # 1. Most uppercase chars (preserves brand caps like "KCGym")
+            # 2. Longest name (more descriptive)
+            # 3. Most common occurrence
+            def _variant_score(v):
+                return (sum(1 for c in v if c.isupper()), len(v), variants[v])
+            best = max(variants, key=_variant_score)
+            if best in alias_canonical_values:
+                canonical = best
             else:
-                canonical = _title_case_gym(most_common)
+                # Use the best variant as-is if it has intentional casing (mixed case);
+                # only title-case if it's all-lowercase or all-uppercase
+                if best.islower() or best.isupper():
+                    canonical = _title_case_gym(best)
+                else:
+                    canonical = best  # preserve original mixed casing
 
         for variant in variants:
             if variant != canonical:
