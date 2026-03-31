@@ -764,9 +764,12 @@ def main():
         # When shirt regenerates, cascade to outputs that depend on the shirt PDF:
         # - order_forms embeds actual shirt PDF pages
         # - summary reads layout data (page groups, athlete counts)
-        # idml and gym_highlights are independent — don't cascade.
+        # - gym_highlights uses shirt PDF as base in code-generated mode (not imported)
+        # idml is independent (re-derives layout from DB) — don't cascade.
         if 'shirt' in regen_set:
             regen_set.update(['order_forms', 'summary'])
+            if saved_layout.get('_source') != 'imported':
+                regen_set.add('gym_highlights')
 
         print(f"Regenerating outputs from existing database: {', '.join(regen_set)}")
     else:
@@ -957,18 +960,14 @@ def main():
                   "with query_db or re-run the data extraction.")
             # Machine-readable JSON for TypeScript to parse and gate subsequent regenerations.
             # "raw" = name as stored in DB (for UPDATE WHERE clause).
-            # "cleaned" = name after stripping the suspicious suffix.
+            # "cleaned" = name after re-running clean_athlete_name (uses the canonical regex).
             import json as _json
+            from python.core.db_builder import clean_athlete_name as _clean
             _suspicious_items = []
             _seen_names = set()
             for cleaned_name, raw_name, event, level, reason in _flagged:
                 if 'event code' in reason.lower() or 'event keyword' in reason.lower():
-                    # raw_name is the DB name; cleaned_name already had clean_name_for_shirt applied
-                    # but still has the suspicious part. Strip it with our expanded regex.
-                    import re as _re
-                    _stripped = _re.sub(
-                        r'\s*-?\s*(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx)(?:[,\s]+(?:VT|UB|BB|FX|Bars?|Beam|BM|Floor|V|Be|Fl|Fx))*[,\s]*$',
-                        '', raw_name, flags=_re.IGNORECASE).strip()
+                    _stripped = _clean(raw_name)
                     if raw_name not in _seen_names:
                         _seen_names.add(raw_name)
                         _suspicious_items.append({"raw": raw_name, "cleaned": _stripped or raw_name})

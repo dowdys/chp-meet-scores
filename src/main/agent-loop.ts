@@ -143,6 +143,7 @@ export class AgentLoop {
         if (savedProgress.online_date) context.onlineDate = savedProgress.online_date;
         if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
         if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
+        if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
 
         const dataDir = getDataDir();
         let fileInventory = '';

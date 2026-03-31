@@ -75,6 +75,7 @@ export interface ProgressData {
   online_date?: string;
   ship_date?: string;
   build_database_failed?: boolean;
+  suspicious_names?: Array<{ raw: string; cleaned: string }>;
 }
 
 // --- Helper functions ---
@@ -359,6 +360,14 @@ export async function toolRegenerateOutput(
   // Force flag
   if (args.force) argParts.push('--force');
 
+  // Block if suspicious names were detected on a PREVIOUS call and not yet fixed
+  if (context.suspiciousNames && context.suspiciousNames.length > 0) {
+    const fixCommands = context.suspiciousNames.map(n =>
+      `UPDATE results SET name = '${n.cleaned.replace(/'/g, "''")}' WHERE name = '${n.raw.replace(/'/g, "''")}' AND meet_name = '${(context.outputName || meetName).replace(/'/g, "''")}'`
+    ).join(';\n');
+    return `Error: Regeneration blocked — suspicious names from previous run are unfixed.\n\nRun these SQL updates via query_db first, then call regenerate_output again:\n${fixCommands}`;
+  }
+
   // Use staging DB if it exists on disk, otherwise central
   const stagingPath = getStagingDbPath();
   const centralPath = getDbPath();
@@ -367,18 +376,19 @@ export async function toolRegenerateOutput(
 
   const result = await runPython(argParts, context.onActivity);
 
-  // Parse SUSPICIOUS_NAMES_JSON if present — gate subsequent regenerations
+  // Parse SUSPICIOUS_NAMES_JSON from Python output — set gate for next call
   const jsonMatch = result.match(/SUSPICIOUS_NAMES_JSON:\s*(\[.*\])/);
   if (jsonMatch) {
     try {
       context.suspiciousNames = JSON.parse(jsonMatch[1]);
-    } catch { /* malformed JSON — ignore */ }
+    } catch (err) {
+      console.warn('[AGENT] suspiciousNames JSON parse failed:', err instanceof Error ? err.message : String(err));
+    }
   } else {
-    // No suspicious names in this run — clear the gate
     context.suspiciousNames = undefined;
   }
 
-  // If suspicious names were found AND this is not the first detection, block
+  // First detection: warn with fix commands but return the full result
   if (context.suspiciousNames && context.suspiciousNames.length > 0) {
     const fixCommands = context.suspiciousNames.map(n =>
       `UPDATE results SET name = '${n.cleaned.replace(/'/g, "''")}' WHERE name = '${n.raw.replace(/'/g, "''")}' AND meet_name = '${(context.outputName || meetName).replace(/'/g, "''")}'`
@@ -622,6 +632,7 @@ export async function toolSaveProgress(
     online_date: context.onlineDate,
     ship_date: context.shipDate,
     build_database_failed: context.buildDatabaseFailed || undefined,
+    suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -678,6 +689,7 @@ export async function autoSaveProgress(
     online_date: context.onlineDate,
     ship_date: context.shipDate,
     build_database_failed: context.buildDatabaseFailed || undefined,
+    suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
   };
 
   const filePath = getProgressFilePath();

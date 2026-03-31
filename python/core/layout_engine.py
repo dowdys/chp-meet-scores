@@ -291,9 +291,10 @@ def _sort_level_group(levels: list) -> list:
         elif lv.isdigit():
             numbered.append(lv)
         else:
-            other.append(lv)  # preserve original order
+            other.append(lv)
     xcel.sort(key=lambda x: XCEL_ORDER.index(XCEL_MAP[x]))
     numbered.sort(key=lambda x: -int(x))
+    other.sort()  # alphabetical for deterministic ordering across runs
     return xcel + other + numbered
 
 
@@ -334,9 +335,10 @@ def parse_level_groups(level_groups, level_set: set) -> list:
     missing = level_set - included
     if missing and page_groups:
         missing_sorted = _sort_level_group(list(missing))
-        # Append to last group
+        # Append to last group and re-sort the combined list
         last_label, last_levels = page_groups[-1]
         last_levels.extend(missing_sorted)
+        last_levels = _sort_level_group(last_levels)
         page_groups[-1] = (label_group(last_levels), last_levels)
 
     return page_groups

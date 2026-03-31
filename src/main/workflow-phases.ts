@@ -343,8 +343,8 @@ If the user provides custom PDFs for SOME page groups but not others, that's fin
 - NEVER ask the user about page sizes, dates, or other details — the tool auto-detects and auto-injects everything
 - NEVER ask the user what changes they made — the PDFs contain all changes
 - NEVER manually manipulate PDFs with \`run_script\` — use import_pdf_backs
-- NEVER use \`build_database\` after import — it destroys designer edits
-- NEVER regenerate \`shirt\` or \`all\` after import — they overwrite imported backs
+- \`build_database\` after import → returns an error (code-enforced)
+- \`regenerate_output\` with \`shirt\` or \`all\` after import → returns an error (code-enforced)
 - You CAN use \`regenerate_output\` with outputs: ["idml"], ["order_forms"], ["gym_highlights"], or ["summary"]
 - Note: IDML generated post-import reflects DATABASE layout, not the designer's visual edits
 - If the user provides IDML files, tell them IDML import is no longer supported and ask for PDFs instead

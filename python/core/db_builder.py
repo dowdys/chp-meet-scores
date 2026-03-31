@@ -129,41 +129,49 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
         )''')
         conn.commit()
 
-        # --- Data operations: atomic transaction ---
+        # --- Data operations: explicit atomic transaction ---
         # All data changes (DELETE + INSERT + normalize + winners) commit together.
-        # If any step fails, the staging DB stays unchanged (no partial state).
+        # If any step fails, the staging DB rolls back (no partial state).
+        cur.execute('BEGIN IMMEDIATE')
+        try:
+            # Clean slate: delete ALL data in staging DB (single-meet by design)
+            cur.execute('DELETE FROM results')
+            for table in ('winners', 'meets'):
+                try:
+                    cur.execute(f'DELETE FROM {table}')
+                except Exception:
+                    pass  # Table doesn't exist yet
 
-        # Clean slate: delete ALL data in staging DB (single-meet by design)
-        cur.execute('DELETE FROM results')
-        for table in ('winners', 'meets'):
-            try:
-                cur.execute(f'DELETE FROM {table}')
-            except Exception:
-                pass  # Table doesn't exist yet
+            names_cleaned = 0
+            for a in athletes:
+                raw_name = a['name']
+                cleaned_name = clean_athlete_name(raw_name)
+                if cleaned_name != raw_name:
+                    names_cleaned += 1
+                cur.execute('''INSERT OR REPLACE INTO results
+                    (state, meet_name, association, name, gym, club_num, session, level, division,
+                     vault, bars, beam, floor, aa, rank, num)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (config.state, config.meet_name, config.association,
+                     cleaned_name, a['gym'], a.get('club_num', ''),
+                     a['session'], a['level'], a['division'],
+                     a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
+                     a.get('rank'), a.get('num')))
+            if names_cleaned > 0:
+                print(f"Name cleaning: stripped event code suffixes from {names_cleaned} athlete names")
 
-        names_cleaned = 0
-        for a in athletes:
-            raw_name = a['name']
-            cleaned_name = clean_athlete_name(raw_name)
-            if cleaned_name != raw_name:
-                names_cleaned += 1
-            cur.execute('''INSERT OR REPLACE INTO results
-                (state, meet_name, association, name, gym, club_num, session, level, division,
-                 vault, bars, beam, floor, aa, rank, num)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (config.state, config.meet_name, config.association,
-                 cleaned_name, a['gym'], a.get('club_num', ''),
-                 a['session'], a['level'], a['division'],
-                 a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
-                 a.get('rank'), a.get('num')))
-        if names_cleaned > 0:
-            print(f"Name cleaning: stripped event code suffixes from {names_cleaned} athlete names")
+            # Normalize division case (part of the same transaction)
+            _normalize_division_case(cur, config.meet_name)
 
-        # Normalize division case (part of the same transaction)
-        _normalize_division_case(cur, config.meet_name)
+            # Always use score-based winner determination — ranks from data sources
+            # may not handle ties correctly (e.g. ScoreCat assigns sequential ranks
+            # to tied athletes instead of giving both rank 1)
+            _build_winners_score_based(conn, config)
 
-        # Winner determination (commits at end of _build_winners_score_based)
-        _build_winners_score_based(conn, config)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     finally:
         conn.close()
     return db_path
@@ -291,17 +299,16 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
     cur = conn.cursor()
     _create_winners_table(cur, config.meet_name)
 
-    # Coalesce NULLs to empty strings so GROUP BY and comparisons work correctly
-    cur.execute('''UPDATE results SET session = COALESCE(session, ''),
-                   level = COALESCE(level, ''), division = COALESCE(division, ''),
-                   name = COALESCE(name, ''), gym = COALESCE(gym, '')
-                   WHERE meet_name = ?''', (config.meet_name,))
-
     # Find solo sessions (only 1 athlete in that session+level+division).
+    # These are "out of session" competitors (e.g., Sunday religious accommodation)
+    # who are NOT eligible for state champion status.
     solo_sessions = _find_solo_sessions(cur, config.meet_name)
 
-    cur.execute('''SELECT DISTINCT session, level, division FROM results
-                   WHERE meet_name = ?
+    # Use COALESCE in queries (not UPDATE) to handle NULLs without mutating source data
+    cur.execute('''SELECT DISTINCT COALESCE(session,'') as session,
+                   COALESCE(level,'') as level,
+                   COALESCE(division,'') as division
+                   FROM results WHERE meet_name = ?
                    ORDER BY level, division, session''', (config.meet_name,))
     combos = cur.fetchall()
 
@@ -344,7 +351,5 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
 
     if insert_errors:
         print(f"  Warning: {insert_errors} winner insert(s) failed (see above)")
-
-    conn.commit()
 
 

@@ -111,17 +111,8 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
       // During processing, point DB_PATH at the staging DB so agent scripts
       // can't accidentally write to the central DB. The staging DB is the
       // working copy; central is only written to by finalize_meet.
-      const stagingPath = currentStagingDbPath;
-      let dbPath: string;
-      if (stagingPath && fs.existsSync(stagingPath)) {
-        dbPath = stagingPath;
-      } else {
-        dbPath = centralDbPath;
-        // If we're falling through to central during a processing phase, warn
-        if (stagingPath) {
-          console.warn('run_script: staging DB expected but not found, falling back to central DB');
-        }
-      }
+      const stagingPath = getStagingDbPath();
+      const dbPath = stagingPath || centralDbPath;
 
       // Write code to a temp file
       const timestamp = Date.now();
