@@ -13,10 +13,17 @@ const SettingsTab: React.FC = () => {
     supabaseAnonKey: '',
     supabaseEnabled: false,
     installationId: '',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpUser: '',
+    smtpPassword: '',
+    designerEmail: '',
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);
   const [showPerplexityKey, setShowPerplexityKey] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [modelCheckResult, setModelCheckResult] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<string>('');
@@ -293,6 +300,118 @@ const SettingsTab: React.FC = () => {
         </div>
         <div style={{ fontSize: '12px', color: '#888' }}>
           Installation ID: {settings.installationId || 'Loading...'}
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>Email Settings (Send to Designer)</h3>
+        <p className="setting-description">
+          Configure SMTP to send IDML files directly to your designer. For Gmail, use smtp.gmail.com port 587
+          with an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer"
+                     style={{ color: '#5dade2' }}>App Password</a> (requires 2-Step Verification).
+        </p>
+
+        <div className="settings-row">
+          <label className="settings-label">SMTP Server</label>
+          <input
+            type="text"
+            className="settings-input"
+            placeholder="smtp.gmail.com"
+            value={settings.smtpHost}
+            onChange={e => updateSetting('smtpHost', e.target.value)}
+          />
+        </div>
+
+        <div className="settings-row">
+          <label className="settings-label">Port</label>
+          <input
+            type="number"
+            className="settings-input"
+            placeholder="587"
+            value={settings.smtpPort}
+            onChange={e => updateSetting('smtpPort', parseInt(e.target.value) || 587)}
+            style={{ width: '100px' }}
+          />
+        </div>
+
+        <div className="settings-row">
+          <label className="settings-label">Your Email</label>
+          <input
+            type="email"
+            className="settings-input"
+            placeholder="you@gmail.com"
+            value={settings.smtpUser}
+            onChange={e => {
+              const email = e.target.value;
+              updateSetting('smtpUser', email);
+              // Auto-detect SMTP provider
+              const domain = email.split('@')[1]?.toLowerCase() || '';
+              if (domain === 'gmail.com' || domain === 'googlemail.com') {
+                updateSetting('smtpHost', 'smtp.gmail.com');
+                updateSetting('smtpPort', 587);
+              } else if (domain === 'outlook.com' || domain === 'hotmail.com' || domain === 'live.com') {
+                updateSetting('smtpHost', 'smtp-mail.outlook.com');
+                updateSetting('smtpPort', 587);
+              }
+            }}
+          />
+        </div>
+
+        <div className="settings-row">
+          <label className="settings-label">App Password</label>
+          <div className="password-field">
+            <input
+              type={showSmtpPassword ? 'text' : 'password'}
+              className="settings-input"
+              placeholder="16-character app password"
+              value={settings.smtpPassword}
+              onChange={e => updateSetting('smtpPassword', e.target.value)}
+            />
+            <button
+              className="toggle-password"
+              onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+            >
+              {showSmtpPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <label className="settings-label">Designer Email</label>
+          <input
+            type="email"
+            className="settings-input"
+            placeholder="designer@example.com"
+            value={settings.designerEmail}
+            onChange={e => updateSetting('designerEmail', e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <button
+            className="browse-button"
+            onClick={async () => {
+              setEmailTestResult('Testing...');
+              try {
+                const result = await window.electronAPI.testEmail();
+                setEmailTestResult(result.success ? 'Test email sent successfully!' : (result.error || 'Test failed.'));
+              } catch {
+                setEmailTestResult('Test failed.');
+              }
+            }}
+            disabled={!settings.smtpHost || !settings.smtpUser || !settings.smtpPassword || !settings.designerEmail}
+          >
+            Send Test Email
+          </button>
+          {emailTestResult && (
+            <span style={{
+              fontSize: '13px',
+              color: emailTestResult.includes('success') ? '#27ae60' : '#e74c3c',
+              alignSelf: 'center',
+            }}>
+              {emailTestResult}
+            </span>
+          )}
         </div>
       </div>
 

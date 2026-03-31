@@ -14,6 +14,11 @@ export interface AppConfig {
   supabaseAnonKey: string;
   supabaseEnabled: boolean;
   installationId: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  designerEmail: string;
 }
 
 const defaults: AppConfig = {
@@ -27,10 +32,15 @@ const defaults: AppConfig = {
   supabaseAnonKey: '',
   supabaseEnabled: false,
   installationId: '',
+  smtpHost: '',
+  smtpPort: 587,
+  smtpUser: '',
+  smtpPassword: '',
+  designerEmail: '',
 };
 
 /** Keys that contain sensitive values and should be encrypted at rest. */
-const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken', 'perplexityApiKey', 'supabaseAnonKey']);
+const SENSITIVE_KEYS: ReadonlySet<keyof AppConfig> = new Set(['apiKey', 'githubToken', 'perplexityApiKey', 'supabaseAnonKey', 'smtpPassword']);
 
 class ConfigStore {
   private store: Store<AppConfig>;
@@ -136,6 +146,11 @@ class ConfigStore {
       supabaseAnonKey: this.get('supabaseAnonKey'),
       supabaseEnabled: this.get('supabaseEnabled'),
       installationId: this.get('installationId'),
+      smtpHost: this.get('smtpHost'),
+      smtpPort: this.get('smtpPort'),
+      smtpUser: this.get('smtpUser'),
+      smtpPassword: this.get('smtpPassword'),
+      designerEmail: this.get('designerEmail'),
     };
   }
 
@@ -143,6 +158,7 @@ class ConfigStore {
     const validKeys: (keyof AppConfig)[] = [
       'apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir', 'perplexityApiKey',
       'supabaseUrl', 'supabaseAnonKey', 'supabaseEnabled',
+      'smtpHost', 'smtpPort', 'smtpUser', 'smtpPassword', 'designerEmail',
     ];
     for (const key of validKeys) {
       if (key in settings && settings[key] !== undefined) {

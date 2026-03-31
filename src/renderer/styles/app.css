@@ -1017,7 +1017,12 @@ body {
   background: #555;
 }
 
-/* === Cloud Meets Tab === */
+/* === My Meets Tab === */
+.my-meets-tab {
+  padding: 20px;
+  max-width: 900px;
+}
+
 .cloud-meets-tab {
   padding: 20px;
   max-width: 900px;
@@ -1296,4 +1301,76 @@ body {
 .cloud-file-progress {
   color: #f39c12;
   font-size: 12px;
+}
+
+.cloud-success {
+  background: #1a3b2a;
+  color: #27ae60;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border-left: 3px solid #27ae60;
+  font-size: 13px;
+}
+
+/* === My Meets: Source Badges === */
+.source-badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.source-local {
+  background: #1a3b2a;
+  color: #2ecc71;
+}
+
+.source-cloud {
+  background: #1a3a4a;
+  color: #5dade2;
+}
+
+/* === My Meets: File type badge === */
+.file-type-badge {
+  display: inline-block;
+  min-width: 36px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  background: #34495e;
+  color: #95a5a6;
+  font-family: monospace;
+}
+
+/* === My Meets: File label (human-readable) === */
+.cloud-file-label {
+  display: block;
+  color: #ecf0f1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cloud-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* === My Meets: Send confirmation dialog === */
+.send-confirm-dialog {
+  background: #2c3e50;
+  border: 1px solid #8e44ad;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.send-confirm-dialog p {
+  color: #ecf0f1;
+  font-size: 14px;
+  margin: 0 0 12px 0;
 }

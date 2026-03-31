@@ -13,6 +13,7 @@ import { autoUpdater } from 'electron-updater';
 
 let mainWindow: BrowserWindow | null = null;
 let activeAgentLoop: AgentLoop | null = null;
+let agentRunning = false;
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -181,8 +182,15 @@ function setupIPC(): void {
       const agentLoop = new AgentLoop(llmClient, allToolExecutors, sendActivityLog);
       // Store as the active loop so query tab can reuse it
       activeAgentLoop = agentLoop;
+      agentRunning = true;
 
       const result = await agentLoop.processMeet(meetName);
+      agentRunning = false;
+
+      // Notify renderer that a meet finished processing
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('meet-processed', { meetName: result.outputName || meetName });
+      }
 
       if (result.success) {
         sendActivityLog(`Meet "${meetName}" processing completed.`, 'success');
@@ -192,6 +200,7 @@ function setupIPC(): void {
 
       return { success: result.success, message: result.message, outputName: result.outputName };
     } catch (err) {
+      agentRunning = false;
       const message = err instanceof Error ? err.message : String(err);
       sendActivityLog(`Error: ${message}`, 'error');
       return { success: false, error: message };
@@ -318,7 +327,9 @@ function setupIPC(): void {
   ipcMain.handle('download-cloud-file', async (_event, meetName: string, storagePath: string, filename: string) => {
     try {
       const { getSupabaseClient } = await import('./supabase-client');
-      const { getOutputDir } = await import('./paths');
+      const { getOutputDir, assertSafeMeetName, assertSafeFilename } = await import('./paths');
+      assertSafeMeetName(meetName);
+      assertSafeFilename(filename);
       const supabase = await getSupabaseClient();
       if (!supabase) return { success: false, error: 'Supabase not available' };
       const { data, error } = await supabase.storage
@@ -347,21 +358,221 @@ function setupIPC(): void {
     }
   });
 
-  // Open a file or directory with the system default app
-  ipcMain.handle('open-path', async (_event, filePath: string) => {
-    const { shell } = await import('electron');
-    await shell.openPath(filePath);
+  // List all meets from local filesystem + cloud, merged into a unified list
+  ipcMain.handle('list-unified-meets', async () => {
+    try {
+      const { getOutputBase, RECOGNIZED_OUTPUT_FILES } = await import('./paths');
+      const outputBase = getOutputBase();
+
+      // Scan local meets
+      type LocalMeet = { meet_name: string; fileCount: number; modified: string };
+      const localMeets: LocalMeet[] = [];
+      if (fs.existsSync(outputBase)) {
+        const entries = fs.readdirSync(outputBase, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const meetDir = path.join(outputBase, entry.name);
+          const files = fs.readdirSync(meetDir);
+          const recognized = files.filter((f: string) => RECOGNIZED_OUTPUT_FILES.includes(f));
+          if (recognized.length === 0) continue;
+          // Get most recent modification time
+          let latestMtime = 0;
+          for (const f of recognized) {
+            try {
+              const stat = fs.statSync(path.join(meetDir, f));
+              if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs;
+            } catch { /* skip files we can't stat */ }
+          }
+          localMeets.push({
+            meet_name: entry.name,
+            fileCount: recognized.length,
+            modified: latestMtime ? new Date(latestMtime).toISOString() : new Date().toISOString(),
+          });
+        }
+      }
+
+      // Fetch cloud meets (if Supabase enabled)
+      type CloudMeetRow = { meet_name: string; state: string; year: string; association: string | null; source: string | null; dates: string | null; version: number; athlete_count: number; winner_count: number; published_at: string; published_by: string | null };
+      let cloudMeets: CloudMeetRow[] = [];
+      let cloudError: string | undefined;
+      if (configStore.get('supabaseEnabled')) {
+        try {
+          const { getSupabaseClient } = await import('./supabase-client');
+          const supabase = await getSupabaseClient();
+          if (supabase) {
+            const { data, error } = await supabase
+              .from('meets')
+              .select('meet_name, state, year, association, source, dates, version, athlete_count, winner_count, published_at, published_by')
+              .order('published_at', { ascending: false });
+            if (error) cloudError = error.message;
+            else if (data) cloudMeets = data;
+          }
+        } catch (err) {
+          cloudError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      // Merge by exact meet_name match
+      const cloudMap = new Map(cloudMeets.map(m => [m.meet_name, m]));
+      const seen = new Set<string>();
+      type UnifiedMeet =
+        | { meet_name: string; source: 'local'; local: LocalMeet; cloud?: never }
+        | { meet_name: string; source: 'cloud'; cloud: CloudMeetRow; local?: never }
+        | { meet_name: string; source: 'both'; local: LocalMeet; cloud: CloudMeetRow };
+      const unified: UnifiedMeet[] = [];
+
+      // Add local meets (check for cloud match)
+      for (const local of localMeets) {
+        seen.add(local.meet_name);
+        const cloud = cloudMap.get(local.meet_name);
+        if (cloud) {
+          unified.push({ meet_name: local.meet_name, source: 'both', local, cloud });
+        } else {
+          unified.push({ meet_name: local.meet_name, source: 'local', local });
+        }
+      }
+
+      // Add cloud-only meets
+      for (const cloud of cloudMeets) {
+        if (!seen.has(cloud.meet_name)) {
+          unified.push({ meet_name: cloud.meet_name, source: 'cloud', cloud });
+        }
+      }
+
+      // Sort by most recent (local modified or cloud published_at)
+      unified.sort((a, b) => {
+        const dateA = a.local?.modified || a.cloud?.published_at || '';
+        const dateB = b.local?.modified || b.cloud?.published_at || '';
+        return dateB.localeCompare(dateA);
+      });
+
+      return { success: true, meets: unified, cloudError };
+    } catch (err) {
+      return { success: true, meets: [], cloudError: err instanceof Error ? err.message : String(err) };
+    }
   });
 
-  // Show a file in the system file explorer
-  ipcMain.handle('show-in-folder', async (_event, filePath: string) => {
-    const { shell } = await import('electron');
-    shell.showItemInFolder(filePath);
+  // Print a PDF file via Windows print dialog
+  ipcMain.handle('print-file', async (_event, meetName: string, filename: string) => {
+    try {
+      const { assertSafeMeetName, assertSafeFilename, getOutputBase } = await import('./paths');
+      assertSafeMeetName(meetName);
+      assertSafeFilename(filename);
+      const filePath = path.join(getOutputBase(), meetName, filename);
+      if (!filePath.endsWith('.pdf')) return { success: false, error: 'Only PDF files can be printed' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found' };
+
+      const { spawn } = await import('child_process');
+      const child = spawn('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        'Start-Process', '-FilePath', filePath, '-Verb', 'Print',
+      ], { detached: true, stdio: 'ignore' });
+
+      child.on('error', () => { /* print dialog is async, errors are not surfaced */ });
+      child.unref();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Send IDML files to the designer via email
+  ipcMain.handle('send-to-designer', async (_event, meetName: string) => {
+    try {
+      const { assertSafeMeetName, getOutputBase } = await import('./paths');
+      assertSafeMeetName(meetName);
+
+      // Check email config
+      const smtpHost = configStore.get('smtpHost');
+      const smtpUser = configStore.get('smtpUser');
+      const smtpPassword = configStore.get('smtpPassword');
+      const designerEmail = configStore.get('designerEmail');
+      if (!smtpHost || !smtpUser || !smtpPassword || !designerEmail) {
+        return { success: false, error: 'Email not configured. Set up SMTP settings in the Settings tab.' };
+      }
+
+      // Find IDML files in the meet directory
+      const meetDir = path.join(getOutputBase(), meetName);
+      if (!fs.existsSync(meetDir)) {
+        return { success: false, error: 'Meet output directory not found.' };
+      }
+      const idmlFiles = fs.readdirSync(meetDir).filter((f: string) => f.endsWith('.idml'));
+      if (idmlFiles.length === 0) {
+        return { success: false, error: 'No IDML files found for this meet.' };
+      }
+      const idmlPaths = idmlFiles.map((f: string) => path.join(meetDir, f));
+
+      const { sendDesignerEmail } = await import('./smtp-service');
+      return await sendDesignerEmail(
+        { host: smtpHost, port: configStore.get('smtpPort'), user: smtpUser, password: smtpPassword },
+        designerEmail,
+        meetName,
+        idmlPaths
+      );
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Test email configuration
+  ipcMain.handle('test-email', async () => {
+    try {
+      const smtpHost = configStore.get('smtpHost');
+      const smtpUser = configStore.get('smtpUser');
+      const smtpPassword = configStore.get('smtpPassword');
+      const designerEmail = configStore.get('designerEmail');
+      if (!smtpHost || !smtpUser || !smtpPassword || !designerEmail) {
+        return { success: false, error: 'Email not configured. Fill in all SMTP fields first.' };
+      }
+
+      const { sendTestEmail } = await import('./smtp-service');
+      return await sendTestEmail(
+        { host: smtpHost, port: configStore.get('smtpPort'), user: smtpUser, password: smtpPassword },
+        designerEmail
+      );
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Check if the agent loop is currently running
+  ipcMain.handle('is-agent-running', async () => {
+    return { success: true, running: agentRunning };
+  });
+
+  // Open an output file by meet name + filename (safe — no raw paths from renderer)
+  ipcMain.handle('open-file', async (_event, meetName: string, filename: string) => {
+    try {
+      const { assertSafeMeetName, assertSafeFilename, getOutputBase } = await import('./paths');
+      assertSafeMeetName(meetName);
+      assertSafeFilename(filename);
+      const filePath = path.join(getOutputBase(), meetName, filename);
+      const errorMsg = await shell.openPath(filePath);
+      return { success: !errorMsg, error: errorMsg || undefined };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Show an output file in the system file explorer
+  ipcMain.handle('show-in-folder', async (_event, meetName: string, filename: string) => {
+    try {
+      const { assertSafeMeetName, assertSafeFilename, getOutputBase } = await import('./paths');
+      assertSafeMeetName(meetName);
+      assertSafeFilename(filename);
+      const filePath = path.join(getOutputBase(), meetName, filename);
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   // Get output files for a meet
   ipcMain.handle('get-output-files', async (_event, meetName: string) => {
     try {
+      const { assertSafeMeetName } = await import('./paths');
+      assertSafeMeetName(meetName);
       const outputDir = configStore.get('outputDir');
       const meetDir = path.join(outputDir, meetName);
 
@@ -389,6 +600,8 @@ function setupIPC(): void {
 
   // Open output folder
   ipcMain.handle('open-output-folder', async (_event, meetName: string) => {
+    const { assertSafeMeetName } = await import('./paths');
+    assertSafeMeetName(meetName);
     const outputDir = configStore.get('outputDir');
     const meetDir = path.join(outputDir, meetName);
 

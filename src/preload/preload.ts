@@ -121,10 +121,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pullCloudMeet: (meetName: string) => {
     return ipcRenderer.invoke('pull-cloud-meet', meetName);
   },
-  openPath: (filePath: string) => {
-    return ipcRenderer.invoke('open-path', filePath);
+  openFile: (meetName: string, filename: string) => {
+    return ipcRenderer.invoke('open-file', meetName, filename);
   },
-  showInFolder: (filePath: string) => {
-    return ipcRenderer.invoke('show-in-folder', filePath);
+  showInFolder: (meetName: string, filename: string) => {
+    return ipcRenderer.invoke('show-in-folder', meetName, filename);
+  },
+  listUnifiedMeets: () => {
+    return ipcRenderer.invoke('list-unified-meets');
+  },
+  printFile: (meetName: string, filename: string) => {
+    return ipcRenderer.invoke('print-file', meetName, filename);
+  },
+  sendToDesigner: (meetName: string) => {
+    return ipcRenderer.invoke('send-to-designer', meetName);
+  },
+  testEmail: () => {
+    return ipcRenderer.invoke('test-email');
+  },
+  isAgentRunning: () => {
+    return ipcRenderer.invoke('is-agent-running');
+  },
+  onMeetProcessed: (callback: (data: { meetName: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { meetName: string }) => {
+      callback(data);
+    };
+    ipcRenderer.on('meet-processed', handler);
+    return () => {
+      ipcRenderer.removeListener('meet-processed', handler);
+    };
   },
 } as ElectronAPI);

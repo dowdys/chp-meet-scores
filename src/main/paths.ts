@@ -27,6 +27,41 @@ export function getProjectRoot(): string {
   return path.join(appPath, '..', '..');
 }
 
+/** Recognized output filenames that the pipeline generates. */
+export const RECOGNIZED_OUTPUT_FILES = [
+  'back_of_shirt.pdf', 'back_of_shirt_8.5x14.pdf',
+  'back_of_shirt.idml', 'back_of_shirt_8.5x14.idml',
+  'order_forms.pdf',
+  'gym_highlights.pdf', 'gym_highlights_8.5x14.pdf',
+  'meet_summary.txt',
+];
+
+/** Validate that a meet name is safe for use in file paths (no traversal). */
+export function assertSafeMeetName(meetName: string): void {
+  if (!meetName || typeof meetName !== 'string') throw new Error('Invalid meet name');
+  if (meetName.includes('/') || meetName.includes('\\') || meetName.includes('..')) {
+    throw new Error('Invalid meet name: path separators not allowed');
+  }
+}
+
+/** Validate that a filename is safe (no traversal, allowed extensions only). */
+export function assertSafeFilename(filename: string): void {
+  if (!filename || typeof filename !== 'string') throw new Error('Invalid filename');
+  if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+    throw new Error('Invalid filename: path separators not allowed');
+  }
+  const allowedExtensions = ['.pdf', '.idml', '.txt', '.csv', '.xlsx'];
+  const ext = path.extname(filename).toLowerCase();
+  if (!allowedExtensions.includes(ext)) {
+    throw new Error(`Invalid filename: unsupported extension ${ext}`);
+  }
+}
+
+/** Get the output base directory (parent of all meet folders). */
+export function getOutputBase(): string {
+  return configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
+}
+
 export function getOutputDir(meetName: string, createIfMissing = true): string {
   const outputBase = configStore.get('outputDir') || path.join(app.getPath('documents'), 'Gymnastics Champions');
   const meetDir = path.join(outputBase, meetName);

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import ProcessTab from './components/ProcessTab';
 import QueryTab from './components/QueryTab';
-import CloudMeetsTab from './components/CloudMeetsTab';
+import MyMeetsTab from './components/MyMeetsTab';
 import SettingsTab from './components/SettingsTab';
 
-type TabName = 'process' | 'query' | 'cloud' | 'settings';
+type TabName = 'process' | 'query' | 'my-meets' | 'settings';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabName>('process');
@@ -29,10 +29,10 @@ const App: React.FC = () => {
           Query Results
         </button>
         <button
-          className={`tab-button ${activeTab === 'cloud' ? 'active' : ''}`}
-          onClick={() => setActiveTab('cloud')}
+          className={`tab-button ${activeTab === 'my-meets' ? 'active' : ''}`}
+          onClick={() => setActiveTab('my-meets')}
         >
-          Cloud Meets
+          My Meets
         </button>
         <button
           className={`tab-button ${activeTab === 'settings' ? 'active' : ''}`}
@@ -49,8 +49,8 @@ const App: React.FC = () => {
         <div style={{ display: activeTab === 'query' ? 'block' : 'none' }}>
           <QueryTab />
         </div>
-        <div style={{ display: activeTab === 'cloud' ? 'block' : 'none' }}>
-          <CloudMeetsTab />
+        <div style={{ display: activeTab === 'my-meets' ? 'block' : 'none' }}>
+          <MyMeetsTab isActive={activeTab === 'my-meets'} />
         </div>
         <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
           <SettingsTab />

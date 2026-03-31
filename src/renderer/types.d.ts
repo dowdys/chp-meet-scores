@@ -6,6 +6,8 @@ export type {
   ElectronAPI,
   CloudMeet,
   CloudMeetFile,
+  LocalMeet,
+  UnifiedMeet,
 } from '../shared/types';
 
 import type { ElectronAPI } from '../shared/types';

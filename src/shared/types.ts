@@ -27,6 +27,11 @@ export interface AppSettings {
   supabaseAnonKey: string;
   supabaseEnabled: boolean;
   installationId: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  designerEmail: string;
 }
 
 export interface CloudMeet {
@@ -49,6 +54,17 @@ export interface CloudMeetFile {
   file_size: number | null;
   uploaded_at: string;
 }
+
+export interface LocalMeet {
+  meet_name: string;
+  fileCount: number;
+  modified: string; // ISO date of most recent file
+}
+
+export type UnifiedMeet =
+  | { meet_name: string; source: 'local';  local: LocalMeet; cloud?: never }
+  | { meet_name: string; source: 'cloud';  cloud: CloudMeet; local?: never }
+  | { meet_name: string; source: 'both';   local: LocalMeet; cloud: CloudMeet };
 
 export interface AskUserRequest {
   question: string;
@@ -83,6 +99,12 @@ export interface ElectronAPI {
   getCloudMeetFiles: (meetName: string) => Promise<{ success: boolean; files?: CloudMeetFile[]; error?: string }>;
   downloadCloudFile: (meetName: string, storagePath: string, filename: string) => Promise<{ success: boolean; localPath?: string; error?: string }>;
   pullCloudMeet: (meetName: string) => Promise<{ success: boolean; reason?: string; resultsCount?: number; winnersCount?: number }>;
-  openPath: (filePath: string) => Promise<void>;
-  showInFolder: (filePath: string) => Promise<void>;
+  openFile: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
+  showInFolder: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
+  listUnifiedMeets: () => Promise<{ success: boolean; meets: UnifiedMeet[]; cloudError?: string }>;
+  printFile: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
+  sendToDesigner: (meetName: string) => Promise<{ success: boolean; error?: string }>;
+  testEmail: () => Promise<{ success: boolean; error?: string }>;
+  isAgentRunning: () => Promise<{ success: boolean; running: boolean }>;
+  onMeetProcessed: (callback: (data: { meetName: string }) => void) => () => void;
 }
