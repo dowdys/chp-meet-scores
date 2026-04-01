@@ -13,16 +13,10 @@ const RECIPIENTS = {
 const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MB
 
 function isValidKey(provided: string): boolean {
-  if (!RELAY_SECRET) {
-    console.error("[send-email] RELAY_API_SECRET env var is not set");
-    return false;
-  }
+  if (!RELAY_SECRET) return false;
   const a = Buffer.from(provided.trim());
   const b = Buffer.from(RELAY_SECRET.trim());
-  if (a.length !== b.length) {
-    console.error(`[send-email] Key length mismatch: provided=${a.length}, expected=${b.length}`);
-    return false;
-  }
+  if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }
 
