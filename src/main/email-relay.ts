@@ -6,7 +6,7 @@
 // The relay route URL and shared secret are hardcoded.
 // The secret only grants access to send to two hardcoded server-side addresses
 // (designer + dowdy), so the blast radius of extraction is minimal.
-const API_URL = 'https://order.thestatechampion.com/api/send-email';
+const API_URL = 'https://thestatechampion.vercel.app/api/send-email';
 const API_KEY = 'b5c25e5868da88dee445850944e9def5106c85e0ecc6f0ea0feee54852d1ee4f';
 
 /** Max payload size before base64 overhead — keep under Vercel's 4.5MB limit. */
