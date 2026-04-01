@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('process-meet', meetName);
   },
 
+  editMeet: (meetName: string) => {
+    return ipcRenderer.invoke('edit-meet', meetName);
+  },
+
   continueConversation: (message: string) => {
     return ipcRenderer.invoke('continue-conversation', message);
   },

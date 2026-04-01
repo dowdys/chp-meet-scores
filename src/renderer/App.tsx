@@ -50,7 +50,7 @@ const App: React.FC = () => {
           <QueryTab />
         </div>
         <div style={{ display: activeTab === 'my-meets' ? 'block' : 'none' }}>
-          <MyMeetsTab isActive={activeTab === 'my-meets'} />
+          <MyMeetsTab isActive={activeTab === 'my-meets'} onNavigateToProcess={() => setActiveTab('process')} />
         </div>
         <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
           <SettingsTab />

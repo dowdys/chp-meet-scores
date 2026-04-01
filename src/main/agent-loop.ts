@@ -87,7 +87,7 @@ export class AgentLoop {
     }
   }
 
-  async processMeet(meetName: string): Promise<{ success: boolean; message: string; outputName?: string }> {
+  async processMeet(meetName: string, options?: { mode?: 'fresh' | 'edit'; meetSummary?: string }): Promise<{ success: boolean; message: string; outputName?: string }> {
     // Prevent ghost context from previous runs
     if (this.lastContext && this.lastContext.meetName !== meetName) {
       console.log(`[AGENT] Clearing stale lastContext from "${this.lastContext.meetName}" (new run: "${meetName}")`);
@@ -99,8 +99,6 @@ export class AgentLoop {
 
     try {
       const basePrompt = this.loadBasePrompt();
-      resetStagingDb();
-      setDbToolsPhase('discovery'); // Initialize phase for db-tools
 
       const logsDir = path.join(getDataDir(), 'logs');
       if (!fs.existsSync(logsDir)) {
@@ -127,83 +125,98 @@ export class AgentLoop {
 
       this.activeContext = context;
 
-      // Check for saved progress
-      const savedProgress = await loadProgressData();
-      if (savedProgress && savedProgress.meet_name === meetName) {
-        this.onActivity('Found saved progress, resuming...', 'info');
-        context.loadedSkills = savedProgress.loaded_skills;
-        if (savedProgress.current_phase) {
-          switchPhase(context, savedProgress.current_phase);
-        }
-        if (savedProgress.idml_imported) {
-          context.idmlImported = true;
-        }
-        if (savedProgress.output_name) {
-          context.outputName = savedProgress.output_name;
-        }
-        if (savedProgress.state) {
-          context.state = savedProgress.state;
-        }
-        if (savedProgress.postmark_date) context.postmarkDate = savedProgress.postmark_date;
-        if (savedProgress.online_date) context.onlineDate = savedProgress.online_date;
-        if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
-        if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
-        if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
-
-        const dataDir = getDataDir();
-        let fileInventory = '';
-        try {
-          const allFiles = fs.readdirSync(dataDir)
-            .filter(f => f.endsWith('.json') && f !== 'agent_progress.json');
-          if (allFiles.length > 0) {
-            const fileLines = allFiles.map(f => {
-              const stats = fs.statSync(path.join(dataDir, f));
-              const sizeKB = (stats.size / 1024).toFixed(1);
-              return `  ${path.join(dataDir, f)} (${sizeKB} KB)`;
-            });
-            fileInventory = `\n\nData directory: ${dataDir}\nData files:\n${fileLines.join('\n')}`;
-          }
-        } catch { /* data dir might not exist yet */ }
-
-        let trackedFileStatus = '';
-        if (savedProgress.data_files && savedProgress.data_files.length > 0) {
-          const statusLines = savedProgress.data_files.map(df => {
-            const exists = fs.existsSync(df.path);
-            const marker = exists ? '[EXISTS]' : '[MISSING]';
-            return `  ${marker} ${df.path} — ${df.description}`;
-          });
-          trackedFileStatus = `\n\nTracked data files:\n${statusLines.join('\n')}`;
-        }
-
+      if (options?.mode === 'edit') {
+        // Edit mode — skip staging DB, skip progress check, start in database phase
+        this.onActivity('Starting edit session...', 'info');
+        switchPhase(context, 'database');
+        const summaryInfo = options.meetSummary ? `\n\nMeet data summary:\n${options.meetSummary}` : '';
         context.messages.push({
           role: 'user',
-          content: `You are resuming work on meet "${meetName}". Current phase: ${context.currentPhase}.\n\nHere is your previous progress:\n\nSummary: ${savedProgress.summary}\n\nNext steps: ${savedProgress.next_steps}${fileInventory}${trackedFileStatus}\n\nPlease continue from where you left off. Use set_phase if you need to change phases.`,
+          content: `You are editing meet "${meetName}". The meet data is in the central database.${summaryInfo}\n\nThe user wants to make changes. Ask what they'd like to do. Available actions: fix gym names (rename_gym), check data (query_db), regenerate outputs (regenerate_output), view summary (get_meet_summary), re-publish changes (finalize_meet).`,
         });
       } else {
-        // Fresh start — detect IDML import vs normal meet
-        const isFilePath = /^(\/|[A-Za-z]:\\|~|\/mnt\/)/.test(meetName.trim()) || meetName.includes('.idml') || meetName.includes('.pdf');
-        if (isFilePath) {
-          const hasPdf = meetName.includes('.pdf');
-          if (hasPdf) {
-            // PDF import gets its own dedicated phase
-            switchPhase(context, 'import_backs');
-            context.messages.push({
-              role: 'user',
-              content: `The user provided PDF file path(s): "${meetName}"\n\nYou are in the IMPORT BACKS phase. Follow the steps in order:\n1. Use list_meets to find available meets\n2. Match the meet from context (filenames, user message) — only ask if ambiguous\n3. Use import_pdf_backs with the correct meet_name and state\n4. Open the generated files for user review`,
-            });
-          } else {
-            // IDML files — redirect to import_backs phase, tell agent to request PDFs
-            switchPhase(context, 'import_backs');
-            context.messages.push({
-              role: 'user',
-              content: `The user provided IDML file path(s): "${meetName}"\n\nIDML import is no longer supported. Ask the user to export PDFs from InDesign instead (File → Export → PDF). Then use import_pdf_backs with the PDF file paths.`,
-            });
+        // Check for saved progress
+        const savedProgress = await loadProgressData();
+        if (savedProgress && savedProgress.meet_name === meetName) {
+          this.onActivity('Found saved progress, resuming...', 'info');
+          context.loadedSkills = savedProgress.loaded_skills;
+          if (savedProgress.current_phase) {
+            switchPhase(context, savedProgress.current_phase);
           }
-        } else {
+          if (savedProgress.idml_imported) {
+            context.idmlImported = true;
+          }
+          if (savedProgress.output_name) {
+            context.outputName = savedProgress.output_name;
+          }
+          if (savedProgress.state) {
+            context.state = savedProgress.state;
+          }
+          if (savedProgress.postmark_date) context.postmarkDate = savedProgress.postmark_date;
+          if (savedProgress.online_date) context.onlineDate = savedProgress.online_date;
+          if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
+          if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
+          if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
+
+          const dataDir = getDataDir();
+          let fileInventory = '';
+          try {
+            const allFiles = fs.readdirSync(dataDir)
+              .filter(f => f.endsWith('.json') && f !== 'agent_progress.json');
+            if (allFiles.length > 0) {
+              const fileLines = allFiles.map(f => {
+                const stats = fs.statSync(path.join(dataDir, f));
+                const sizeKB = (stats.size / 1024).toFixed(1);
+                return `  ${path.join(dataDir, f)} (${sizeKB} KB)`;
+              });
+              fileInventory = `\n\nData directory: ${dataDir}\nData files:\n${fileLines.join('\n')}`;
+            }
+          } catch { /* data dir might not exist yet */ }
+
+          let trackedFileStatus = '';
+          if (savedProgress.data_files && savedProgress.data_files.length > 0) {
+            const statusLines = savedProgress.data_files.map(df => {
+              const exists = fs.existsSync(df.path);
+              const marker = exists ? '[EXISTS]' : '[MISSING]';
+              return `  ${marker} ${df.path} — ${df.description}`;
+            });
+            trackedFileStatus = `\n\nTracked data files:\n${statusLines.join('\n')}`;
+          }
+
           context.messages.push({
             role: 'user',
-            content: `Please process the gymnastics meet: "${meetName}"\n\nYou are in the DISCOVERY phase. Find the meet results online, identify the data source, set a clean output name, and get deadline dates from the user. Use set_phase to advance when ready.`,
+            content: `You are resuming work on meet "${meetName}". Current phase: ${context.currentPhase}.\n\nHere is your previous progress:\n\nSummary: ${savedProgress.summary}\n\nNext steps: ${savedProgress.next_steps}${fileInventory}${trackedFileStatus}\n\nPlease continue from where you left off. Use set_phase if you need to change phases.`,
           });
+        } else {
+          // Fresh start — reset staging DB and initialize phase
+          resetStagingDb();
+          setDbToolsPhase('discovery');
+
+          // Detect IDML import vs normal meet
+          const isFilePath = /^(\/|[A-Za-z]:\\|~|\/mnt\/)/.test(meetName.trim()) || meetName.includes('.idml') || meetName.includes('.pdf');
+          if (isFilePath) {
+            const hasPdf = meetName.includes('.pdf');
+            if (hasPdf) {
+              // PDF import gets its own dedicated phase
+              switchPhase(context, 'import_backs');
+              context.messages.push({
+                role: 'user',
+                content: `The user provided PDF file path(s): "${meetName}"\n\nYou are in the IMPORT BACKS phase. Follow the steps in order:\n1. Use list_meets to find available meets\n2. Match the meet from context (filenames, user message) — only ask if ambiguous\n3. Use import_pdf_backs with the correct meet_name and state\n4. Open the generated files for user review`,
+              });
+            } else {
+              // IDML files — redirect to import_backs phase, tell agent to request PDFs
+              switchPhase(context, 'import_backs');
+              context.messages.push({
+                role: 'user',
+                content: `The user provided IDML file path(s): "${meetName}"\n\nIDML import is no longer supported. Ask the user to export PDFs from InDesign instead (File → Export → PDF). Then use import_pdf_backs with the PDF file paths.`,
+              });
+            }
+          } else {
+            context.messages.push({
+              role: 'user',
+              content: `Please process the gymnastics meet: "${meetName}"\n\nYou are in the DISCOVERY phase. Find the meet results online, identify the data source, set a clean output name, and get deadline dates from the user. Use set_phase to advance when ready.`,
+            });
+          }
         }
       }
 

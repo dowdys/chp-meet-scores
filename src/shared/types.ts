@@ -68,6 +68,7 @@ export interface AskUserRequest {
 
 export interface ElectronAPI {
   processMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
+  editMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
   continueConversation: (message: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   queryResults: (question: string) => Promise<{ success: boolean; answer?: string; error?: string }>;
   resetSession: () => Promise<{ success: boolean; deleted?: number; error?: string }>;

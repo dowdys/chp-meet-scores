@@ -6,6 +6,7 @@ import { getDataDir } from '../paths';
 import { publishMeet, pullMeetData } from '../supabase-sync';
 import { isSupabaseEnabled, SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase-client';
 import { requireString, optionalNumber } from './validation';
+import { clearProgressFile } from '../context-tools';
 
 function getDbPath(): string {
   return path.join(getDataDir(), 'chp_results.db');
@@ -387,6 +388,9 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             finalMsg += ` Cloud publish error: ${errMsg}. Data is safe locally.`;
           }
         }
+
+        // Clear saved progress — meet is finalized, no need to resume
+        clearProgressFile();
 
         return duplicateWarning ? duplicateWarning + finalMsg : finalMsg;
       } catch (err) {

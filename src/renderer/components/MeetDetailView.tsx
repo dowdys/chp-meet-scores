@@ -44,9 +44,10 @@ function isIdml(filename: string): boolean {
 interface Props {
   meet: UnifiedMeet;
   onBack: () => void;
+  onNavigateToProcess?: () => void;
 }
 
-const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
+const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) => {
   // Local files
   const [localFiles, setLocalFiles] = useState<OutputFile[]>([]);
   const [localLoading, setLocalLoading] = useState(false);
@@ -69,6 +70,9 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
   // Send to designer
   const [sending, setSending] = useState(false);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
+
+  // Edit meet
+  const [editing, setEditing] = useState(false);
 
   // Report Issue modal
   const [showReportModal, setShowReportModal] = useState(false);
@@ -109,6 +113,20 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
   const showMessage = (text: string, type: 'success' | 'error') => {
     setActionMessage({ text, type });
     setTimeout(() => setActionMessage(null), 4000);
+  };
+
+  // --- Edit meet ---
+
+  const handleEditMeet = async () => {
+    setEditing(true);
+    try {
+      // Navigate to Process tab so the user sees the agent's activity log
+      if (onNavigateToProcess) onNavigateToProcess();
+      await window.electronAPI.editMeet(meet.meet_name);
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Failed to start edit session', 'error');
+    }
+    setEditing(false);
   };
 
   // --- Local file actions ---
@@ -290,6 +308,14 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
       <div className="cloud-files-header">
         <h3>Documents</h3>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            className="cloud-download-all"
+            style={{ background: '#27ae60' }}
+            disabled={editing}
+            onClick={handleEditMeet}
+          >
+            {editing ? 'Starting...' : 'Edit Meet'}
+          </button>
           {hasLocal && hasLocalIdml && (
             <button
               className="cloud-download-all"

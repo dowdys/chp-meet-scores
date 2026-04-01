@@ -88,6 +88,16 @@ function getProgressFilePath(): string {
   return path.join(getDataDir(), 'agent_progress.json');
 }
 
+/** Delete the progress file if it exists. Called after successful finalize_meet. */
+export function clearProgressFile(): void {
+  const filePath = getProgressFilePath();
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch { /* ignore — file may already be gone */ }
+}
+
 function getSkillsDir(): string {
   return path.join(getProjectRoot(), 'skills');
 }

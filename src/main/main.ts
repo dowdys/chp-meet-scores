@@ -142,6 +142,26 @@ function getOrCreateAgentLoop(): AgentLoop {
   return activeAgentLoop;
 }
 
+/** Build a concise meet summary from the central DB for the edit-mode initial message. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildMeetSummary(db: any, meetName: string): string {
+  try {
+    const count = (db.prepare('SELECT COUNT(*) as c FROM results WHERE meet_name = ?').get(meetName) as { c: number }).c;
+    const levels = db.prepare('SELECT DISTINCT level FROM results WHERE meet_name = ? ORDER BY level').all(meetName) as { level: string }[];
+    const gyms = (db.prepare('SELECT COUNT(DISTINCT gym) as c FROM results WHERE meet_name = ?').get(meetName) as { c: number }).c;
+    const meetRow = db.prepare('SELECT state, association, year, dates FROM meets WHERE meet_name = ?').get(meetName) as { state?: string; association?: string; year?: number; dates?: string } | undefined;
+
+    const parts = [`${count} athletes, ${gyms} gyms, ${levels.length} levels (${levels.map(l => l.level).join(', ')})`];
+    if (meetRow) {
+      if (meetRow.state) parts.push(`State: ${meetRow.state}`);
+      if (meetRow.dates) parts.push(`Dates: ${meetRow.dates}`);
+    }
+    return parts.join('\n');
+  } catch {
+    return '';
+  }
+}
+
 // IPC Handlers
 function setupIPC(): void {
   // Process a meet
@@ -196,6 +216,74 @@ function setupIPC(): void {
         sendActivityLog(`Meet "${meetName}" processing completed.`, 'success');
       } else {
         sendActivityLog(`Meet "${meetName}" processing failed: ${result.message}`, 'error');
+      }
+
+      return { success: result.success, message: result.message, outputName: result.outputName };
+    } catch (err) {
+      agentRunning = false;
+      const message = err instanceof Error ? err.message : String(err);
+      sendActivityLog(`Error: ${message}`, 'error');
+      return { success: false, error: message };
+    }
+  });
+
+  // Edit an existing meet — pull from Supabase if needed, start agent in edit mode
+  ipcMain.handle('edit-meet', async (_event, meetName: string) => {
+    try {
+      sendActivityLog(`Starting edit session for: ${meetName}`, 'info');
+
+      // Check if meet exists in central DB
+      const Database = (await import('better-sqlite3')).default;
+      const dbPath = path.join(getDataDir(), 'chp_results.db');
+      let meetSummary = '';
+
+      if (fs.existsSync(dbPath)) {
+        const db = new Database(dbPath, { readonly: true });
+        const row = db.prepare('SELECT COUNT(*) as count FROM results WHERE meet_name = ?').get(meetName) as { count: number } | undefined;
+        if (!row || row.count === 0) {
+          db.close();
+          // Not local — try pulling from Supabase
+          sendActivityLog('Meet not in local DB, pulling from Supabase...', 'info');
+          const { pullMeetData } = await import('./supabase-sync');
+          const pullResult = await pullMeetData(meetName);
+          if (!pullResult.success) {
+            sendActivityLog(`Failed to pull meet: ${pullResult.reason}`, 'error');
+            return { success: false, error: `Meet "${meetName}" not found locally or in Supabase: ${pullResult.reason}` };
+          }
+          sendActivityLog(`Pulled ${pullResult.resultsCount} athletes from Supabase`, 'info');
+          // Re-open to get summary
+          const db2 = new Database(dbPath, { readonly: true });
+          meetSummary = buildMeetSummary(db2, meetName);
+          db2.close();
+        } else {
+          // Meet exists locally — build summary
+          meetSummary = buildMeetSummary(db, meetName);
+          db.close();
+        }
+      } else {
+        // No local DB at all — try pulling from Supabase
+        sendActivityLog('No local database, pulling from Supabase...', 'info');
+        const { pullMeetData } = await import('./supabase-sync');
+        const pullResult = await pullMeetData(meetName);
+        if (!pullResult.success) {
+          return { success: false, error: `Meet "${meetName}" not found in Supabase: ${pullResult.reason}` };
+        }
+        sendActivityLog(`Pulled ${pullResult.resultsCount} athletes from Supabase`, 'info');
+        const db = new Database(dbPath, { readonly: true });
+        meetSummary = buildMeetSummary(db, meetName);
+        db.close();
+      }
+
+      const llmClient = createLLMClient();
+      const agentLoop = new AgentLoop(llmClient, allToolExecutors, sendActivityLog);
+      activeAgentLoop = agentLoop;
+      agentRunning = true;
+
+      const result = await agentLoop.processMeet(meetName, { mode: 'edit', meetSummary });
+      agentRunning = false;
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('meet-processed', { meetName: result.outputName || meetName });
       }
 
       return { success: result.success, message: result.message, outputName: result.outputName };
