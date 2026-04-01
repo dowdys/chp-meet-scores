@@ -52,6 +52,7 @@ export async function sendEmail({
       Name: a.filename,
       Content: a.content,
       ContentType: a.contentType,
+      ContentID: "",
     }));
   }
   return getClient().sendEmail(message);
