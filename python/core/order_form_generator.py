@@ -374,7 +374,7 @@ def _get_gym_athletes(db_path: str, meet_name: str):
     try:
         cur = conn.cursor()
 
-        div_order, _unknowns = detect_division_order(db_path, meet_name)
+        div_order, _warnings = detect_division_order(db_path, meet_name)
 
         cur.execute('''
             SELECT gym, name, level, division, event

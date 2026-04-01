@@ -72,7 +72,7 @@ from python.adapters.scorecat_adapter import ScoreCatAdapter
 from python.adapters.html_adapter import HtmlAdapter
 from python.adapters.pdf_adapter import PdfAdapter
 from python.adapters.generic_adapter import GenericAdapter
-from python.core.division_detector import get_division_order, detect_division_order
+from python.core.division_detector import get_division_order, detect_division_order, detect_division_gaps
 
 
 def _tmp_path_for(output_path):
@@ -761,6 +761,17 @@ def main():
             print(f"Error: Database not found at {db_path}. Run full pipeline first.")
             sys.exit(1)
 
+        # Load saved_layout early so shirt cascade check can reference it
+        _layout_dir = os.environ.get('DATA_DIR') or os.path.dirname(os.path.abspath(db_path))
+        _regen_layout_json = os.path.join(_layout_dir, 'shirt_layout.json')
+        saved_layout = {}
+        if os.path.exists(_regen_layout_json):
+            try:
+                with open(_regen_layout_json, 'r', encoding='utf-8') as f:
+                    saved_layout = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+
         # When shirt regenerates, cascade to outputs that depend on the shirt PDF:
         # - order_forms embeds actual shirt PDF pages
         # - summary reads layout data (page groups, athlete counts)
@@ -846,19 +857,23 @@ def main():
         print(f"Building database at {db_path}...")
         build_database(db_path, config, athletes)
 
-    # Auto-detect division ordering with explicit override support
+    # Division ordering — agent provides explicit order via --division-order
     _explicit = None
     if args.division_order:
         _explicit = [s.strip() for s in args.division_order.split(',') if s.strip()]
-    division_order, unknown_divs = detect_division_order(
+    division_order, div_warnings = detect_division_order(
         db_path, config.meet_name, explicit_order=_explicit)
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
-    if unknown_divs:
-        print(f"UNKNOWN_DIVISIONS: {', '.join(unknown_divs)}")
-        print("The ordering of these divisions could not be auto-detected. "
-              "They are currently sorted after all known divisions. "
-              "To fix: re-run with --division-order specifying all divisions "
-              "in youngest-to-oldest order, e.g. --division-order \"Petite,Cadet,Junior,Senior\"")
+    for w in div_warnings:
+        print(w)
+
+    # Check for gaps in division letter sequences (e.g. Ch A,B,C + Jr D → Jr A,B,C missing)
+    gap_warnings = detect_division_gaps(list(division_order.keys()))
+    for w in gap_warnings:
+        print(w)
+    if gap_warnings:
+        print("These gaps may indicate missing data from a separate meet/session. "
+              "Verify all sessions were extracted before generating final outputs.")
 
     # Also cache for get_division_order consumers
     config_dir = os.path.dirname(os.path.abspath(db_path))

@@ -445,7 +445,7 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
         logger.debug("WINNERS_DIAG: meet_name=%r, found %d levels: %s", meet_name, len(levels), levels)
 
         # Get division ordering for age-based sort
-        div_order, _unknowns = detect_division_order(db_path, meet_name)
+        div_order, _warnings = detect_division_order(db_path, meet_name)
         logger.debug("WINNERS_DIAG: div_order has %d entries: %s", len(div_order), div_order)
 
         # Build score lookups keyed by (name, level, session) for tie-breaking.

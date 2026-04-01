@@ -258,7 +258,7 @@ export function getToolDefinitions(): ToolDefinition[] {
           copyright: { type: 'string', description: 'Copyright text' },
           sport: { type: 'string', description: 'Sport name' },
           title_prefix: { type: 'string', description: 'Title prefix text' },
-          division_order: { type: 'string', description: 'Comma-separated divisions youngest-to-oldest' },
+          division_order: { type: 'string', description: 'IMPORTANT: Comma-separated divisions youngest-to-oldest. Always provide this — query divisions first with query_db, then order them by age.' },
           name_sort: { type: 'string', enum: ['age', 'alpha'], description: 'Name sort order (default: age)' },
           gym_map: { type: 'string', description: 'Path to gym name mapping JSON file' },
           force: { type: 'boolean', description: 'Force overwrite of imported outputs' },
