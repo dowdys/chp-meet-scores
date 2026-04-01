@@ -44,7 +44,7 @@ function isIdml(filename: string): boolean {
 interface Props {
   meet: UnifiedMeet;
   onBack: () => void;
-  onNavigateToProcess?: () => void;
+  onNavigateToProcess: () => void;
 }
 
 const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) => {
@@ -121,7 +121,7 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
     setEditing(true);
     try {
       // Navigate to Process tab so the user sees the agent's activity log
-      if (onNavigateToProcess) onNavigateToProcess();
+      onNavigateToProcess();
       const result = await window.electronAPI.editMeet(meet.meet_name);
       if (!result.success) {
         showMessage(result.error || 'Failed to start edit session', 'error');

@@ -87,7 +87,7 @@ export class AgentLoop {
     }
   }
 
-  async processMeet(meetName: string, options?: { mode?: 'fresh' | 'edit'; meetSummary?: string }): Promise<{ success: boolean; message: string; outputName?: string }> {
+  async processMeet(meetName: string, options?: { mode: 'edit'; meetSummary: string } | { mode?: 'fresh' }): Promise<{ success: boolean; message: string; outputName?: string }> {
     // Prevent ghost context from previous runs
     if (this.lastContext && this.lastContext.meetName !== meetName) {
       console.log(`[AGENT] Clearing stale lastContext from "${this.lastContext.meetName}" (new run: "${meetName}")`);
@@ -129,7 +129,7 @@ export class AgentLoop {
         // Edit mode — skip staging DB, skip progress check, start in database phase
         this.onActivity('Starting edit session...', 'info');
         switchPhase(context, 'database');
-        const summaryInfo = options.meetSummary ? `\n\nMeet data summary:\n${options.meetSummary}` : '';
+        const summaryInfo = options.meetSummary ? `\n\nMeet data summary:\n${options.meetSummary}` : '';  // meetSummary is required but may be empty string
         context.messages.push({
           role: 'user',
           content: `You are editing meet "${meetName}". The meet data is in the central database.${summaryInfo}\n\nThe user wants to make changes. Ask what they'd like to do. Available actions: fix gym names (rename_gym), check data (query_db), regenerate outputs (regenerate_output), view summary (get_meet_summary), re-publish changes (finalize_meet).`,

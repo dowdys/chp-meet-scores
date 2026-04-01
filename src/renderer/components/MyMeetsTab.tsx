@@ -12,7 +12,7 @@ function formatDate(iso: string): string {
 
 interface Props {
   isActive: boolean;
-  onNavigateToProcess?: () => void;
+  onNavigateToProcess: () => void;
 }
 
 const MyMeetsTab: React.FC<Props> = ({ isActive, onNavigateToProcess }) => {
