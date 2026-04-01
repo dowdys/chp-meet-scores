@@ -110,7 +110,7 @@ class PythonManager {
     return new Promise((resolve, reject) => {
       const proc = spawn(resolved.command, [...resolved.args, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUTF8: '1', ...extraEnv },
+        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', ...extraEnv },
         timeout,
       });
 

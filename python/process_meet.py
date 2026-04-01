@@ -352,7 +352,7 @@ def main():
                 _conn.close()
                 if _row and _row[0] != config.meet_name:
                     actual_name = _row[0]
-                    print(f"Meet name case corrected: '{config.meet_name}' → '{actual_name}'")
+                    print(f"Meet name case corrected: '{config.meet_name}' -> '{actual_name}'")
                     config.meet_name = actual_name
                     args.meet = actual_name
                     # Correct the output directory to match

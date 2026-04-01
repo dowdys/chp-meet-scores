@@ -77,7 +77,7 @@ def detect_division_order(db_path: str, meet_name: str,
 
         if unknown:
             warnings.append(
-                f"UNORDERED_DIVISIONS: {', '.join(unknown)} — "
+                f"UNORDERED_DIVISIONS: {', '.join(unknown)} -- "
                 f"not in the provided division order. Sorted alphabetically at the end."
             )
 
@@ -205,7 +205,7 @@ def detect_division_gaps(divisions: list[str]) -> list[str]:
                 missing_before = [f"{tier} {chr(c)}" for c in range(ord('A'), ord(first_letter))]
                 warnings.append(
                     f"DIVISION_GAP: {tier} starts at {first_letter} (has {', '.join(unique)}) "
-                    f"but sibling tiers start at A — possibly missing {', '.join(missing_before)}"
+                    f"but sibling tiers start at A -- possibly missing {', '.join(missing_before)}"
                 )
 
     return warnings

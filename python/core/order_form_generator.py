@@ -268,7 +268,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                 else:
                     backs_missing += 1
                     if backs_missing <= 5:  # Only log first 5 to avoid spam
-                        logger.warning('No back pages found for "%s" (%s) — adding back without star', athlete_name, gym)
+                        logger.warning('No back pages found for "%s" (%s) -- adding back without star', athlete_name, gym)
                     # Fallback: add the appropriate back page WITHOUT a star.
                     # A back without a star is better than no back at all.
                     if use_pdf_overlay and shirt_doc and shirt_doc.page_count > 0:

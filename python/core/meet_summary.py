@@ -103,14 +103,14 @@ def generate_meet_summary(db_path: str, meet_name: str, output_path: str,
                 lines.append(f'  Session {sess}, Level {lvl}, Division {div}')
 
         if kept_solos:
-            lines.append(f'⚠️ Sole-competitor edge cases (included as winners):  {len(kept_solos)}')
+            lines.append(f'WARNING: Sole-competitor edge cases (included as winners):  {len(kept_solos)}')
             for sess, lvl, div in kept_solos:
                 cur.execute('''SELECT name, gym FROM results
                               WHERE meet_name = ? AND session = ? AND level = ? AND division = ?''',
                             (meet_name, sess, lvl, div))
                 row = cur.fetchone()
                 if row:
-                    lines.append(f'  {row[0]} ({row[1]}) — Session {sess}, Level {lvl}, Division {div}')
+                    lines.append(f'  {row[0]} ({row[1]}) -- Session {sess}, Level {lvl}, Division {div}')
                     lines.append(f'    Only athlete at this level/division. Won all events by default.')
                     lines.append(f'    Verify with meet director if they should be on the championship shirt.')
 

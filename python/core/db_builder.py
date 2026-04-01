@@ -208,7 +208,7 @@ def _normalize_division_case(cur, meet_name: str):
                 count = cur.rowcount
                 if count > 0:
                     merged += count
-                    print(f"  Division merged: \"{variant}\" → \"{canonical}\" ({count} rows)")
+                    print(f"  Division merged: \"{variant}\" -> \"{canonical}\" ({count} rows)")
 
     if merged:
         print(f"  Total division merges: {merged} rows")
@@ -280,14 +280,14 @@ def _find_solo_sessions(cur, meet_name: str) -> set:
     if excluded:
         print(f"  Solo sessions: {len(excluded)} out-of-session group(s) excluded")
     if kept_solos:
-        print(f"  ⚠️ EDGE CASE: {len(kept_solos)} athlete(s) competing alone at their level/division "
+        print(f"  WARNING: {len(kept_solos)} athlete(s) competing alone at their level/division "
               f"(no other athletes in that division at the entire meet):")
         for s, l, d in kept_solos:
             cur.execute('SELECT name, gym FROM results WHERE meet_name = ? AND session = ? AND level = ? AND division = ?',
                         (meet_name, s, l, d))
             row = cur.fetchone()
             if row:
-                print(f"    {row[0]} ({row[1]}) — S{s} L{l} Div {d}")
+                print(f"    {row[0]} ({row[1]}) -- S{s} L{l} Div {d}")
         print(f"  These athletes won all events by default. Verify with user if they should be on the shirt.")
     return excluded
 
