@@ -43,8 +43,9 @@ _CLEANUP_PATTERNS = [
     # 6. Space-separated codes at end: "Name VT,BB,FX", "Name VT BB", "Name VT,"
     re.compile(r'\s+' + _EC_SEQ + r'[,/\s]*$', re.IGNORECASE),
     # 7. Attached codes (no space): "PrevendarVT,BB,FX"
-    #    Detects lowercase→uppercase boundary before a multi-char event code
-    re.compile(r'(?<=[a-z])(?:VT|UB|BB|FX|AA)(?:[,/\s]+' + _EC + r')*[,/\s]*$', re.IGNORECASE),
+    #    Detects lowercase→uppercase boundary before an UPPERCASE event code.
+    #    Case-sensitive: prevents matching "bb" in names like "Webb" or "Robb".
+    re.compile(r'(?<=[a-z])(?:VT|UB|BB|FX|AA)(?:[,/\s]+' + _EC + r')*[,/\s]*$'),
 ]
 
 

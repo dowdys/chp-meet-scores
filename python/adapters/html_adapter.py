@@ -23,7 +23,7 @@ class HtmlAdapter(BaseAdapter):
     def parse(self, data_path: str) -> list[dict]:
         """Parse a TSV file and return list of athlete dicts."""
         athletes = []
-        with open(data_path, 'r') as f:
+        with open(data_path, 'r', encoding='utf-8') as f:
             f.readline()  # skip header
             for line in f:
                 parts = line.strip().split('\t')

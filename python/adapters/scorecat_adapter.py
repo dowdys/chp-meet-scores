@@ -15,7 +15,7 @@ class ScoreCatAdapter(BaseAdapter):
 
     def parse(self, data_path: str) -> list[dict]:
         """Parse a JSON file and return list of athlete dicts."""
-        with open(data_path, 'r') as f:
+        with open(data_path, 'r', encoding='utf-8') as f:
             raw_data = json.load(f)
 
         # Unwrap double-encoded JSON (chrome_execute_js saves JSON.stringify results)

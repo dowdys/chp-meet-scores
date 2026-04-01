@@ -235,6 +235,18 @@ export class AgentLoop {
         }
       }
 
+      // Auto-trust ScoreCat meet IDs from user-provided URLs
+      const scorecatUrlPattern = /scorecatonline\.com\/.*[?&]meetId=([A-Z0-9]+)/gi;
+      let scorecatMatch;
+      while ((scorecatMatch = scorecatUrlPattern.exec(message)) !== null) {
+        if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
+        const id = scorecatMatch[1];
+        if (!context.discoveredMeetIds.includes(id)) {
+          context.discoveredMeetIds.push(id);
+          this.onActivity(`Discovered meet ID from user-provided URL: ${id}`, 'info');
+        }
+      }
+
       context.messages.push({ role: 'user', content: message });
       context.abortRequested = false;
       this.activeContext = context;
@@ -666,12 +678,12 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
   ): Promise<ToolResultContent> {
     // --- Structural enforcement checks ---
 
-    // search_meets: track calls, limit to 2, cache results
+    // search_meets: track calls, limit to 5, cache results
     if (name === 'search_meets') {
       const count = (context.searchMeetsCallCount || 0) + 1;
       context.searchMeetsCallCount = count;
-      if (count > 2) {
-        return 'Error: search_meets has been called 3+ times. The meets you need should already be in the results above. ' +
+      if (count > 5) {
+        return 'Error: search_meets has been called 6+ times. The meets you need should already be in the results above. ' +
           'If you cannot find a meet, use ask_user to ask the user for the meet NAME or URL — never ask for IDs.';
       }
     }
@@ -1003,10 +1015,11 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
     const handoff = parts.join('\n');
 
-    // Replace messages and clear loaded skills
+    // Replace messages and clear loaded skills; reset per-phase counters
     const oldMessageCount = context.messages.length;
     context.messages = [{ role: 'user', content: handoff }];
     context.loadedSkills = [];
+    context.searchMeetsCallCount = 0;
     context.justPruned = true; // Prevent next end_turn from exiting the loop
 
     const handoffTokenEstimate = Math.round(handoff.length / 4);
