@@ -65,6 +65,11 @@ export class AgentLoop {
   private activeContext: AgentContext | null = null;
   private lastContext: AgentContext | null = null;
 
+  /** Get the log file path for the most recent (or active) run. */
+  getLogPath(): string | null {
+    return this.activeContext?.logPath || this.lastContext?.logPath || null;
+  }
+
   constructor(
     llmClient: LLMClient,
     toolExecutor: ToolExecutor,

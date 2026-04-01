@@ -13,6 +13,50 @@ function getClient(): postmark.ServerClient {
 const FROM_EMAIL =
   process.env.POSTMARK_FROM_EMAIL || "orders@thestatechampion.com";
 
+const RELAY_FROM_EMAIL =
+  process.env.POSTMARK_RELAY_FROM || "sales@thestatechampion.com";
+
+interface EmailAttachment {
+  filename: string;
+  content: string; // base64
+  contentType: string;
+}
+
+export async function sendEmail({
+  to,
+  subject,
+  textBody,
+  htmlBody,
+  attachments,
+  from,
+  stream,
+}: {
+  to: string;
+  subject: string;
+  textBody?: string;
+  htmlBody?: string;
+  attachments?: EmailAttachment[];
+  from?: string;
+  stream?: string;
+}) {
+  const message: postmark.Models.Message = {
+    From: from || RELAY_FROM_EMAIL,
+    To: to,
+    Subject: subject,
+    MessageStream: stream || "outbound",
+  };
+  if (textBody) message.TextBody = textBody;
+  if (htmlBody) message.HtmlBody = htmlBody;
+  if (attachments && attachments.length > 0) {
+    message.Attachments = attachments.map((a) => ({
+      Name: a.filename,
+      Content: a.content,
+      ContentType: a.contentType,
+    }));
+  }
+  return getClient().sendEmail(message);
+}
+
 export async function sendBatchEmails(
   emails: Array<{
     to: string;

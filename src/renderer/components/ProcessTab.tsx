@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ActivityLog from './ActivityLog';
 import OutputFiles from './OutputFiles';
+import ReportIssueModal from './ReportIssueModal';
 import { ActivityLogEntry, AskUserRequest } from '../types';
 
 const US_STATES: Array<{ abbr: string; name: string }> = [
@@ -36,6 +37,8 @@ const ProcessTab: React.FC = () => {
   const [customResponse, setCustomResponse] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
   const [followUpMessage, setFollowUpMessage] = useState('');
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const followUpInputRef = useRef<HTMLInputElement>(null);
 
@@ -378,6 +381,14 @@ const ProcessTab: React.FC = () => {
           >
             Clear Session
           </button>
+          <button
+            className="import-button"
+            style={{ background: '#e67e22' }}
+            onClick={() => setShowReportModal(true)}
+            title="Send the process log to support with a description of the issue"
+          >
+            Report Issue
+          </button>
         </div>
       </div>
 
@@ -500,6 +511,29 @@ const ProcessTab: React.FC = () => {
 
       {showOutput && processedMeet && (
         <OutputFiles meetName={processedMeet} />
+      )}
+
+      {reportMessage && (
+        <div style={{
+          position: 'fixed', bottom: '20px', right: '20px',
+          padding: '12px 20px', borderRadius: '6px', zIndex: 999,
+          background: reportMessage.type === 'success' ? '#27ae60' : '#e74c3c',
+          color: 'white', fontSize: '13px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+        }}>
+          {reportMessage.text}
+        </div>
+      )}
+
+      {showReportModal && (
+        <ReportIssueModal
+          meetName={processedMeet || meetName || 'Unknown Meet'}
+          logSource="active"
+          onClose={() => setShowReportModal(false)}
+          onSuccess={() => {
+            setReportMessage({ text: 'Issue report sent successfully!', type: 'success' });
+            setTimeout(() => setReportMessage(null), 4000);
+          }}
+        />
       )}
     </div>
   );

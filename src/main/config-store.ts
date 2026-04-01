@@ -146,6 +146,7 @@ class ConfigStore {
       supabaseAnonKey: this.get('supabaseAnonKey'),
       supabaseEnabled: this.get('supabaseEnabled'),
       installationId: this.get('installationId'),
+      // SMTP fields kept in AppConfig for backward compat but no longer exposed to UI
       smtpHost: this.get('smtpHost'),
       smtpPort: this.get('smtpPort'),
       smtpUser: this.get('smtpUser'),
@@ -158,7 +159,6 @@ class ConfigStore {
     const validKeys: (keyof AppConfig)[] = [
       'apiProvider', 'apiKey', 'model', 'githubToken', 'outputDir', 'perplexityApiKey',
       'supabaseUrl', 'supabaseAnonKey', 'supabaseEnabled',
-      'smtpHost', 'smtpPort', 'smtpUser', 'smtpPassword', 'designerEmail',
     ];
     for (const key of validKeys) {
       if (key in settings && settings[key] !== undefined) {

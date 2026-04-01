@@ -1037,11 +1037,11 @@ body {
 
 .cloud-header h2 {
   font-size: 20px;
-  color: #ecf0f1;
+  color: #2c3e50;
 }
 
 .cloud-description {
-  color: #95a5a6;
+  color: #5a6c7d;
   font-size: 13px;
   margin-bottom: 16px;
 }
@@ -1086,20 +1086,20 @@ body {
 }
 
 .cloud-count {
-  color: #7f8c8d;
+  color: #5a6c7d;
   font-size: 12px;
   margin-left: auto;
 }
 
 .cloud-empty {
-  color: #7f8c8d;
+  color: #5a6c7d;
   font-size: 14px;
   text-align: center;
   padding: 40px 0;
 }
 
 .cloud-loading {
-  color: #95a5a6;
+  color: #5a6c7d;
   font-size: 14px;
   text-align: center;
   padding: 20px 0;
@@ -1177,7 +1177,7 @@ body {
 
 .cloud-detail-header h2 {
   font-size: 18px;
-  color: #ecf0f1;
+  color: #2c3e50;
 }
 
 .cloud-detail-meta {
@@ -1185,10 +1185,10 @@ body {
   flex-wrap: wrap;
   gap: 12px;
   font-size: 13px;
-  color: #95a5a6;
+  color: #5a6c7d;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #3d566e;
+  border-bottom: 1px solid #d5dce4;
 }
 
 .cloud-files-section {
@@ -1204,7 +1204,7 @@ body {
 
 .cloud-files-header h3 {
   font-size: 16px;
-  color: #ecf0f1;
+  color: #2c3e50;
 }
 
 .cloud-download-all {
@@ -1373,4 +1373,123 @@ body {
   color: #ecf0f1;
   font-size: 14px;
   margin: 0 0 12px 0;
+}
+
+/* Report Issue Modal */
+.report-issue-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.report-issue-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.report-issue-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0 0 4px 0;
+}
+
+.report-issue-meet {
+  font-size: 13px;
+  color: #5a6c7d;
+  margin: 0 0 12px 0;
+}
+
+.report-issue-description {
+  font-size: 13px;
+  color: #5a6c7d;
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+.report-issue-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d5dce4;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+  color: #2c3e50;
+  box-sizing: border-box;
+}
+
+.report-issue-textarea:focus {
+  outline: none;
+  border-color: #5dade2;
+  box-shadow: 0 0 0 2px rgba(93, 173, 226, 0.2);
+}
+
+.report-issue-textarea:disabled {
+  background: #f5f5f5;
+  color: #95a5a6;
+}
+
+.report-issue-error {
+  font-size: 13px;
+  color: #e74c3c;
+  margin: 8px 0 0 0;
+}
+
+.report-issue-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.report-issue-send {
+  padding: 8px 20px;
+  background: #e67e22;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.report-issue-send:hover:not(:disabled) {
+  background: #d35400;
+}
+
+.report-issue-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-issue-cancel {
+  padding: 8px 20px;
+  background: #ecf0f1;
+  color: #2c3e50;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.report-issue-cancel:hover:not(:disabled) {
+  background: #d5dce4;
+}
+
+.report-issue-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

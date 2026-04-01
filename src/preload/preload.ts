@@ -136,8 +136,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendToDesigner: (meetName: string) => {
     return ipcRenderer.invoke('send-to-designer', meetName);
   },
-  testEmail: () => {
-    return ipcRenderer.invoke('test-email');
+  sendReportIssue: (meetName: string, note: string, logSource: 'meet' | 'active') => {
+    return ipcRenderer.invoke('send-report-issue', meetName, note, logSource);
   },
   isAgentRunning: () => {
     return ipcRenderer.invoke('is-agent-running');

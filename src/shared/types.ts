@@ -27,11 +27,6 @@ export interface AppSettings {
   supabaseAnonKey: string;
   supabaseEnabled: boolean;
   installationId: string;
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpPassword: string;
-  designerEmail: string;
 }
 
 export interface CloudMeet {
@@ -104,7 +99,7 @@ export interface ElectronAPI {
   listUnifiedMeets: () => Promise<{ success: boolean; meets: UnifiedMeet[]; cloudError?: string }>;
   printFile: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
   sendToDesigner: (meetName: string) => Promise<{ success: boolean; error?: string }>;
-  testEmail: () => Promise<{ success: boolean; error?: string }>;
+  sendReportIssue: (meetName: string, note: string, logSource: 'meet' | 'active') => Promise<{ success: boolean; error?: string }>;
   isAgentRunning: () => Promise<{ success: boolean; running: boolean }>;
   onMeetProcessed: (callback: (data: { meetName: string }) => void) => () => void;
 }

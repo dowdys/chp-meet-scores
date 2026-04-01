@@ -476,20 +476,11 @@ function setupIPC(): void {
     }
   });
 
-  // Send IDML files to the designer via email
+  // Send IDML files to the designer via Postmark relay
   ipcMain.handle('send-to-designer', async (_event, meetName: string) => {
     try {
       const { assertSafeMeetName, getOutputBase } = await import('./paths');
       assertSafeMeetName(meetName);
-
-      // Check email config
-      const smtpHost = configStore.get('smtpHost');
-      const smtpUser = configStore.get('smtpUser');
-      const smtpPassword = configStore.get('smtpPassword');
-      const designerEmail = configStore.get('designerEmail');
-      if (!smtpHost || !smtpUser || !smtpPassword || !designerEmail) {
-        return { success: false, error: 'Email not configured. Set up SMTP settings in the Settings tab.' };
-      }
 
       // Find IDML files in the meet directory
       const meetDir = path.join(getOutputBase(), meetName);
@@ -500,36 +491,52 @@ function setupIPC(): void {
       if (idmlFiles.length === 0) {
         return { success: false, error: 'No IDML files found for this meet.' };
       }
-      const idmlPaths = idmlFiles.map((f: string) => path.join(meetDir, f));
 
-      const { sendDesignerEmail } = await import('./smtp-service');
-      return await sendDesignerEmail(
-        { host: smtpHost, port: configStore.get('smtpPort'), user: smtpUser, password: smtpPassword },
-        designerEmail,
-        meetName,
-        idmlPaths
-      );
+      // Read and base64-encode each IDML file
+      const attachments = idmlFiles.map((f: string) => ({
+        filename: f,
+        content: fs.readFileSync(path.join(meetDir, f)).toString('base64'),
+        contentType: 'application/octet-stream',
+      }));
+
+      const { sendViaRelay } = await import('./email-relay');
+      return await sendViaRelay({ type: 'designer', meetName, attachments });
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 
-  // Test email configuration
-  ipcMain.handle('test-email', async () => {
+  // Send process log as an issue report via Postmark relay
+  ipcMain.handle('send-report-issue', async (_event, meetName: string, note: string, logSource: 'meet' | 'active') => {
     try {
-      const smtpHost = configStore.get('smtpHost');
-      const smtpUser = configStore.get('smtpUser');
-      const smtpPassword = configStore.get('smtpPassword');
-      const designerEmail = configStore.get('designerEmail');
-      if (!smtpHost || !smtpUser || !smtpPassword || !designerEmail) {
-        return { success: false, error: 'Email not configured. Fill in all SMTP fields first.' };
+      const { assertSafeMeetName, getOutputBase } = await import('./paths');
+      assertSafeMeetName(meetName);
+
+      let logContent: string | null = null;
+      let logFilename = 'process_log.md';
+
+      if (logSource === 'active' && activeAgentLoop) {
+        // Read from the active/last agent session log
+        const logPath = activeAgentLoop.getLogPath();
+        if (logPath && fs.existsSync(logPath)) {
+          logContent = fs.readFileSync(logPath, 'utf-8');
+          logFilename = path.basename(logPath);
+        }
+      } else {
+        // Read from the meet output directory
+        const meetDir = path.join(getOutputBase(), meetName);
+        const logPath = path.join(meetDir, 'process_log.md');
+        if (fs.existsSync(logPath)) {
+          logContent = fs.readFileSync(logPath, 'utf-8');
+        }
       }
 
-      const { sendTestEmail } = await import('./smtp-service');
-      return await sendTestEmail(
-        { host: smtpHost, port: configStore.get('smtpPort'), user: smtpUser, password: smtpPassword },
-        designerEmail
-      );
+      const attachments = logContent
+        ? [{ filename: logFilename, content: Buffer.from(logContent).toString('base64'), contentType: 'text/markdown' }]
+        : [];
+
+      const { sendViaRelay } = await import('./email-relay');
+      return await sendViaRelay({ type: 'report', meetName, note, attachments });
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { UnifiedMeet, OutputFile, CloudMeetFile } from '../types';
+import ReportIssueModal from './ReportIssueModal';
 
 /** Human-readable labels for known output files. */
 const FILE_LABELS: Record<string, string> = {
@@ -68,6 +69,9 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
   // Send to designer
   const [sending, setSending] = useState(false);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
+
+  // Report Issue modal
+  const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
     // Load local files if meet exists locally
@@ -265,7 +269,12 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
       {/* Send to Designer confirmation */}
       {showSendConfirm && (
         <div className="send-confirm-dialog">
-          <p>Send {localFiles.filter(f => isIdml(f.name)).length} IDML file(s) to designer?</p>
+          <p>Send to designer?</p>
+          <ul style={{ margin: '0 0 12px 0', padding: '0 0 0 16px', fontSize: '13px', color: '#bdc3c7' }}>
+            {localFiles.filter(f => isIdml(f.name)).map(f => (
+              <li key={f.name}>{getFileLabel(f.name)} ({formatBytes(f.size)})</li>
+            ))}
+          </ul>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="cloud-download-all" onClick={handleSendToDesigner}>
               Yes, Send
@@ -341,6 +350,12 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
                 Print
               </button>
             )}
+            {file.name === 'process_log.md' && (
+              <button className="cloud-file-open" style={{ background: '#e67e22' }}
+                      onClick={() => setShowReportModal(true)}>
+                Report Issue
+              </button>
+            )}
             <button className="cloud-file-folder" onClick={() => handleShowInFolder(file.name)}>
               Show in Folder
             </button>
@@ -390,6 +405,14 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack }) => {
             </div>
           ))}
         </>
+      )}
+      {showReportModal && (
+        <ReportIssueModal
+          meetName={meet.meet_name}
+          logSource="meet"
+          onClose={() => setShowReportModal(false)}
+          onSuccess={() => showMessage('Issue report sent successfully!', 'success')}
+        />
       )}
     </div>
   );
