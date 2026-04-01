@@ -14,7 +14,7 @@ const FROM_EMAIL =
   process.env.POSTMARK_FROM_EMAIL || "orders@thestatechampion.com";
 
 const RELAY_FROM_EMAIL =
-  process.env.POSTMARK_RELAY_FROM || "sales@thestatechampion.com";
+  process.env.POSTMARK_RELAY_FROM || "orders@thestatechampion.com";
 
 interface EmailAttachment {
   filename: string;
