@@ -9,6 +9,7 @@ import { AgentLoop } from './agent-loop';
 import { allToolExecutors, setAskUserHandler } from './tools/index';
 import { resetStagingDb } from './tools/python-tools';
 import { getDataDir } from './paths';
+import Database from 'better-sqlite3';
 import { autoUpdater } from 'electron-updater';
 
 let mainWindow: BrowserWindow | null = null;
@@ -143,8 +144,7 @@ function getOrCreateAgentLoop(): AgentLoop {
 }
 
 /** Build a concise meet summary from the central DB for the edit-mode initial message. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildMeetSummary(db: any, meetName: string): string {
+function buildMeetSummary(db: InstanceType<typeof Database>, meetName: string): string {
   try {
     const count = (db.prepare('SELECT COUNT(*) as c FROM results WHERE meet_name = ?').get(meetName) as { c: number }).c;
     const levels = db.prepare('SELECT DISTINCT level FROM results WHERE meet_name = ? ORDER BY level').all(meetName) as { level: string }[];
@@ -232,46 +232,40 @@ function setupIPC(): void {
     try {
       sendActivityLog(`Starting edit session for: ${meetName}`, 'info');
 
-      // Check if meet exists in central DB
-      const Database = (await import('better-sqlite3')).default;
       const dbPath = path.join(getDataDir(), 'chp_results.db');
       let meetSummary = '';
 
+      // Check if meet exists locally; if not, pull from Supabase
+      let needsPull = true;
       if (fs.existsSync(dbPath)) {
         const db = new Database(dbPath, { readonly: true });
-        const row = db.prepare('SELECT COUNT(*) as count FROM results WHERE meet_name = ?').get(meetName) as { count: number } | undefined;
-        if (!row || row.count === 0) {
-          db.close();
-          // Not local — try pulling from Supabase
-          sendActivityLog('Meet not in local DB, pulling from Supabase...', 'info');
-          const { pullMeetData } = await import('./supabase-sync');
-          const pullResult = await pullMeetData(meetName);
-          if (!pullResult.success) {
-            sendActivityLog(`Failed to pull meet: ${pullResult.reason}`, 'error');
-            return { success: false, error: `Meet "${meetName}" not found locally or in Supabase: ${pullResult.reason}` };
-          }
-          sendActivityLog(`Pulled ${pullResult.resultsCount} athletes from Supabase`, 'info');
-          // Re-open to get summary
-          const db2 = new Database(dbPath, { readonly: true });
-          meetSummary = buildMeetSummary(db2, meetName);
-          db2.close();
-        } else {
-          // Meet exists locally — build summary
-          meetSummary = buildMeetSummary(db, meetName);
+        try {
+          const row = db.prepare('SELECT COUNT(*) as count FROM results WHERE meet_name = ?').get(meetName) as { count: number } | undefined;
+          needsPull = !row || row.count === 0;
+        } finally {
           db.close();
         }
-      } else {
-        // No local DB at all — try pulling from Supabase
-        sendActivityLog('No local database, pulling from Supabase...', 'info');
+      }
+
+      if (needsPull) {
+        sendActivityLog('Meet not in local DB, pulling from Supabase...', 'info');
         const { pullMeetData } = await import('./supabase-sync');
         const pullResult = await pullMeetData(meetName);
         if (!pullResult.success) {
-          return { success: false, error: `Meet "${meetName}" not found in Supabase: ${pullResult.reason}` };
+          sendActivityLog(`Failed to pull meet: ${pullResult.reason}`, 'error');
+          return { success: false, error: `Meet "${meetName}" not found locally or in Supabase: ${pullResult.reason}` };
         }
         sendActivityLog(`Pulled ${pullResult.resultsCount} athletes from Supabase`, 'info');
+      }
+
+      // Build meet summary for the agent's initial context
+      {
         const db = new Database(dbPath, { readonly: true });
-        meetSummary = buildMeetSummary(db, meetName);
-        db.close();
+        try {
+          meetSummary = buildMeetSummary(db, meetName);
+        } finally {
+          db.close();
+        }
       }
 
       const llmClient = createLLMClient();

@@ -122,7 +122,10 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
     try {
       // Navigate to Process tab so the user sees the agent's activity log
       if (onNavigateToProcess) onNavigateToProcess();
-      await window.electronAPI.editMeet(meet.meet_name);
+      const result = await window.electronAPI.editMeet(meet.meet_name);
+      if (!result.success) {
+        showMessage(result.error || 'Failed to start edit session', 'error');
+      }
     } catch (err) {
       showMessage(err instanceof Error ? err.message : 'Failed to start edit session', 'error');
     }

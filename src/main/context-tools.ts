@@ -95,7 +95,9 @@ export function clearProgressFile(): void {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-  } catch { /* ignore — file may already be gone */ }
+  } catch (err) {
+    console.warn(`Failed to clear progress file: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function getSkillsDir(): string {
