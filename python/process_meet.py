@@ -934,6 +934,13 @@ def main():
         args.ship_date = saved_layout['ship_date']
         print(f"Restored saved ship date: {args.ship_date}")
 
+    # Require division_order for shirt/all outputs — alphabetical fallback is always wrong
+    if (do_all or 'shirt' in regen_set) and not args.division_order:
+        print("DIVISION_ORDER_REQUIRED: Cannot generate shirt outputs without division_order. "
+              "Query the divisions with: SELECT DISTINCT level, division FROM results WHERE meet_name = '...' ORDER BY level, division "
+              "Then call regenerate_output with division_order set to a comma-separated list ordered youngest to oldest.")
+        sys.exit(1)
+
     # Generate outputs (all or selected)
     # Each output is wrapped in try/except so one failure doesn't block the rest
     errors = []
