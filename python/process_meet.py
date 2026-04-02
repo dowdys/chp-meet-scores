@@ -578,10 +578,12 @@ def main():
             _import_letter_levels = None
 
             if _has_legal:
+                _imp_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
                 _gh_pre = precompute_shirt_data(db_path, config.meet_name,
                                                 layout=import_layout,
                                                 level_groups=args.level_groups,
-                                                exclude_levels=args.exclude_levels)
+                                                exclude_levels=args.exclude_levels,
+                                                division_order=_imp_div_list)
                 _legal_lvs = []
                 _letter_lvs = []
                 for _lbl, _lvs in _gh_pre['page_groups']:
@@ -954,10 +956,12 @@ def main():
     # Pre-compute shirt data ONCE and reuse across all generators
     pre = None
     if do_all or 'shirt' in regen_set:
+        _div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
         pre = precompute_shirt_data(db_path, config.meet_name,
                                     layout=layout,
                                     level_groups=args.level_groups,
-                                    exclude_levels=args.exclude_levels)
+                                    exclude_levels=args.exclude_levels,
+                                    division_order=_div_list)
 
         _flagged = pre.get('flagged_names', [])
         _modified = pre.get('modified_names', [])
@@ -1169,10 +1173,12 @@ def main():
             _legal_levels = None
             _letter_levels = None
             if _has_legal:
+                _gh_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
                 _gh_pre = pre if pre is not None else precompute_shirt_data(
                     db_path, config.meet_name, layout=layout,
                     level_groups=args.level_groups,
-                    exclude_levels=args.exclude_levels)
+                    exclude_levels=args.exclude_levels,
+                    division_order=_gh_div_list)
                 _legal_filter = _legal_groups if any(_legal_groups) else None
                 _legal_lvs = []
                 _letter_lvs = []

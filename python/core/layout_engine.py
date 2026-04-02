@@ -47,7 +47,8 @@ def compute_layout(t1l=TITLE1_LARGE, t2l=TITLE2_LARGE) -> tuple[float, float, fl
 def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
                           layout=None,
                           level_groups=None, exclude_levels=None,
-                          page_h: int = None) -> dict:
+                          page_h: int = None,
+                          division_order: list[str] | None = None) -> dict:
     """Pre-compute shirt layout data for reuse across multiple renders.
 
     Args:
@@ -129,7 +130,8 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
     title1_y, title2_y, oval_y, headers_y, names_start = compute_layout(t1l, t2l)
 
     levels, data, _flagged, _modified = get_winners_by_event_and_level(
-        db_path, meet_name, name_sort=name_sort)
+        db_path, meet_name, name_sort=name_sort,
+        explicit_division_order=division_order)
 
     # Diagnostic: log all levels found and their athlete counts
     _diag_counts = {}
@@ -422,13 +424,17 @@ def flag_suspicious_name(name: str) -> str:
 
 
 def get_winners_by_event_and_level(db_path: str, meet_name: str,
-                                   name_sort: str = 'age') -> tuple[list, dict, list, list]:
+                                   name_sort: str = 'age',
+                                   explicit_division_order: list[str] | None = None) -> tuple[list, dict, list, list]:
     """Get winner names organized by event and level.
 
     Args:
         name_sort: 'age' sorts by division age group (youngest first), then
                    alphabetically within each group. 'alpha' sorts purely
                    alphabetically ignoring divisions.
+        explicit_division_order: Optional list of divisions youngest-to-oldest.
+                   When provided, passed to detect_division_order for correct
+                   age-based sorting instead of alphabetical fallback.
     """
     from python.core.division_detector import detect_division_order
 
@@ -445,7 +451,7 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
         logger.debug("WINNERS_DIAG: meet_name=%r, found %d levels: %s", meet_name, len(levels), levels)
 
         # Get division ordering for age-based sort
-        div_order, _warnings = detect_division_order(db_path, meet_name)
+        div_order, _warnings = detect_division_order(db_path, meet_name, explicit_order=explicit_division_order)
         logger.debug("WINNERS_DIAG: div_order has %d entries: %s", len(div_order), div_order)
 
         # Build score lookups keyed by (name, level, session) for tie-breaking.
