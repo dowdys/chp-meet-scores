@@ -9,7 +9,6 @@ import { AgentLoop } from './agent-loop';
 import { allToolExecutors, setAskUserHandler } from './tools/index';
 import { resetStagingDb } from './tools/python-tools';
 import { getDataDir } from './paths';
-import Database from 'better-sqlite3';
 import { autoUpdater } from 'electron-updater';
 
 let mainWindow: BrowserWindow | null = null;
@@ -143,25 +142,6 @@ function getOrCreateAgentLoop(): AgentLoop {
   return activeAgentLoop;
 }
 
-/** Build a concise meet summary from the central DB for the edit-mode initial message. */
-function buildMeetSummary(db: InstanceType<typeof Database>, meetName: string): string {
-  try {
-    const count = (db.prepare('SELECT COUNT(*) as c FROM results WHERE meet_name = ?').get(meetName) as { c: number }).c;
-    const levels = db.prepare('SELECT DISTINCT level FROM results WHERE meet_name = ? ORDER BY level').all(meetName) as { level: string }[];
-    const gyms = (db.prepare('SELECT COUNT(DISTINCT gym) as c FROM results WHERE meet_name = ?').get(meetName) as { c: number }).c;
-    const meetRow = db.prepare('SELECT state, association, year, dates FROM meets WHERE meet_name = ?').get(meetName) as { state?: string; association?: string; year?: number; dates?: string } | undefined;
-
-    const parts = [`${count} athletes, ${gyms} gyms, ${levels.length} levels (${levels.map(l => l.level).join(', ')})`];
-    if (meetRow) {
-      if (meetRow.state) parts.push(`State: ${meetRow.state}`);
-      if (meetRow.dates) parts.push(`Dates: ${meetRow.dates}`);
-    }
-    return parts.join('\n');
-  } catch {
-    return '';
-  }
-}
-
 // IPC Handlers
 function setupIPC(): void {
   // Process a meet
@@ -216,68 +196,6 @@ function setupIPC(): void {
         sendActivityLog(`Meet "${meetName}" processing completed.`, 'success');
       } else {
         sendActivityLog(`Meet "${meetName}" processing failed: ${result.message}`, 'error');
-      }
-
-      return { success: result.success, message: result.message, outputName: result.outputName };
-    } catch (err) {
-      agentRunning = false;
-      const message = err instanceof Error ? err.message : String(err);
-      sendActivityLog(`Error: ${message}`, 'error');
-      return { success: false, error: message };
-    }
-  });
-
-  // Edit an existing meet — pull from Supabase if needed, start agent in edit mode
-  ipcMain.handle('edit-meet', async (_event, meetName: string) => {
-    try {
-      sendActivityLog(`Starting edit session for: ${meetName}`, 'info');
-
-      const dbPath = path.join(getDataDir(), 'chp_results.db');
-      let meetSummary = '';
-
-      // Check if meet exists locally; if not, pull from Supabase
-      let needsPull = true;
-      if (fs.existsSync(dbPath)) {
-        const db = new Database(dbPath, { readonly: true });
-        try {
-          const row = db.prepare('SELECT COUNT(*) as count FROM results WHERE meet_name = ?').get(meetName) as { count: number } | undefined;
-          needsPull = !row || row.count === 0;
-        } finally {
-          db.close();
-        }
-      }
-
-      if (needsPull) {
-        sendActivityLog('Meet not in local DB, pulling from Supabase...', 'info');
-        const { pullMeetData } = await import('./supabase-sync');
-        const pullResult = await pullMeetData(meetName);
-        if (!pullResult.success) {
-          sendActivityLog(`Failed to pull meet: ${pullResult.reason}`, 'error');
-          return { success: false, error: `Meet "${meetName}" not found locally or in Supabase: ${pullResult.reason}` };
-        }
-        sendActivityLog(`Pulled ${pullResult.resultsCount} athletes from Supabase`, 'info');
-      }
-
-      // Build meet summary for the agent's initial context
-      {
-        const db = new Database(dbPath, { readonly: true });
-        try {
-          meetSummary = buildMeetSummary(db, meetName);
-        } finally {
-          db.close();
-        }
-      }
-
-      const llmClient = createLLMClient();
-      const agentLoop = new AgentLoop(llmClient, allToolExecutors, sendActivityLog);
-      activeAgentLoop = agentLoop;
-      agentRunning = true;
-
-      const result = await agentLoop.processMeet(meetName, { mode: 'edit', meetSummary });
-      agentRunning = false;
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('meet-processed', { meetName: result.outputName || meetName });
       }
 
       return { success: result.success, message: result.message, outputName: result.outputName };
@@ -437,6 +355,59 @@ function setupIPC(): void {
       return result;
     } catch (err) {
       return { success: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // Delete a meet from local DB and optionally from Supabase
+  ipcMain.handle('delete-meet', async (_event, meetName: string) => {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const dbPath = path.join(getDataDir(), 'chp_results.db');
+      let localDeleted = false;
+
+      // Delete from local central DB
+      if (fs.existsSync(dbPath)) {
+        const db = new Database(dbPath);
+        try {
+          const info = db.prepare('DELETE FROM results WHERE meet_name = ?').run(meetName);
+          db.prepare('DELETE FROM winners WHERE meet_name = ?').run(meetName);
+          db.prepare('DELETE FROM meets WHERE meet_name = ?').run(meetName);
+          localDeleted = (info.changes > 0);
+        } finally {
+          db.close();
+        }
+      }
+
+      // Delete from Supabase
+      let cloudDeleted = false;
+      const { isSupabaseEnabled } = await import('./supabase-client');
+      if (isSupabaseEnabled()) {
+        try {
+          const { getSupabaseClient } = await import('./supabase-client');
+          const supabase = await getSupabaseClient();
+          if (supabase) {
+            await supabase.from('results').delete().eq('meet_name', meetName);
+            await supabase.from('winners').delete().eq('meet_name', meetName);
+            await supabase.from('meets').delete().eq('meet_name', meetName);
+          }
+          cloudDeleted = true;
+        } catch (err) {
+          console.warn('Failed to delete from Supabase:', err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // Delete local output directory
+      try {
+        const { getOutputBase } = await import('./paths');
+        const outputDir = path.join(getOutputBase(), meetName);
+        if (fs.existsSync(outputDir)) {
+          fs.rmSync(outputDir, { recursive: true, force: true });
+        }
+      } catch { /* ignore — output dir may not exist */ }
+
+      return { success: true, localDeleted, cloudDeleted };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
 

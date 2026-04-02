@@ -44,10 +44,10 @@ function isIdml(filename: string): boolean {
 interface Props {
   meet: UnifiedMeet;
   onBack: () => void;
-  onNavigateToProcess: () => void;
+  onEditMeet: (meetName: string) => void;
 }
 
-const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) => {
+const MeetDetailView: React.FC<Props> = ({ meet, onBack, onEditMeet }) => {
   // Local files
   const [localFiles, setLocalFiles] = useState<OutputFile[]>([]);
   const [localLoading, setLocalLoading] = useState(false);
@@ -73,6 +73,10 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
 
   // Edit meet
   const [editing, setEditing] = useState(false);
+
+  // Delete meet
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Report Issue modal
   const [showReportModal, setShowReportModal] = useState(false);
@@ -120,16 +124,40 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
   const handleEditMeet = async () => {
     setEditing(true);
     try {
-      // Navigate to Process tab so the user sees the agent's activity log
-      onNavigateToProcess();
-      const result = await window.electronAPI.editMeet(meet.meet_name);
-      if (!result.success) {
-        showMessage(result.error || 'Failed to start edit session', 'error');
+      // If cloud-only, pull data to local DB first
+      const hasLocal = meet.source === 'local' || meet.source === 'both';
+      if (!hasLocal) {
+        const pullResult = await window.electronAPI.pullCloudMeet(meet.meet_name);
+        if (!pullResult.success) {
+          showMessage(pullResult.reason || 'Failed to pull meet data from cloud', 'error');
+          setEditing(false);
+          return;
+        }
       }
+      // Signal App to switch to ProcessTab and auto-start with edit: prefix
+      onEditMeet(meet.meet_name);
     } catch (err) {
       showMessage(err instanceof Error ? err.message : 'Failed to start edit session', 'error');
     }
     setEditing(false);
+  };
+
+  // --- Delete meet ---
+
+  const handleDeleteMeet = async () => {
+    setDeleting(true);
+    try {
+      const result = await window.electronAPI.deleteMeet(meet.meet_name);
+      if (result.success) {
+        onBack(); // Go back to meet list — this meet is gone
+      } else {
+        showMessage(result.error || 'Failed to delete meet', 'error');
+      }
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Failed to delete meet', 'error');
+    }
+    setDeleting(false);
+    setShowDeleteConfirm(false);
   };
 
   // --- Local file actions ---
@@ -307,6 +335,23 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
         </div>
       )}
 
+      {showDeleteConfirm && (
+        <div className="send-confirm-box" style={{ borderColor: '#c0392b' }}>
+          <p><strong>Delete this meet?</strong></p>
+          <p style={{ fontSize: '13px', color: '#888' }}>
+            This will remove "{meet.meet_name}" from local database, cloud, and output files. This cannot be undone.
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="cloud-download-all" style={{ background: '#c0392b' }} disabled={deleting} onClick={handleDeleteMeet}>
+              {deleting ? 'Deleting...' : 'Yes, Delete'}
+            </button>
+            <button className="cloud-refresh" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Meet-level actions */}
       <div className="cloud-files-header">
         <h3>Documents</h3>
@@ -318,6 +363,14 @@ const MeetDetailView: React.FC<Props> = ({ meet, onBack, onNavigateToProcess }) 
             onClick={handleEditMeet}
           >
             {editing ? 'Starting...' : 'Edit Meet'}
+          </button>
+          <button
+            className="cloud-download-all"
+            style={{ background: '#c0392b' }}
+            disabled={deleting}
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            Delete
           </button>
           {hasLocal && hasLocalIdml && (
             <button

@@ -87,7 +87,7 @@ export class AgentLoop {
     }
   }
 
-  async processMeet(meetName: string, options?: { mode: 'edit'; meetSummary: string } | { mode?: 'fresh' }): Promise<{ success: boolean; message: string; outputName?: string }> {
+  async processMeet(meetName: string): Promise<{ success: boolean; message: string; outputName?: string }> {
     // Prevent ghost context from previous runs
     if (this.lastContext && this.lastContext.meetName !== meetName) {
       console.log(`[AGENT] Clearing stale lastContext from "${this.lastContext.meetName}" (new run: "${meetName}")`);
@@ -125,18 +125,8 @@ export class AgentLoop {
 
       this.activeContext = context;
 
-      if (options?.mode === 'edit') {
-        // Edit mode — skip staging DB, skip progress check, start in database phase
-        this.onActivity('Starting edit session...', 'info');
-        switchPhase(context, 'database');
-        const summaryInfo = options.meetSummary ? `\n\nMeet data summary:\n${options.meetSummary}` : '';  // meetSummary is required but may be empty string
-        context.messages.push({
-          role: 'user',
-          content: `You are editing meet "${meetName}". The meet data is in the central database.${summaryInfo}\n\nThe user wants to make changes. Ask what they'd like to do. Available actions: fix gym names (rename_gym), check data (query_db), regenerate outputs (regenerate_output), view summary (get_meet_summary), re-publish changes (finalize_meet).`,
-        });
-      } else {
-        // Check for saved progress
-        const savedProgress = await loadProgressData();
+      // Check for saved progress
+      const savedProgress = await loadProgressData();
         if (savedProgress && savedProgress.meet_name === meetName) {
           this.onActivity('Found saved progress, resuming...', 'info');
           context.loadedSkills = savedProgress.loaded_skills;
@@ -192,9 +182,20 @@ export class AgentLoop {
           resetStagingDb();
           setDbToolsPhase('discovery');
 
-          // Detect IDML import vs normal meet
+          // Detect mode from input prefix
+          const editMatch = meetName.match(/^edit:\s*(.+)/i);
           const isFilePath = /^(\/|[A-Za-z]:\\|~|\/mnt\/)/.test(meetName.trim()) || meetName.includes('.idml') || meetName.includes('.pdf');
-          if (isFilePath) {
+
+          if (editMatch) {
+            // Edit mode — data already in central DB, skip to database phase
+            const actualMeetName = editMatch[1].trim();
+            context.meetName = actualMeetName;
+            switchPhase(context, 'database');
+            context.messages.push({
+              role: 'user',
+              content: `You are editing meet "${actualMeetName}". The meet data is already in the central database.\n\nThe user wants to make changes. Ask what they'd like to do. Available actions: fix gym names (rename_gym), check data (query_db), regenerate outputs (regenerate_output), view summary (get_meet_summary), re-publish changes (finalize_meet).`,
+            });
+          } else if (isFilePath) {
             const hasPdf = meetName.includes('.pdf');
             if (hasPdf) {
               // PDF import gets its own dedicated phase
@@ -218,7 +219,6 @@ export class AgentLoop {
             });
           }
         }
-      }
 
       const result = await this.runLoop(context);
       saveProcessLog(context, result);

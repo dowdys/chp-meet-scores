@@ -68,7 +68,6 @@ export interface AskUserRequest {
 
 export interface ElectronAPI {
   processMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
-  editMeet: (meetName: string) => Promise<{ success: boolean; message?: string; error?: string; outputName?: string }>;
   continueConversation: (message: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   queryResults: (question: string) => Promise<{ success: boolean; answer?: string; error?: string }>;
   resetSession: () => Promise<{ success: boolean; deleted?: number; error?: string }>;
@@ -95,6 +94,7 @@ export interface ElectronAPI {
   getCloudMeetFiles: (meetName: string) => Promise<{ success: boolean; files?: CloudMeetFile[]; error?: string }>;
   downloadCloudFile: (meetName: string, storagePath: string, filename: string) => Promise<{ success: boolean; localPath?: string; error?: string }>;
   pullCloudMeet: (meetName: string) => Promise<{ success: boolean; reason?: string; resultsCount?: number; winnersCount?: number }>;
+  deleteMeet: (meetName: string) => Promise<{ success: boolean; localDeleted?: boolean; cloudDeleted?: boolean; error?: string }>;
   openFile: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
   showInFolder: (meetName: string, filename: string) => Promise<{ success: boolean; error?: string }>;
   listUnifiedMeets: () => Promise<{ success: boolean; meets: UnifiedMeet[]; cloudError?: string }>;

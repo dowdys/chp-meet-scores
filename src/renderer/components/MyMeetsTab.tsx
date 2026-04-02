@@ -12,10 +12,10 @@ function formatDate(iso: string): string {
 
 interface Props {
   isActive: boolean;
-  onNavigateToProcess: () => void;
+  onEditMeet: (meetName: string) => void;
 }
 
-const MyMeetsTab: React.FC<Props> = ({ isActive, onNavigateToProcess }) => {
+const MyMeetsTab: React.FC<Props> = ({ isActive, onEditMeet }) => {
   const [meets, setMeets] = useState<UnifiedMeet[]>([]);
   const [loading, setLoading] = useState(true);
   const [cloudError, setCloudError] = useState('');
@@ -93,7 +93,7 @@ const MyMeetsTab: React.FC<Props> = ({ isActive, onNavigateToProcess }) => {
       <MeetDetailView
         meet={selectedMeet}
         onBack={() => setSelectedMeet(null)}
-        onNavigateToProcess={onNavigateToProcess}
+        onEditMeet={onEditMeet}
       />
     );
   }

@@ -24,7 +24,12 @@ const US_STATES: Array<{ abbr: string; name: string }> = [
   { abbr: 'WI', name: 'Wisconsin' }, { abbr: 'WY', name: 'Wyoming' },
 ];
 
-const ProcessTab: React.FC = () => {
+interface ProcessTabProps {
+  pendingEditMeet?: string | null;
+  onEditMeetConsumed?: () => void;
+}
+
+const ProcessTab: React.FC<ProcessTabProps> = ({ pendingEditMeet, onEditMeetConsumed }) => {
   const [meetName, setMeetName] = useState('');
   const [league, setLeague] = useState('USAG');
   const [gender, setGender] = useState('Women');
@@ -63,8 +68,7 @@ const ProcessTab: React.FC = () => {
 
   const canProcess = (state !== '' || meetName.trim().match(/^["\/]|^[A-Za-z]:\\/)) && !isProcessing;
 
-  const handleProcess = async () => {
-    const query = buildMeetQuery();
+  const startProcessing = async (query: string) => {
     if (!query || isProcessing) return;
 
     setIsProcessing(true);
@@ -118,6 +122,19 @@ const ProcessTab: React.FC = () => {
       }
     }
   };
+
+  const handleProcess = () => {
+    const query = buildMeetQuery();
+    startProcessing(query);
+  };
+
+  // Auto-start edit session when pendingEditMeet is set from My Meets tab
+  useEffect(() => {
+    if (pendingEditMeet && !isProcessing) {
+      startProcessing(`edit: ${pendingEditMeet}`);
+      if (onEditMeetConsumed) onEditMeetConsumed();
+    }
+  }, [pendingEditMeet]);
 
   // Cleanup listeners on unmount
   useEffect(() => {

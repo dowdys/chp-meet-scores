@@ -9,10 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('process-meet', meetName);
   },
 
-  editMeet: (meetName: string) => {
-    return ipcRenderer.invoke('edit-meet', meetName);
-  },
-
   continueConversation: (message: string) => {
     return ipcRenderer.invoke('continue-conversation', message);
   },
@@ -124,6 +120,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   pullCloudMeet: (meetName: string) => {
     return ipcRenderer.invoke('pull-cloud-meet', meetName);
+  },
+  deleteMeet: (meetName: string) => {
+    return ipcRenderer.invoke('delete-meet', meetName);
   },
   openFile: (meetName: string, filename: string) => {
     return ipcRenderer.invoke('open-file', meetName, filename);

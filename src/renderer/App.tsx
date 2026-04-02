@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import ProcessTab from './components/ProcessTab';
 import QueryTab from './components/QueryTab';
 import MyMeetsTab from './components/MyMeetsTab';
@@ -8,6 +8,16 @@ type TabName = 'process' | 'query' | 'my-meets' | 'settings';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabName>('process');
+  const [pendingEditMeet, setPendingEditMeet] = useState<string | null>(null);
+
+  const handleEditMeet = useCallback((meetName: string) => {
+    setPendingEditMeet(meetName);
+    setActiveTab('process');
+  }, []);
+
+  const handleEditMeetConsumed = useCallback(() => {
+    setPendingEditMeet(null);
+  }, []);
 
   return (
     <div className="app">
@@ -44,13 +54,13 @@ const App: React.FC = () => {
 
       <main className="tab-content">
         <div style={{ display: activeTab === 'process' ? 'block' : 'none' }}>
-          <ProcessTab />
+          <ProcessTab pendingEditMeet={pendingEditMeet} onEditMeetConsumed={handleEditMeetConsumed} />
         </div>
         <div style={{ display: activeTab === 'query' ? 'block' : 'none' }}>
           <QueryTab />
         </div>
         <div style={{ display: activeTab === 'my-meets' ? 'block' : 'none' }}>
-          <MyMeetsTab isActive={activeTab === 'my-meets'} onNavigateToProcess={() => setActiveTab('process')} />
+          <MyMeetsTab isActive={activeTab === 'my-meets'} onEditMeet={handleEditMeet} />
         </div>
         <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
           <SettingsTab />
