@@ -7,7 +7,7 @@ const RELAY_SECRET = process.env.RELAY_API_SECRET;
 // Hardcoded recipients — the client never specifies who gets the email
 const RECIPIENTS = {
   designer: "chn@netscape.com",
-  report: "dowdy@marketdriveauto.com",
+  report: "sales@thestatechampion.com",
 } as const;
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MB
