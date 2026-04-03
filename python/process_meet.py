@@ -81,9 +81,10 @@ def _parse_division_order(order_str):
     Returns None if order_str is falsy, so callers can distinguish
     "no order specified" from an empty list.
     """
-    if not order_str:
+    if not order_str or not order_str.strip():
         return None
-    return [s.strip() for s in order_str.split(',') if s.strip()]
+    result = [s.strip() for s in order_str.split(',') if s.strip()]
+    return result if result else None
 
 
 def _tmp_path_for(output_path):
