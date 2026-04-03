@@ -379,8 +379,10 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
           finalMsg += ' WARNING: No winners table found in staging — meet may have incomplete processing. Run the quality/winners step before generating output.';
         }
 
-        // Supabase cloud sync (non-blocking: failure never prevents local finalization)
-        if (isSupabaseEnabled()) {
+        // Supabase cloud sync — skip if winners table is missing (incomplete data)
+        if (counts.missingWinnersTable) {
+          finalMsg += ' Skipped cloud publish — meet has no winners table. Fix the issue and re-finalize.';
+        } else if (isSupabaseEnabled()) {
           try {
             const publishResult = await publishMeet(meetName);
             if (publishResult.success) {

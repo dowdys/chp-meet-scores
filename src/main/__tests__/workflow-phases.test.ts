@@ -11,6 +11,7 @@ import {
 const ALWAYS_AVAILABLE = [
   'set_phase', 'unlock_tool', 'ask_user', 'read_file',
   'run_script', 'save_progress', 'load_progress',
+  'list_skills', 'load_skill',
 ];
 
 describe('workflow-phases', () => {
@@ -36,9 +37,9 @@ describe('workflow-phases', () => {
       expect(tools).toContain('search_meets');
       expect(tools).toContain('lookup_meet');
       expect(tools).toContain('set_output_name');
+      expect(tools).toContain('web_search');
       expect(tools).not.toContain('build_database');
       expect(tools).not.toContain('mso_extract');
-      expect(tools).not.toContain('regenerate_output');
       expect(tools).not.toContain('finalize_meet');
     });
 
@@ -78,14 +79,14 @@ describe('workflow-phases', () => {
       expect(tools).not.toContain('search_meets');
     });
 
-    it('import_backs phase has import_pdf_backs but not build_database or extraction', () => {
+    it('import_backs phase has import_pdf_backs and regenerate_output but not build_database or extraction', () => {
       const tools = getToolsForPhase('import_backs');
       expect(tools).toContain('import_pdf_backs');
       expect(tools).toContain('list_meets');
       expect(tools).toContain('open_file');
+      expect(tools).toContain('regenerate_output');
       expect(tools).not.toContain('build_database');
       expect(tools).not.toContain('mso_extract');
-      expect(tools).not.toContain('regenerate_output');
       expect(tools).not.toContain('finalize_meet');
     });
 
@@ -122,7 +123,9 @@ describe('workflow-phases', () => {
       expect(getToolHomePhase('search_meets')).toBe('discovery');
       expect(getToolHomePhase('mso_extract')).toBe('extraction');
       expect(getToolHomePhase('build_database')).toBe('database');
-      expect(getToolHomePhase('regenerate_output')).toBe('output_finalize');
+      // regenerate_output is in multiple phases — getToolHomePhase returns the first one found
+      const regenPhase = getToolHomePhase('regenerate_output');
+      expect(['output_finalize', 'import_backs']).toContain(regenPhase);
       expect(getToolHomePhase('import_pdf_backs')).toBe('import_backs');
     });
 
@@ -159,8 +162,9 @@ describe('workflow-phases', () => {
         'chrome_navigate', 'chrome_execute_js', 'chrome_screenshot', 'chrome_click',
         'chrome_save_to_file', 'http_fetch', 'save_to_file',
         'query_db', 'query_db_to_file', 'list_output_files', 'list_meets',
-        'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill',
+        'get_meet_summary', 'set_output_name',
         'open_file', 'render_pdf_page',
+        'regenerate_output', 'rename_gym', 'fix_names', 'pull_meet', 'finalize_meet',
       ]);
 
       for (const [tool, phases] of toolPhaseMap) {

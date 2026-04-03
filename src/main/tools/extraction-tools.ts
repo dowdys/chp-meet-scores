@@ -52,6 +52,12 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
         return 'Error: meet_ids parameter is required (array of string MSO meet IDs)';
       }
 
+      // Validate MSO meet IDs are numeric (prevents parameter injection in POST body)
+      const invalidIds = meetIds.filter(id => !/^\d+$/.test(id));
+      if (invalidIds.length > 0) {
+        return `Error: Invalid MSO meet ID format: ${invalidIds.join(', ')}. MSO meet IDs must be numeric.`;
+      }
+
       // Direct HTTP API call — no Chrome needed
       const dataDir = getDataDir();
       if (!fs.existsSync(dataDir)) {

@@ -361,13 +361,27 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
   },
 
   fix_names: async (args) => {
+    const meetName = typeof args.meet_name === 'string' ? args.meet_name.trim() : '';
+    if (!meetName) {
+      return 'Error: meet_name is required. Pass the meet name to apply corrections to.';
+    }
+
     let corrections: Array<{ original: string; corrected: string }>;
     try {
       const raw = typeof args.corrections === 'string' ? JSON.parse(args.corrections) : args.corrections;
       if (!Array.isArray(raw) || raw.length === 0) {
         return 'No corrections to apply. Pass a JSON array of {original, corrected} objects.';
       }
-      corrections = raw;
+      // Validate shape of each correction
+      const valid = raw.every((item: unknown) =>
+        typeof item === 'object' && item !== null &&
+        typeof (item as Record<string, unknown>).original === 'string' &&
+        typeof (item as Record<string, unknown>).corrected === 'string'
+      );
+      if (!valid) {
+        return 'Error: Each correction must have {original: string, corrected: string} properties.';
+      }
+      corrections = raw as Array<{ original: string; corrected: string }>;
     } catch {
       return 'Error: corrections must be a valid JSON array of {original, corrected} objects.';
     }
@@ -386,14 +400,14 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
       const skipped: string[] = [];
 
       db.exec('BEGIN IMMEDIATE');
-      const updateStmt = db.prepare('UPDATE results SET name = ? WHERE name = ? AND meet_name = (SELECT meet_name FROM meets LIMIT 1)');
+      const updateStmt = db.prepare('UPDATE results SET name = ? WHERE name = ? AND meet_name = ?');
 
       for (const { original, corrected } of corrections) {
         if (!original || !corrected || original === corrected) {
           skipped.push(`"${original}" — no change needed`);
           continue;
         }
-        const result = updateStmt.run(corrected, original);
+        const result = updateStmt.run(corrected, original, meetName);
         if (result.changes > 0) {
           applied.push(`"${original}" → "${corrected}" (${result.changes} rows)`);
         } else {
@@ -401,19 +415,17 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
         }
       }
 
-      // Rebuild winners table to stay in sync with corrected names
-      // The winners table is rebuilt by calling the Python pipeline's build logic,
-      // but for a quick fix we can just update the winners table directly too.
-      const updateWinnersStmt = db.prepare('UPDATE winners SET name = ? WHERE name = ? AND meet_name = (SELECT meet_name FROM meets LIMIT 1)');
+      // Update winners table to stay in sync with corrected names
+      const updateWinnersStmt = db.prepare('UPDATE winners SET name = ? WHERE name = ? AND meet_name = ?');
       for (const { original, corrected } of corrections) {
         if (original && corrected && original !== corrected) {
-          updateWinnersStmt.run(corrected, original);
+          updateWinnersStmt.run(corrected, original, meetName);
         }
       }
 
       db.exec('COMMIT');
 
-      let msg = `Fixed ${applied.length} name(s) in ${stagingPath ? 'staging' : 'central'} DB.`;
+      let msg = `Fixed ${applied.length} name(s) in ${stagingPath ? 'staging' : 'central'} DB for meet "${meetName}".`;
       if (applied.length > 0) msg += '\n\nApplied:\n' + applied.map(a => `  ✓ ${a}`).join('\n');
       if (skipped.length > 0) msg += '\n\nSkipped:\n' + skipped.map(s => `  - ${s}`).join('\n');
       msg += '\n\nBoth results and winners tables updated. You can now call regenerate_output.';

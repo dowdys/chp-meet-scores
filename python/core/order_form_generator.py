@@ -118,7 +118,10 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     # Resolve explicit division order: prefer what's stored in precomputed data
     # (since it was already used to sort shirt backs), fall back to the caller-
     # supplied list, then None (which triggers alphabetical fallback with a warning).
-    _div_order = (precomputed.get('division_order') if precomputed is not None else None) or division_order
+    if precomputed is not None and 'division_order' in precomputed:
+        _div_order = precomputed['division_order']
+    else:
+        _div_order = division_order
     gym_athletes = _get_gym_athletes(db_path, meet_name, explicit_order=_div_order)
     if not gym_athletes:
         doc = fitz.open()

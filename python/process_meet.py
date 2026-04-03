@@ -75,6 +75,17 @@ from python.adapters.generic_adapter import GenericAdapter
 from python.core.division_detector import get_division_order, detect_division_order, detect_division_gaps
 
 
+def _parse_division_order(order_str):
+    """Parse a comma-separated division order string into a list of stripped strings.
+
+    Returns None if order_str is falsy, so callers can distinguish
+    "no order specified" from an empty list.
+    """
+    if not order_str:
+        return None
+    return [s.strip() for s in order_str.split(',') if s.strip()]
+
+
 def _tmp_path_for(output_path):
     """Create a temp file path in the same directory as output_path."""
     dir_name = os.path.dirname(output_path) or '.'
@@ -577,7 +588,7 @@ def main():
             _import_letter_levels = None
 
             if _has_legal:
-                _imp_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
+                _imp_div_list = _parse_division_order(args.division_order)
                 _gh_pre = precompute_shirt_data(db_path, config.meet_name,
                                                 layout=import_layout,
                                                 level_groups=args.level_groups,
@@ -681,7 +692,7 @@ def main():
             try:
                 order_path = os.path.join(args.output, 'order_forms.pdf')
                 tmp = _tmp_path_for(order_path)
-                _imp_of_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
+                _imp_of_div_list = _parse_division_order(args.division_order)
                 generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                          year=args.year, state=args.state,
                                          state_abbrev=args.state_abbrev,
@@ -863,7 +874,7 @@ def main():
     # Division ordering — agent provides explicit order via --division-order
     _explicit = None
     if args.division_order:
-        _explicit = [s.strip() for s in args.division_order.split(',') if s.strip()]
+        _explicit = _parse_division_order(args.division_order)
     division_order, div_warnings = detect_division_order(
         db_path, config.meet_name, explicit_order=_explicit)
     print(f"Division order ({len(division_order)} divisions): {list(division_order.keys())}")
@@ -964,7 +975,7 @@ def main():
     # Pre-compute shirt data ONCE and reuse across all generators
     pre = None
     if do_all or 'shirt' in regen_set:
-        _div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
+        _div_list = _parse_division_order(args.division_order)
         pre = precompute_shirt_data(db_path, config.meet_name,
                                     layout=layout,
                                     level_groups=args.level_groups,
@@ -1107,7 +1118,7 @@ def main():
             existing_shirt_pdf = os.path.join(args.output, 'back_of_shirt.pdf')
             _shirt_path = existing_shirt_pdf if os.path.exists(existing_shirt_pdf) else None
             tmp = _tmp_path_for(order_pdf_path)
-            _of_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
+            _of_div_list = _parse_division_order(args.division_order)
             generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                      year=args.year, state=args.state,
                                      state_abbrev=args.state_abbrev,
@@ -1183,7 +1194,7 @@ def main():
             _legal_levels = None
             _letter_levels = None
             if _has_legal:
-                _gh_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
+                _gh_div_list = _parse_division_order(args.division_order)
                 _gh_pre = pre if pre is not None else precompute_shirt_data(
                     db_path, config.meet_name, layout=layout,
                     level_groups=args.level_groups,

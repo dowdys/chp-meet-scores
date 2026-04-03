@@ -218,6 +218,9 @@ function setupIPC(): void {
     if (!activeAgentLoop) {
       return { success: false, error: 'No previous conversation to continue.' };
     }
+    if (agentRunning) {
+      return { success: false, error: 'Agent already running. Wait for current operation to complete.' };
+    }
     agentRunning = true;
     try {
       sendActivityLog(`Continuing conversation...`, 'info');

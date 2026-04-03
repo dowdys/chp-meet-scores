@@ -392,9 +392,10 @@ export function getToolDefinitions(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
+          meet_name: { type: 'string', description: 'The meet name to apply corrections to (must match the meet in the database)' },
           corrections: { type: 'string', description: 'JSON array of corrections: [{"original": "Anna NicklowBB", "corrected": "Anna Nicklow"}, ...]' },
         },
-        required: ['corrections'],
+        required: ['meet_name', 'corrections'],
       },
     },
     {

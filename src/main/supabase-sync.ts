@@ -125,7 +125,8 @@ export async function publishMeetData(meetName: string): Promise<PublishResult> 
       return { success: false, reason: error.message };
     }
 
-    const result = data as { version: number; results_count: number; winners_count: number; meet_id?: string };
+    // publish_meet_v2 returns meet_id via RETURNING clause (migration 006)
+    const result = data as { version: number; results_count: number; winners_count: number; meet_id: string };
     return {
       success: true,
       version: result.version,

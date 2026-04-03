@@ -557,17 +557,16 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                         rows.sort(key=_tiebreak_key)
                     # Clean names for shirt display (strip parenthetical annotations).
                     # When two different raw names clean to the same string, keep
-                    # both by appending a disambiguator (session, then gym fallback).
-                    seen: dict[str, str] = {}  # cleaned -> first raw name that produced it
+                    # both by appending a counter: first collision gets (2), next (3), etc.
+                    seen: dict[str, int] = {}  # cleaned -> occurrence count
                     clean_names = []
                     for r in rows:
                         raw = r[0]
-                        session = r[2]
                         cleaned = clean_name_for_shirt(raw)
                         if not cleaned:
                             continue
                         if cleaned not in seen:
-                            seen[cleaned] = raw
+                            seen[cleaned] = 1
                             clean_names.append(cleaned)
                             reason = flag_suspicious_name(cleaned)
                             if reason:
@@ -576,14 +575,13 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                                 modified.append((raw.strip(), cleaned, event, level))
                         else:
                             # Collision: two distinct raw names cleaned to the same string.
-                            # Disambiguate with session; fall back to a counter if absent.
-                            disambig = str(session) if session else ''
-                            deduped = f"{cleaned} ({disambig})" if disambig else f"{cleaned} (2)"
+                            # Disambiguate with an incrementing counter.
+                            seen[cleaned] += 1
+                            deduped = f"{cleaned} ({seen[cleaned]})"
                             logger.warning(
-                                "NAME_DEDUP: raw names %r and %r both clean to %r "
-                                "(level=%s, event=%s). Keeping both: %r and %r.",
-                                seen[cleaned], raw, cleaned, level, event,
-                                cleaned, deduped
+                                "NAME_DEDUP: raw %r also cleans to %r "
+                                "(level=%s, event=%s, occurrence=%d). Using %r.",
+                                raw, cleaned, level, event, seen[cleaned], deduped
                             )
                             clean_names.append(deduped)
                             reason = flag_suspicious_name(deduped)
