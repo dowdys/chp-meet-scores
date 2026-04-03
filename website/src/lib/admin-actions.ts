@@ -6,7 +6,8 @@ import { render } from "@react-email/render";
 import { OrderConfirmationEmail } from "@/emails/order-confirmation";
 import { ShippingConfirmationEmail } from "@/emails/shipping-confirmation";
 import { sendBatchEmails } from "@/lib/postmark";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, calculateShipping } from "@/lib/utils";
+import { getStripe } from "@/lib/stripe";
 
 /** Verify caller is admin before any mutating action */
 async function ensureAdmin() {
@@ -233,6 +234,237 @@ export async function sendShippingConfirmationEmail(orderId: number) {
       stream: "outbound",
     },
   ]);
+
+  return { success: true };
+}
+
+// ============================================================
+// CANCEL & REFUND
+// ============================================================
+
+export async function cancelOrder(
+  orderId: number,
+  itemIds?: number[]
+): Promise<{ success: boolean; error?: string }> {
+  await ensureAdmin();
+  const db = getDb();
+
+  // Fetch order with items
+  const { data: order, error: fetchErr } = await db
+    .from("orders")
+    .select("*, order_items(*)")
+    .eq("id", orderId)
+    .single();
+
+  if (fetchErr || !order) {
+    return { success: false, error: "Order not found" };
+  }
+
+  if (!["paid", "processing"].includes(order.status)) {
+    return {
+      success: false,
+      error: `Cannot cancel a ${order.status} order. Only paid or processing orders can be cancelled.`,
+    };
+  }
+
+  if (!order.stripe_payment_intent_id) {
+    return { success: false, error: "No payment intent found for this order" };
+  }
+
+  const stripe = getStripe();
+  const activeItems = (order.order_items || []).filter(
+    (i: { production_status: string }) => i.production_status !== "cancelled"
+  );
+
+  try {
+    if (!itemIds || itemIds.length === 0) {
+      // FULL CANCEL
+      await stripe.refunds.create({
+        payment_intent: order.stripe_payment_intent_id,
+      });
+
+      await db
+        .from("order_items")
+        .update({ production_status: "cancelled" })
+        .eq("order_id", orderId);
+
+      await db
+        .from("orders")
+        .update({ status: "refunded" })
+        .eq("id", orderId);
+
+      await db.from("order_status_history").insert({
+        order_id: orderId,
+        old_status: order.status,
+        new_status: "refunded",
+        changed_by: "admin",
+        reason: "Full cancellation and refund",
+      });
+    } else {
+      // PARTIAL CANCEL
+      const selectedItems = activeItems.filter((i: { id: number }) =>
+        itemIds.includes(i.id)
+      );
+      if (selectedItems.length === 0) {
+        return { success: false, error: "No valid items selected" };
+      }
+
+      const itemRefund = selectedItems.reduce(
+        (sum: number, i: { unit_price: number; jewel_price: number }) =>
+          sum + i.unit_price + i.jewel_price,
+        0
+      );
+      const remainingCount = activeItems.length - selectedItems.length;
+      const newShipping =
+        remainingCount > 0 ? calculateShipping(remainingCount) : 0;
+      const shippingRefund = Math.max(0, order.shipping_cost - newShipping);
+      const refundAmount = itemRefund + shippingRefund;
+
+      await stripe.refunds.create({
+        payment_intent: order.stripe_payment_intent_id,
+        amount: refundAmount,
+      });
+
+      for (const item of selectedItems) {
+        await db
+          .from("order_items")
+          .update({ production_status: "cancelled" })
+          .eq("id", item.id);
+      }
+
+      if (remainingCount === 0) {
+        await db
+          .from("orders")
+          .update({ status: "refunded" })
+          .eq("id", orderId);
+
+        await db.from("order_status_history").insert({
+          order_id: orderId,
+          old_status: order.status,
+          new_status: "refunded",
+          changed_by: "admin",
+          reason: `All items cancelled (partial cancellation of ${selectedItems.length} items)`,
+        });
+      } else {
+        await db
+          .from("orders")
+          .update({ shipping_cost: newShipping, total: order.total - refundAmount })
+          .eq("id", orderId);
+
+        await db.from("order_status_history").insert({
+          order_id: orderId,
+          old_status: order.status,
+          new_status: order.status,
+          changed_by: "admin",
+          reason: `Partial cancellation: ${selectedItems.length} item(s) refunded (${formatPrice(refundAmount)})`,
+        });
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Stripe refund failed";
+    return { success: false, error: message };
+  }
+}
+
+// ============================================================
+// STATUS OVERRIDE
+// ============================================================
+
+export async function overrideOrderStatus(
+  orderId: number,
+  newStatus: string,
+  reason: string
+): Promise<{ success: boolean; error?: string }> {
+  await ensureAdmin();
+  const db = getDb();
+
+  if (!reason.trim()) {
+    return { success: false, error: "A reason is required" };
+  }
+
+  const validStatuses = [
+    "pending", "paid", "processing", "shipped",
+    "delivered", "refunded", "cancelled",
+  ];
+  if (!validStatuses.includes(newStatus)) {
+    return { success: false, error: `Invalid status: ${newStatus}` };
+  }
+
+  const { data: order } = await db
+    .from("orders")
+    .select("status")
+    .eq("id", orderId)
+    .single();
+
+  if (!order) {
+    return { success: false, error: "Order not found" };
+  }
+
+  if (order.status === newStatus) {
+    return { success: true };
+  }
+
+  await db.from("orders").update({ status: newStatus }).eq("id", orderId);
+
+  await db.from("order_status_history").insert({
+    order_id: orderId,
+    old_status: order.status,
+    new_status: newStatus,
+    changed_by: "admin-override",
+    reason: reason.trim(),
+  });
+
+  return { success: true };
+}
+
+export async function overrideItemStatus(
+  itemId: number,
+  newStatus: string,
+  reason: string
+): Promise<{ success: boolean; error?: string }> {
+  await ensureAdmin();
+  const db = getDb();
+
+  if (!reason.trim()) {
+    return { success: false, error: "A reason is required" };
+  }
+
+  const validStatuses = [
+    "pending", "queued", "at_printer", "printed", "packed", "cancelled",
+  ];
+  if (!validStatuses.includes(newStatus)) {
+    return { success: false, error: `Invalid status: ${newStatus}` };
+  }
+
+  const { data: item } = await db
+    .from("order_items")
+    .select("production_status, order_id")
+    .eq("id", itemId)
+    .single();
+
+  if (!item) {
+    return { success: false, error: "Item not found" };
+  }
+
+  if (item.production_status === newStatus) {
+    return { success: true };
+  }
+
+  await db
+    .from("order_items")
+    .update({ production_status: newStatus })
+    .eq("id", itemId);
+
+  await db.from("order_status_history").insert({
+    order_id: item.order_id,
+    old_status: item.production_status,
+    new_status: newStatus,
+    changed_by: "admin-override",
+    reason: `Item status override: ${reason.trim()}`,
+  });
 
   return { success: true };
 }
