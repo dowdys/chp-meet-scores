@@ -393,7 +393,6 @@ export async function toolRegenerateOutput(
     ['copyright', '--copyright'],
     ['sport', '--sport'],
     ['title_prefix', '--title-prefix'],
-    ['division_order', '--division-order'],
     ['name_sort', '--name-sort'],
     ['gym_map', '--gym-map'],
   ];

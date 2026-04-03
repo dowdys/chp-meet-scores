@@ -37,8 +37,11 @@ function normalizeState(raw: string): string {
 export const searchToolExecutors: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
   search_meets: async (args) => {
     const query = requireString(args, 'query');
-    const rawState = optionalString(args, 'state');
-    const stateFilter = rawState ? normalizeState(rawState) : undefined;
+    const rawState = requireString(args, 'state');
+    if (!rawState.trim()) {
+      return 'Error: state parameter is required and cannot be empty. Pass the state name or abbreviation (e.g., "Michigan", "NV").';
+    }
+    const stateFilter = normalizeState(rawState);
     const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
 
     // --- Step 0: Perplexity context (if API key available) ---

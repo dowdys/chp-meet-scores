@@ -292,7 +292,8 @@ def _find_solo_sessions(cur, meet_name: str) -> set:
                 print(f"    {row[0]} ({row[1]}) -- S{s} L{l} Div {d}")
                 solo_kept_list.append({"name": row[0], "gym": row[1], "level": l, "division": d, "session": s})
         print(f"  These athletes won all events by default. Verify with user if they should be on the shirt.")
-        print(f"SOLO_WINNERS_JSON: {json.dumps(solo_kept_list)}")
+        if solo_kept_list:
+            print(f"SOLO_WINNERS_JSON: {json.dumps(solo_kept_list)}")
     return excluded
 
 
