@@ -39,6 +39,16 @@ export function BatchActions({
       >
         Print Manifest
       </a>
+      {currentStatus === "returned" && (
+        <a
+          href={`/api/admin/print-bundle?batchId=${batchId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700"
+        >
+          Generate Print Bundle
+        </a>
+      )}
       {nextStatus && (
         <button
           onClick={handleTransition}
