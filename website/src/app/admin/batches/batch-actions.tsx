@@ -66,7 +66,9 @@ export function BatchActions({
     const counts: Array<{ batchBackId: number; returnedCount: number }> = [];
     for (const bb of batchBacks) {
       const val = parseInt(returnedCounts[bb.id] || "0", 10);
-      counts.push({ batchBackId: bb.id, returnedCount: isNaN(val) ? bb.shirt_count : val });
+      // Clamp to valid range: 0 to expected count (no negatives, no absurd values)
+      const clamped = isNaN(val) ? bb.shirt_count : Math.max(0, Math.min(val, bb.shirt_count * 2));
+      counts.push({ batchBackId: bb.id, returnedCount: clamped });
     }
 
     await updateBatchReturnedCounts(counts);

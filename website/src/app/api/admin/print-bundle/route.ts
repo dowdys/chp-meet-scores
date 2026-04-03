@@ -175,33 +175,51 @@ export async function GET(request: NextRequest) {
           shipment.lowestRate()
         );
 
-        // Save shipment info on the order
-        await supabase
-          .from("orders")
-          .update({
-            easypost_shipment_id: boughtShipment.id,
-            tracking_number: boughtShipment.tracking_code,
-            carrier: boughtShipment.selected_rate?.carrier || "USPS",
-            status: "shipped",
-            shipped_at: new Date().toISOString(),
-          })
-          .eq("id", order.id);
-
-        // Record status change
-        await supabase.from("order_status_history").insert({
-          order_id: order.id,
-          old_status: order.status,
-          new_status: "shipped",
-          changed_by: "system",
-          reason: "Shipping label created via print bundle",
-        });
-
         // Update items in this batch to packed
         await supabase
           .from("order_items")
           .update({ production_status: "packed" })
           .eq("order_id", order.id)
           .eq("printer_batch_id", batchId);
+
+        // Only mark order as shipped if ALL non-cancelled items are now packed/printed.
+        // For multi-back orders, some items may still be in other batches.
+        const { data: allItems } = await supabase
+          .from("order_items")
+          .select("production_status")
+          .eq("order_id", order.id)
+          .neq("production_status", "cancelled");
+
+        const allReady = (allItems || []).every(
+          (i: { production_status: string }) =>
+            i.production_status === "printed" || i.production_status === "packed"
+        );
+
+        // Save shipment info on the order
+        const orderUpdate: Record<string, unknown> = {
+          easypost_shipment_id: boughtShipment.id,
+          tracking_number: boughtShipment.tracking_code,
+          carrier: boughtShipment.selected_rate?.carrier || "USPS",
+        };
+        if (allReady) {
+          orderUpdate.status = "shipped";
+          orderUpdate.shipped_at = new Date().toISOString();
+        }
+        await supabase
+          .from("orders")
+          .update(orderUpdate)
+          .eq("id", order.id);
+
+        // Record status change only if actually shipped
+        if (allReady) {
+          await supabase.from("order_status_history").insert({
+            order_id: order.id,
+            old_status: order.status,
+            new_status: "shipped",
+            changed_by: "system",
+            reason: "Shipping label created via print bundle — all items ready",
+          });
+        }
 
         order.labelUrl = boughtShipment.postage_label?.label_url || null;
       }

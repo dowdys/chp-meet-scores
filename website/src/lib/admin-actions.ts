@@ -69,7 +69,16 @@ export async function createPrinterBatch(
     month: "short",
     day: "numeric",
   });
-  const batchName = `Week of ${weekStr} - ${printer === "printer_1" ? "Printer 1" : "Printer 2"}`;
+  const printerLabel = printer === "printer_1" ? "Printer 1" : "Printer 2";
+  const baseName = `Week of ${weekStr} - ${printerLabel}`;
+
+  // Append sequence number to prevent batch name collisions
+  const { count: existingCount } = await db
+    .from("printer_batches")
+    .select("*", { count: "exact", head: true })
+    .like("batch_name", `${baseName}%`);
+  const seq = (existingCount || 0) + 1;
+  const batchName = seq === 1 ? baseName : `${baseName} (#${seq})`;
 
   // Create batch
   const { data: batch, error } = await db
@@ -384,10 +393,10 @@ export async function cancelOrder(
         0
       );
       const remainingCount = activeItems.length - selectedItems.length;
-      const newShipping =
-        remainingCount > 0 ? calculateShipping(remainingCount) : 0;
+      const newShipping = remainingCount > 0 ? calculateShipping(remainingCount) : 0;
       const shippingRefund = Math.max(0, order.shipping_cost - newShipping);
       const refundAmount = itemRefund + shippingRefund;
+      const newSubtotal = order.subtotal - itemRefund;
 
       await stripe.refunds.create({
         payment_intent: order.stripe_payment_intent_id,
@@ -417,7 +426,7 @@ export async function cancelOrder(
       } else {
         await db
           .from("orders")
-          .update({ shipping_cost: newShipping, total: order.total - refundAmount })
+          .update({ subtotal: newSubtotal, shipping_cost: newShipping, total: newSubtotal + newShipping + order.tax })
           .eq("id", orderId);
 
         await db.from("order_status_history").insert({

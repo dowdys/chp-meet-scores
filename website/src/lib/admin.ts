@@ -139,13 +139,16 @@ export async function getShippingQueue() {
     .in("status", ["paid", "processing"])
     .order("created_at", { ascending: true });
 
-  // Filter to orders where ALL items are printed or packed
+  // Filter to orders where ALL non-cancelled items are printed or packed
   const ready =
     data?.filter((order) => {
-      const items = order.order_items || [];
+      const activeItems = (order.order_items || []).filter(
+        (item: { production_status: string }) =>
+          item.production_status !== "cancelled"
+      );
       return (
-        items.length > 0 &&
-        items.every(
+        activeItems.length > 0 &&
+        activeItems.every(
           (item: { production_status: string }) =>
             item.production_status === "printed" ||
             item.production_status === "packed"
