@@ -11,10 +11,10 @@ function getClient(): postmark.ServerClient {
 }
 
 const FROM_EMAIL =
-  process.env.POSTMARK_FROM_EMAIL || "orders@thestatechampion.com";
+  process.env.POSTMARK_FROM_EMAIL || "sales@thestatechampion.com";
 
 const RELAY_FROM_EMAIL =
-  process.env.POSTMARK_RELAY_FROM || "orders@thestatechampion.com";
+  process.env.POSTMARK_RELAY_FROM || "sales@thestatechampion.com";
 
 interface EmailAttachment {
   filename: string;
