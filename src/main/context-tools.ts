@@ -283,6 +283,8 @@ export async function toolBuildDatabase(
   if (args.year !== undefined && args.year !== null) argParts.push('--year', String(args.year));
   const gymMap = optionalString(args, 'gym_map');
   if (gymMap) argParts.push('--gym-map', convertWindowsPaths(gymMap));
+  const stateAbbrev = optionalString(args, 'state_abbrev');
+  if (stateAbbrev) argParts.push('--state-abbrev', stateAbbrev);
   // Division order — store on context and auto-inject from context when agent omits it
   const divisionOrderStr = optionalString(args, 'division_order');
   if (divisionOrderStr) {
@@ -394,6 +396,7 @@ export async function toolRegenerateOutput(
     ['sport', '--sport'],
     ['title_prefix', '--title-prefix'],
     ['name_sort', '--name-sort'],
+    ['state_abbrev', '--state-abbrev'],
     ['gym_map', '--gym-map'],
   ];
 

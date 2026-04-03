@@ -861,7 +861,8 @@ def main():
                                if 'alias' in r and 'canonical' in r}
                     print(f"Loaded {len(aliases)} gym aliases from Supabase")
         except Exception as e:
-            print(f"Warning: Could not load gym aliases from Supabase: {e}")
+            print(f"SUPABASE_ALIAS_FAILURE: Could not load gym aliases from Supabase: {e}")
+            print(f"  Gym names from previous meets will NOT be auto-corrected. Use --gym-map for manual corrections.")
 
         # Normalize gym names
         result = normalize_gyms(athletes, gym_map_path=args.gym_map, aliases=aliases)

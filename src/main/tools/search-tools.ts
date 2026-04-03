@@ -43,6 +43,8 @@ export const searchToolExecutors: Record<string, (args: Record<string, unknown>)
     }
     const stateFilter = normalizeState(rawState);
     const results: Array<{name: string, id: string, source: string, state: string, program: string, date: string}> = [];
+    const searchNotes: string[] = [];
+    let algoliaFailed = false;
 
     // --- Step 0: Perplexity context (if API key available) ---
     // Ask Perplexity about the championship to know what meets to expect and where to find them
@@ -91,8 +93,10 @@ Be specific about meet names — they're often like "2026 [State] Xcel State Cha
           }
         }
       }
-    } catch {
-      // Perplexity unavailable — continue without context
+    } catch (err) {
+      // Perplexity unavailable — note it so agent knows results may be incomplete
+      const errMsg = err instanceof Error ? err.message : String(err);
+      perplexityContext = `Note: Perplexity pre-search unavailable (${errMsg}). ScoreCat results may be less complete.`;
     }
 
     // --- Step 1: Search Algolia (ScoreCat) ---
@@ -140,8 +144,12 @@ Be specific about meet names — they're often like "2026 [State] Xcel State Cha
             date: startDate,
           });
         }
-      } catch {
-        // Algolia failed for this query, continue
+      } catch (err) {
+        // Track Algolia failures so agent knows results may be incomplete
+        if (!algoliaFailed) {
+          algoliaFailed = true;
+          searchNotes.push(`Note: ScoreCat/Algolia search had errors — some ScoreCat meets may be missing.`);
+        }
       }
     }
 
@@ -195,7 +203,7 @@ Be specific about meet names — they're often like "2026 [State] Xcel State Cha
         }
       }
     } catch {
-      // MSO failed
+      searchNotes.push(`Note: MSO search failed — some MSO meets may be missing.`);
     }
 
     // --- Step 3: Perplexity ID fallback (if no results yet) ---
@@ -270,6 +278,11 @@ Be specific about meet names — they're often like "2026 [State] Xcel State Cha
     // Append Perplexity context so the agent knows what levels/dates to expect
     if (perplexityContext) {
       output += `\n\n--- Championship Context (from Perplexity) ---\n${perplexityContext}\n\nUse this context to verify the meets above cover all expected levels. If levels are missing, there may be additional meets to find.`;
+    }
+
+    // Surface any search backend failures
+    if (searchNotes.length > 0) {
+      output += '\n\n' + searchNotes.join('\n');
     }
 
     return output;

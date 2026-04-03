@@ -213,6 +213,7 @@ def _normalize_division_case(cur, meet_name: str):
 
     if merged:
         print(f"  Total division merges: {merged} rows")
+        print(f"  DIVISION_MERGES: {merged} rows merged due to case/format differences. Verify division_order uses canonical names.")
 
 
 def _create_winners_table(cur, meet_name: str):
