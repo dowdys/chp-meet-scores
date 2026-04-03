@@ -1,12 +1,14 @@
-import { getOrders } from "@/lib/admin";
+import { getOrders, getOrderDetail } from "@/lib/admin";
 import { formatPrice } from "@/lib/utils";
 import { OrderFilters } from "./order-filters";
+import { OrderDetailPanel } from "./order-detail-panel";
 import { CSVExportButton } from "@/components/admin/csv-export-button";
+import { OrderRowLink } from "./order-row-link";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ status?: string; search?: string }>;
+  searchParams: Promise<{ status?: string; search?: string; order?: string }>;
 }
 
 export default async function OrdersPage({ searchParams }: PageProps) {
@@ -16,6 +18,11 @@ export default async function OrdersPage({ searchParams }: PageProps) {
     search: params.search,
     limit: 200,
   });
+
+  // If an order is selected, fetch its full details
+  const orderDetail = params.order
+    ? (await getOrderDetail(params.order)).data
+    : null;
 
   return (
     <div className="p-8">
@@ -54,7 +61,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
           </thead>
           <tbody>
             {orders.map((order: any) => (
-              <tr key={order.id} className="border-b hover:bg-gray-50">
+              <OrderRowLink key={order.id} orderNumber={order.order_number}>
                 <td className="p-3 font-mono text-xs">{order.order_number}</td>
                 <td className="p-3">
                   <div>{order.customer_name}</div>
@@ -76,7 +83,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                 <td className="p-3 text-gray-500">
                   {new Date(order.created_at).toLocaleDateString()}
                 </td>
-              </tr>
+              </OrderRowLink>
             ))}
             {orders.length === 0 && (
               <tr>
@@ -88,6 +95,9 @@ export default async function OrdersPage({ searchParams }: PageProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Order detail slide-over panel */}
+      <OrderDetailPanel order={orderDetail} />
     </div>
   );
 }

@@ -141,6 +141,52 @@ export async function getNameCorrections() {
   return { data: data || [], error };
 }
 
+export async function getOrderDetail(orderId: string) {
+  const db = supabase();
+
+  // Fetch the order by order_number (e.g. CHP-2026-001)
+  const { data: order, error: orderError } = await db
+    .from("orders")
+    .select("*")
+    .eq("order_number", orderId)
+    .single();
+
+  if (orderError || !order) {
+    return { data: null, error: orderError };
+  }
+
+  // Fetch order items with shirt_backs join for back design info
+  const { data: items, error: itemsError } = await db
+    .from("order_items")
+    .select("*, shirt_backs(id, meet_name, level_group_label)")
+    .eq("order_id", order.id)
+    .order("created_at", { ascending: true });
+
+  if (itemsError) {
+    return { data: null, error: itemsError };
+  }
+
+  // Fetch status history ordered by most recent first
+  const { data: history, error: historyError } = await db
+    .from("order_status_history")
+    .select("*")
+    .eq("order_id", order.id)
+    .order("created_at", { ascending: false });
+
+  if (historyError) {
+    return { data: null, error: historyError };
+  }
+
+  return {
+    data: {
+      ...order,
+      order_items: items || [],
+      status_history: history || [],
+    },
+    error: null,
+  };
+}
+
 export async function getEmailCaptures(filters?: { state?: string; notified?: boolean }) {
   const db = supabase();
   let query = db
