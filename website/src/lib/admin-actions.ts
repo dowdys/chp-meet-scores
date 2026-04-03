@@ -328,6 +328,18 @@ export async function cancelOrder(
     return { success: false, error: "No payment intent found for this order" };
   }
 
+  // Optimistic lock: verify order is still in cancellable state (prevents double-cancel race)
+  const { data: lockCheck } = await db
+    .from("orders")
+    .update({ status: order.status }) // no-op update to verify state hasn't changed
+    .eq("id", orderId)
+    .eq("status", order.status) // WHERE status = current status
+    .select("id");
+
+  if (!lockCheck || lockCheck.length === 0) {
+    return { success: false, error: "Order status changed — someone else may have already cancelled it. Please refresh." };
+  }
+
   const stripe = getStripe();
   const activeItems = (order.order_items || []).filter(
     (i: { production_status: string }) => i.production_status !== "cancelled"

@@ -273,7 +273,12 @@ async function drawLabelPage(
 
   if (order.labelUrl) {
     try {
-      const labelResponse = await fetch(order.labelUrl);
+      // Validate label URL to prevent SSRF — only allow EasyPost domains
+      const labelUrlObj = new URL(order.labelUrl);
+      if (!labelUrlObj.hostname.endsWith("easypost.com") && !labelUrlObj.hostname.endsWith("easypost-files.superlogistics.com")) {
+        throw new Error(`Untrusted label URL domain: ${labelUrlObj.hostname}`);
+      }
+      const labelResponse = await fetch(order.labelUrl, { signal: AbortSignal.timeout(15000) });
       const labelBytes = new Uint8Array(await labelResponse.arrayBuffer());
 
       // Determine format from URL or content type
