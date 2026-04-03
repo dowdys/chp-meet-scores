@@ -29,19 +29,29 @@ export function BatchActions({
     router.refresh();
   };
 
-  if (!nextStatus) return null;
-
   return (
-    <button
-      onClick={handleTransition}
-      disabled={loading}
-      className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600 disabled:opacity-50"
-    >
-      {loading
-        ? "..."
-        : nextStatus === "at_printer"
-          ? "Mark Sent to Printer"
-          : "Mark Returned"}
-    </button>
+    <div className="flex items-center gap-2">
+      <a
+        href={`/api/admin/print-manifest?batchId=${batchId}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="bg-gray-100 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-200 border border-gray-300"
+      >
+        Print Manifest
+      </a>
+      {nextStatus && (
+        <button
+          onClick={handleTransition}
+          disabled={loading}
+          className="bg-blue-500 text-white px-3 py-1 rounded text-xs hover:bg-blue-600 disabled:opacity-50"
+        >
+          {loading
+            ? "..."
+            : nextStatus === "at_printer"
+              ? "Mark Sent to Printer"
+              : "Mark Returned"}
+        </button>
+      )}
+    </div>
   );
 }
