@@ -1,6 +1,6 @@
 {
   "name": "chp-meet-scores",
-  "version": "0.4.11",
+  "version": "0.5.0",
   "description": "Gymnastics Meet Scoring System - Desktop App",
   "main": "dist/main/main.js",
   "scripts": {
