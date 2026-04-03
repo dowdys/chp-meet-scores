@@ -162,8 +162,20 @@ export class AgentLoop {
           if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
           if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
           if (savedProgress.discovered_meet_ids?.length) context.discoveredMeetIds = savedProgress.discovered_meet_ids;
+          if (savedProgress.division_order?.length) context.divisionOrder = savedProgress.division_order;
 
+          // Restore import state from shirt_layout.json on disk (survives session restarts)
           const dataDir = getDataDir();
+          try {
+            const layoutPath = path.join(dataDir, 'shirt_layout.json');
+            if (fs.existsSync(layoutPath)) {
+              const layoutData = JSON.parse(fs.readFileSync(layoutPath, 'utf-8'));
+              if (layoutData._source === 'imported') {
+                context.idmlImported = true;
+                this.onActivity('Restored import protection from shirt_layout.json', 'info');
+              }
+            }
+          } catch { /* ignore — shirt_layout.json may not exist or be malformed */ }
           let fileInventory = '';
           try {
             const allFiles = fs.readdirSync(dataDir)
@@ -702,8 +714,8 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     if (name === 'search_meets') {
       const count = (context.searchMeetsCallCount || 0) + 1;
       context.searchMeetsCallCount = count;
-      if (count > 5) {
-        return 'Error: search_meets has been called 6+ times. The meets you need should already be in the results above. ' +
+      if (count > 7) {
+        return 'Error: search_meets has been called 8+ times. The meets you need should already be in the results above. ' +
           'If you cannot find a meet, use ask_user to ask the user for the meet NAME or URL — never ask for IDs.';
       }
     }
@@ -860,7 +872,7 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     const keyFiles: Set<string> = new Set();
     const toolArgSnapshots: string[] = [];
     const keyToolResults: string[] = [];
-    const filePattern = /(?:(?:[A-Za-z]:\\[\w\\. -]+|\/[\w./_-]+)\.(?:json|pdf|db|idml|txt|csv))/g;
+    const filePattern = /(?:(?:[A-Za-z]:\\[\w\\. -]+|\/[\w./_\- ]+)\.(?:json|pdf|db|idml|txt|csv))/g;
 
     // Tools whose RESULTS contain critical data (IDs, counts, file paths) that must survive pruning
     const HANDOFF_RESULT_TOOLS = new Set([

@@ -105,11 +105,13 @@ def detect_division_order(db_path: str, meet_name: str,
         # No explicit order provided — sort alphabetically and warn
         scored = sorted(divisions)
         if len(divisions) > 1:
-            warnings.append(
+            warn_msg = (
                 "NO_DIVISION_ORDER: No --division-order provided. Divisions are sorted "
                 "alphabetically, which is likely WRONG. Use query_db to list divisions, "
                 "then provide them in youngest-to-oldest order via the division_order parameter."
             )
+            warnings.append(warn_msg)
+            print(warn_msg)  # Ensure agent sees this in tool output
 
     # Build position map
     order = {}

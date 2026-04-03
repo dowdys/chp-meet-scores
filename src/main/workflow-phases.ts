@@ -75,18 +75,16 @@ const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
 Find the meet results online and prepare for extraction.
 
 ### Meet Search
-Call \`search_meets\` ONCE. It searches MSO (current + previous season pages automatically), ScoreCat (Algolia), and Perplexity as fallback. Do NOT browse websites manually.
+Call \`search_meets\` with the \`state\` parameter (REQUIRED). It searches MSO (current + previous season pages), ScoreCat (Algolia), and Perplexity as fallback. Do NOT browse websites manually.
 If you know the exact MSO meet ID, use \`lookup_meet\` to verify it and get metadata (canonical name, dates, location).
 
-**CRITICAL: Trust the results.** If \`search_meets\` returns a Women's meet from MSO for the correct state, that is almost certainly the right meet. Do NOT:
-- Spend iterations browsing MSO to "confirm" the meet
-- Search again with different keywords
-- Navigate to the meet page to verify
-- Take screenshots of the MSO website
+**Trust the results.** If \`search_meets\` returns a Women's meet from MSO for the correct state, that is almost certainly the right meet. Do NOT spend iterations browsing MSO to "confirm" or navigate to meet pages.
 
-The meet name from MSO may not include the year (e.g., "Arkansas State Meet" instead of "2026 Arkansas State Meet") — this is normal. MSO meet names are often generic. Trust the state, program (Women), and source.
+The meet name from MSO may not include the year (e.g., "Arkansas State Meet" instead of "2026 Arkansas State Meet") — this is normal. Trust the state, program (Women), and source.
 
-**If search_meets returns the right meet:** Set the output name, ask for dates, and move to extraction. This should take 1-2 iterations total.
+**If search_meets returns the right meets:** Set the output name, ask for dates, and move to extraction.
+
+**If levels are missing after extraction:** State championships are often split across 3-5 separate sub-meets on ScoreCat (e.g., "Level 3/4 Xcel Platinum State Meet", "2026 Level 5-7 & XG State Championship"). If extraction shows missing levels, search again with level-specific queries (e.g., "Xcel Platinum", "Level 3 4") to find the remaining sub-meets. Some meets don't include the state abbreviation or year in their title — use level-specific keywords instead.
 
 **If search_meets returns NO Women's meet for the state:** Try ONE more search with different keywords, then ask the user for help.
 

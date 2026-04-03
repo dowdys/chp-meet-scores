@@ -362,6 +362,13 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
         const counts = transaction();
 
+        // Guard: 0 rows copied means meet_name mismatch — preserve staging DB
+        if (counts.results === 0) {
+          centralDb.exec('DETACH DATABASE staging');
+          centralDb.close();
+          return `Error: finalize_meet copied 0 athletes for "${meetName}" — meet_name may not match the staging data. Staging DB preserved at ${stagingPath}. Use query_db to check the actual meet_name in the staging database.`;
+        }
+
         // Detach and clean up
         centralDb.exec('DETACH DATABASE staging');
         centralDb.close();

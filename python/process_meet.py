@@ -889,6 +889,8 @@ def main():
     if gap_warnings:
         print("These gaps may indicate missing data from a separate meet/session. "
               "Verify all sessions were extracted before generating final outputs.")
+        gap_data = [{"warning": w} for w in gap_warnings]
+        print(f"DIVISION_GAP_JSON: {json.dumps(gap_data)}")
 
     # Also cache for get_division_order consumers
     config_dir = os.path.dirname(os.path.abspath(db_path))
@@ -935,6 +937,10 @@ def main():
         args.page_size_legal = saved_layout['page_size_legal']
     if args.division_order is None and 'division_order' in saved_layout:
         args.division_order = saved_layout['division_order']
+    if args.gym_map is None and 'gym_map' in saved_layout:
+        saved_gym_map = saved_layout['gym_map']
+        if os.path.exists(saved_gym_map):
+            args.gym_map = saved_gym_map
 
     # Restore saved dates if not provided on CLI
     if args.postmark_date == 'TBD' and 'postmark_date' in saved_layout:
@@ -1049,6 +1055,9 @@ def main():
             # NOT exclude athletes, so it's safe to persist across regenerations
             if args.division_order is not None:
                 _sticky['division_order'] = args.division_order
+            # gym_map path persists so reruns use the same alias file automatically
+            if args.gym_map is not None:
+                _sticky['gym_map'] = args.gym_map
             # Persist dates so they survive across regenerations
             if args.postmark_date and args.postmark_date != 'TBD':
                 _sticky['postmark_date'] = args.postmark_date

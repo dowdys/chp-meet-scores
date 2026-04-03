@@ -765,8 +765,7 @@ def get_winners_with_gym(db_path: str, meet_name: str) -> dict:
                 if cleaned in result and result[cleaned] != row[1]:
                     # Name collision: same cleaned name at different gyms.
                     # Keep the first gym but warn so the issue is visible.
-                    logger.warning('NAME_COLLISION: "%s" appears at both "%s" and "%s" - using first gym',
-                                   cleaned, result[cleaned], row[1])
+                    print(f'NAME_COLLISION: "{cleaned}" appears at both "{result[cleaned]}" and "{row[1]}" - using first gym')
                 elif cleaned not in result:
                     result[cleaned] = row[1]
     finally:

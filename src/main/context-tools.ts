@@ -58,6 +58,8 @@ export interface AgentContext {
   buildDatabaseFailed?: boolean;
   /** Suspicious names detected by regenerate_output — gates subsequent regeneration */
   suspiciousNames?: Array<{ raw: string; cleaned: string }>;
+  /** Division order — persisted and auto-injected on regenerate_output, like dates */
+  divisionOrder?: string[];
 }
 
 export interface ProgressData {
@@ -77,6 +79,7 @@ export interface ProgressData {
   build_database_failed?: boolean;
   suspicious_names?: Array<{ raw: string; cleaned: string }>;
   discovered_meet_ids?: string[];
+  division_order?: string[];
 }
 
 // --- Helper functions ---
@@ -280,8 +283,14 @@ export async function toolBuildDatabase(
   if (args.year !== undefined && args.year !== null) argParts.push('--year', String(args.year));
   const gymMap = optionalString(args, 'gym_map');
   if (gymMap) argParts.push('--gym-map', convertWindowsPaths(gymMap));
-  const divisionOrder = optionalString(args, 'division_order');
-  if (divisionOrder) argParts.push('--division-order', divisionOrder);
+  // Division order — store on context and auto-inject from context when agent omits it
+  const divisionOrderStr = optionalString(args, 'division_order');
+  if (divisionOrderStr) {
+    argParts.push('--division-order', divisionOrderStr);
+    context.divisionOrder = divisionOrderStr.split(',').map(s => s.trim()).filter(Boolean);
+  } else if (context.divisionOrder?.length) {
+    argParts.push('--division-order', context.divisionOrder.join(','));
+  }
 
   // Date params — store on context and auto-inject from context when agent omits them
   const postmarkDate = optionalString(args, 'postmark_date') || context.postmarkDate;
@@ -403,6 +412,13 @@ export async function toolRegenerateOutput(
     }
   }
 
+  // Division order — store on context when provided, auto-inject when omitted
+  if (args.division_order) {
+    context.divisionOrder = String(args.division_order).split(',').map(s => s.trim()).filter(Boolean);
+  } else if (context.divisionOrder?.length && !argParts.includes('--division-order')) {
+    argParts.push('--division-order', context.divisionOrder.join(','));
+  }
+
   // Date params — auto-inject from context when agent omits them
   const postmarkDate = optionalString(args, 'postmark_date') || context.postmarkDate;
   if (postmarkDate) { argParts.push('--postmark-date', postmarkDate); context.postmarkDate = postmarkDate; }
@@ -507,8 +523,10 @@ export async function toolImportPdfBacks(
 
   const result = await runPython(argParts, context.onActivity);
 
-  // Set import protection flag
-  context.idmlImported = true;
+  // Set import protection flag — only on success (failed import shouldn't permanently block)
+  if (!result.includes('Python script failed') && !result.includes('Error:')) {
+    context.idmlImported = true;
+  }
 
   // Re-upload updated files to Supabase Storage (non-blocking)
   if (isSupabaseEnabled() && meetName) {
@@ -688,6 +706,7 @@ export async function toolSaveProgress(
     build_database_failed: context.buildDatabaseFailed || undefined,
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
     discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
+    division_order: context.divisionOrder?.length ? context.divisionOrder : undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -746,6 +765,7 @@ export async function autoSaveProgress(
     build_database_failed: context.buildDatabaseFailed || undefined,
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
     discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
+    division_order: context.divisionOrder?.length ? context.divisionOrder : undefined,
   };
 
   const filePath = getProgressFilePath();

@@ -7,6 +7,7 @@ both rank 1.
 """
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import os
@@ -282,13 +283,16 @@ def _find_solo_sessions(cur, meet_name: str) -> set:
     if kept_solos:
         print(f"  WARNING: {len(kept_solos)} athlete(s) competing alone at their level/division "
               f"(no other athletes in that division at the entire meet):")
+        solo_kept_list = []
         for s, l, d in kept_solos:
             cur.execute('SELECT name, gym FROM results WHERE meet_name = ? AND session = ? AND level = ? AND division = ?',
                         (meet_name, s, l, d))
             row = cur.fetchone()
             if row:
                 print(f"    {row[0]} ({row[1]}) -- S{s} L{l} Div {d}")
+                solo_kept_list.append({"name": row[0], "gym": row[1], "level": l, "division": d, "session": s})
         print(f"  These athletes won all events by default. Verify with user if they should be on the shirt.")
+        print(f"SOLO_WINNERS_JSON: {json.dumps(solo_kept_list)}")
     return excluded
 
 
@@ -352,5 +356,18 @@ def _build_winners_score_based(conn: sqlite3.Connection, config: MeetConfig):
 
     if insert_errors:
         print(f"  Warning: {insert_errors} winner insert(s) failed (see above)")
+        print(f"WINNER_INSERT_ERRORS: {insert_errors} total insert failures")
+
+    # Level cross-check: every level in results should have at least one winner
+    cur.execute('SELECT DISTINCT level FROM results WHERE meet_name = ?', (config.meet_name,))
+    levels_in_results = {row[0] for row in cur.fetchall()}
+    cur.execute('SELECT DISTINCT level FROM winners WHERE meet_name = ?', (config.meet_name,))
+    levels_in_winners = {row[0] for row in cur.fetchall()}
+    for level in sorted(levels_in_results - levels_in_winners):
+        cur.execute('SELECT COUNT(*) FROM results WHERE meet_name = ? AND level = ?',
+                    (config.meet_name, level))
+        n = cur.fetchone()[0]
+        print(f"LEVEL_MISSING_WINNERS: Level '{level}' has {n} athletes in results but ZERO winners. "
+              f"Check scores for this level.")
 
 

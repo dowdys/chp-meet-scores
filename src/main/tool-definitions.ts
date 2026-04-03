@@ -156,9 +156,9 @@ export function getToolDefinitions(): ToolDefinition[] {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search query (e.g., "Nevada State 2026")' },
-          state: { type: 'string', description: 'Optional state filter (e.g., "NV", "Nevada")' },
+          state: { type: 'string', description: 'State name or abbreviation — REQUIRED for accurate results (e.g., "NV", "Nevada", "Michigan")' },
         },
-        required: ['query'],
+        required: ['query', 'state'],
       },
     },
 

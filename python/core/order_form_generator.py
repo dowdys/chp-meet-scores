@@ -295,6 +295,7 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
         if backs_missing > 0:
             logger.info("Order form backs: %d athletes have backs, %d athletes MISSING backs",
                         backs_found, backs_missing)
+            print(f"ORDER_FORM_MISSING_BACKS: {backs_missing} athletes could not be found on any shirt page")
         else:
             logger.info("Order form backs: all %d athletes have back pages", backs_found)
 
