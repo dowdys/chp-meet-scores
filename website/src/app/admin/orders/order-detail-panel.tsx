@@ -4,6 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect } from "react";
 import { formatPrice } from "@/lib/utils";
 import { OrderActions } from "./order-actions";
+import { StatusBadge } from "@/components/admin/status-badge";
+import type { AdminRole } from "@/lib/auth";
 
 interface OrderItem {
   id: number;
@@ -53,24 +55,13 @@ export interface OrderDetail {
   status_history: StatusHistoryEntry[];
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const color =
-    status === "paid" || status === "printed" ? "bg-green-100 text-green-700" :
-    status === "shipped" ? "bg-blue-100 text-blue-700" :
-    status === "processing" || status === "queued" || status === "at_printer" ? "bg-yellow-100 text-yellow-700" :
-    status === "delivered" || status === "packed" ? "bg-green-200 text-green-800" :
-    status === "pending" ? "bg-gray-100 text-gray-700" :
-    status === "cancelled" || status === "refunded" ? "bg-red-100 text-red-700" :
-    "bg-gray-100 text-gray-700";
-
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${color}`}>
-      {status}
-    </span>
-  );
-}
-
-export function OrderDetailPanel({ order }: { order: OrderDetail | null }) {
+export function OrderDetailPanel({
+  order,
+  userRole = "admin",
+}: {
+  order: OrderDetail | null;
+  userRole?: AdminRole;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedOrder = searchParams.get("order");
@@ -145,8 +136,8 @@ export function OrderDetailPanel({ order }: { order: OrderDetail | null }) {
             </button>
           </div>
 
-          {/* Order Actions (status + placeholder buttons) */}
-          <OrderActions orderNumber={order!.order_number} status={order!.status} />
+          {/* Order Actions (status + action buttons) */}
+          <OrderActions order={order!} userRole={userRole} />
 
           {/* Customer Info */}
           <section className="mb-6">

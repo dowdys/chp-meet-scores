@@ -1,5 +1,7 @@
 import { getOrders, getOrderDetail } from "@/lib/admin";
+import { getUserRole } from "@/lib/auth";
 import { formatPrice } from "@/lib/utils";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { OrderFilters } from "./order-filters";
 import { OrderDetailPanel } from "./order-detail-panel";
 import { CSVExportButton } from "@/components/admin/csv-export-button";
@@ -13,11 +15,14 @@ interface PageProps {
 
 export default async function OrdersPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { data: orders } = await getOrders({
-    status: params.status,
-    search: params.search,
-    limit: 200,
-  });
+  const [{ data: orders }, userRole] = await Promise.all([
+    getOrders({
+      status: params.status,
+      search: params.search,
+      limit: 200,
+    }),
+    getUserRole(),
+  ]);
 
   // If an order is selected, fetch its full details
   const orderDetail = params.order
@@ -70,15 +75,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                 <td className="p-3">{order.order_items?.length || 0} shirts</td>
                 <td className="p-3 font-medium">{formatPrice(order.total)}</td>
                 <td className="p-3">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    order.status === "paid" ? "bg-green-100 text-green-700" :
-                    order.status === "shipped" ? "bg-blue-100 text-blue-700" :
-                    order.status === "processing" ? "bg-yellow-100 text-yellow-700" :
-                    order.status === "delivered" ? "bg-green-200 text-green-800" :
-                    "bg-gray-100 text-gray-700"
-                  }`}>
-                    {order.status}
-                  </span>
+                  <StatusBadge status={order.status} type="order" />
                 </td>
                 <td className="p-3 text-gray-500">
                   {new Date(order.created_at).toLocaleDateString()}
@@ -97,7 +94,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
       </div>
 
       {/* Order detail slide-over panel */}
-      <OrderDetailPanel order={orderDetail} />
+      <OrderDetailPanel order={orderDetail} userRole={userRole || "viewer"} />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireRole } from "@/lib/auth";
+import type { AdminRole } from "@/lib/auth";
 import { render } from "@react-email/render";
 import { OrderConfirmationEmail } from "@/emails/order-confirmation";
 import { ShippingConfirmationEmail } from "@/emails/shipping-confirmation";
@@ -9,10 +10,15 @@ import { sendBatchEmails } from "@/lib/postmark";
 import { formatPrice, calculateShipping } from "@/lib/utils";
 import { getStripe } from "@/lib/stripe";
 
-/** Verify caller is admin before any mutating action */
+/** Verify caller is admin before any mutating action (legacy, equivalent to requireRole('viewer')) */
 async function ensureAdmin() {
   const auth = await requireAdmin();
   if (auth.error) throw new Error("Unauthorized");
+}
+
+/** Require a minimum role for a mutating action */
+async function ensureRole(minRole: AdminRole) {
+  await requireRole(minRole);
 }
 
 function getDb() {
@@ -24,7 +30,7 @@ function getDb() {
 // ============================================================
 
 export async function applyNameCorrection(itemId: number) {
-  await ensureAdmin();
+  await ensureRole("admin");
   const db = getDb();
   await db
     .from("order_items")
@@ -35,7 +41,7 @@ export async function applyNameCorrection(itemId: number) {
 }
 
 export async function dismissNameCorrection(itemId: number) {
-  await ensureAdmin();
+  await ensureRole("admin");
   const db = getDb();
   await db
     .from("order_items")
@@ -56,7 +62,7 @@ export async function createPrinterBatch(
   backIds: number[],
   printer: "printer_1" | "printer_2" = "printer_2"
 ) {
-  await ensureAdmin();
+  await ensureRole("shipping");
   const db = getDb();
 
   const weekStr = new Date().toLocaleDateString("en-US", {
@@ -74,13 +80,23 @@ export async function createPrinterBatch(
 
   if (error || !batch) return { success: false, error: error?.message };
 
+  // Track affected order IDs for processing status transition
+  const affectedOrderIds = new Set<number>();
+
   // Add backs to batch with shirt counts
   for (const backId of backIds) {
-    const { count } = await db
+    // Get items that will be batched (to collect order IDs)
+    const { data: pendingItems, count } = await db
       .from("order_items")
-      .select("*", { count: "exact", head: true })
+      .select("id, order_id", { count: "exact" })
       .eq("back_id", backId)
       .in("production_status", ["pending"]);
+
+    if (pendingItems) {
+      for (const item of pendingItems) {
+        affectedOrderIds.add(item.order_id);
+      }
+    }
 
     await db.from("printer_batch_backs").insert({
       batch_id: batch.id,
@@ -99,6 +115,30 @@ export async function createPrinterBatch(
       .eq("production_status", "pending");
   }
 
+  // Unit 7d: Transition affected orders from "paid" to "processing"
+  for (const orderId of affectedOrderIds) {
+    const { data: order } = await db
+      .from("orders")
+      .select("status")
+      .eq("id", orderId)
+      .single();
+
+    if (order && order.status === "paid") {
+      await db
+        .from("orders")
+        .update({ status: "processing" })
+        .eq("id", orderId);
+
+      await db.from("order_status_history").insert({
+        order_id: orderId,
+        old_status: "paid",
+        new_status: "processing",
+        changed_by: "system",
+        reason: "Items batched for printing",
+      });
+    }
+  }
+
   return { success: true, batchId: batch.id };
 }
 
@@ -106,7 +146,7 @@ export async function updateBatchStatus(
   batchId: number,
   newStatus: "at_printer" | "returned"
 ) {
-  await ensureAdmin();
+  await ensureRole("shipping");
   const db = getDb();
 
   const updates: Record<string, string | null> = { status: newStatus };
@@ -148,11 +188,28 @@ export async function updateBatchStatus(
   return { success: true };
 }
 
+export async function updateBatchReturnedCounts(
+  counts: Array<{ batchBackId: number; returnedCount: number }>
+): Promise<{ success: boolean; error?: string }> {
+  await ensureRole("shipping");
+  const db = getDb();
+
+  for (const { batchBackId, returnedCount } of counts) {
+    await db
+      .from("printer_batch_backs")
+      .update({ returned_count: returnedCount })
+      .eq("id", batchBackId);
+  }
+
+  return { success: true };
+}
+
 // ============================================================
 // SHIPPING
 // ============================================================
 
 export async function createShippingLabels(orderIds: number[]) {
+  await ensureRole("shipping");
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/api/shipping`,
     {
@@ -246,7 +303,7 @@ export async function cancelOrder(
   orderId: number,
   itemIds?: number[]
 ): Promise<{ success: boolean; error?: string }> {
-  await ensureAdmin();
+  await ensureRole("admin");
   const db = getDb();
 
   // Fetch order with items
@@ -378,7 +435,7 @@ export async function overrideOrderStatus(
   newStatus: string,
   reason: string
 ): Promise<{ success: boolean; error?: string }> {
-  await ensureAdmin();
+  await ensureRole("admin");
   const db = getDb();
 
   if (!reason.trim()) {
@@ -425,7 +482,7 @@ export async function overrideItemStatus(
   newStatus: string,
   reason: string
 ): Promise<{ success: boolean; error?: string }> {
-  await ensureAdmin();
+  await ensureRole("admin");
   const db = getDb();
 
   if (!reason.trim()) {
@@ -465,6 +522,101 @@ export async function overrideItemStatus(
     changed_by: "admin-override",
     reason: `Item status override: ${reason.trim()}`,
   });
+
+  return { success: true };
+}
+
+// ============================================================
+// REPRINT / RE-BATCH
+// ============================================================
+
+export async function rebatchItem(
+  itemId: number,
+  reason: string
+): Promise<{ success: boolean; error?: string }> {
+  await ensureRole("admin");
+  const db = getDb();
+
+  if (!reason.trim()) {
+    return { success: false, error: "A reason is required" };
+  }
+
+  const { data: item } = await db
+    .from("order_items")
+    .select("production_status, order_id, printer_batch_id")
+    .eq("id", itemId)
+    .single();
+
+  if (!item) {
+    return { success: false, error: "Item not found" };
+  }
+
+  // Already pending — no-op
+  if (item.production_status === "pending") {
+    return { success: true };
+  }
+
+  // Cannot re-batch a cancelled item
+  if (item.production_status === "cancelled") {
+    return { success: false, error: "Cannot re-batch a cancelled item" };
+  }
+
+  const oldStatus = item.production_status;
+
+  // Reset item to pending and clear batch association
+  await db
+    .from("order_items")
+    .update({
+      production_status: "pending",
+      printer_batch_id: null,
+    })
+    .eq("id", itemId);
+
+  // Record in status history
+  await db.from("order_status_history").insert({
+    order_id: item.order_id,
+    old_status: oldStatus,
+    new_status: "pending",
+    changed_by: "admin-rebatch",
+    reason: `Re-batch: ${reason.trim()}`,
+  });
+
+  // Check if the order status should revert. If the order was processing
+  // but now all non-cancelled items are back to pending, revert to paid.
+  const { data: siblingItems } = await db
+    .from("order_items")
+    .select("production_status")
+    .eq("order_id", item.order_id)
+    .neq("production_status", "cancelled");
+
+  if (siblingItems) {
+    const allPending = siblingItems.every(
+      (i) => i.production_status === "pending"
+    );
+
+    if (allPending) {
+      const { data: order } = await db
+        .from("orders")
+        .select("status")
+        .eq("id", item.order_id)
+        .single();
+
+      if (order && order.status === "processing") {
+        await db
+          .from("orders")
+          .update({ status: "paid" })
+          .eq("id", item.order_id);
+
+        await db.from("order_status_history").insert({
+          order_id: item.order_id,
+          old_status: "processing",
+          new_status: "paid",
+          changed_by: "admin-rebatch",
+          reason: "All items returned to pending via re-batch",
+        });
+      }
+    }
+  }
 
   return { success: true };
 }

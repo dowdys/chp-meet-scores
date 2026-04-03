@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { cancelOrder, overrideOrderStatus } from "@/lib/admin-actions";
+import { cancelOrder, overrideOrderStatus, rebatchItem } from "@/lib/admin-actions";
 import { formatPrice } from "@/lib/utils";
+import { StatusBadge } from "@/components/admin/status-badge";
 import type { OrderDetail } from "./order-detail-panel";
+import type { AdminRole } from "@/lib/auth";
 
 // ============================================================
 // STATUS DISPLAY
@@ -170,13 +172,7 @@ function CancelDialog({
                       </td>
                       <td className="p-2">{item.shirt_size}</td>
                       <td className="p-2">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${
-                          IN_PRODUCTION.includes(item.production_status)
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}>
-                          {item.production_status}
-                        </span>
+                        <StatusBadge status={item.production_status} type="item" />
                       </td>
                       <td className="p-2 text-right font-mono text-xs">
                         {formatPrice(item.unit_price + item.jewel_price)}
@@ -308,9 +304,7 @@ function OverrideDialog({
             <label className="block text-xs font-medium text-gray-500 mb-1">
               Current Status
             </label>
-            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColor(order.status)}`}>
-              {order.status}
-            </span>
+            <StatusBadge status={order.status} type="order" />
           </div>
 
           {/* New status */}
@@ -378,20 +372,232 @@ function OverrideDialog({
 }
 
 // ============================================================
+// RE-BATCH DIALOG (Unit 6)
+// ============================================================
+
+function RebatchDialog({
+  order,
+  onClose,
+  onSuccess,
+}: {
+  order: OrderDetail;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const items = order.order_items || [];
+  // Only show items that can be re-batched (not pending, not cancelled)
+  const rebatchableItems = items.filter(
+    (i) => i.production_status !== "pending" && i.production_status !== "cancelled"
+  );
+  const isMultiItem = rebatchableItems.length > 1;
+
+  const [selectedItemIds, setSelectedItemIds] = useState<number[]>(
+    rebatchableItems.length === 1 ? [rebatchableItems[0].id] : []
+  );
+  const [reason, setReason] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleItem(id: number) {
+    setSelectedItemIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function handleConfirm() {
+    if (!reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    if (selectedItemIds.length === 0) {
+      setError("Select at least one item to re-batch.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    // Re-batch each selected item
+    for (const itemId of selectedItemIds) {
+      const result = await rebatchItem(itemId, reason);
+      if (!result.success) {
+        setError(result.error || "Failed to re-batch item");
+        setLoading(false);
+        return;
+      }
+    }
+
+    setLoading(false);
+    onSuccess();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-1">Re-batch Items</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Return items to pending for re-batching. Order {order.order_number}
+          </p>
+
+          {rebatchableItems.length === 0 ? (
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600">
+                No items available for re-batching. Items must be past the pending stage.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Item selection */}
+              <div className="mb-4 border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      {isMultiItem && <th className="p-2 w-8"></th>}
+                      <th className="text-left p-2 text-xs font-medium text-gray-500">Athlete</th>
+                      <th className="text-left p-2 text-xs font-medium text-gray-500">Size</th>
+                      <th className="text-left p-2 text-xs font-medium text-gray-500">Status</th>
+                      <th className="text-left p-2 text-xs font-medium text-gray-500">Back</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rebatchableItems.map((item) => (
+                      <tr
+                        key={item.id}
+                        className={`border-b last:border-b-0 ${
+                          isMultiItem ? "cursor-pointer hover:bg-gray-50" : ""
+                        } ${selectedItemIds.includes(item.id) ? "bg-orange-50" : ""}`}
+                        onClick={isMultiItem ? () => toggleItem(item.id) : undefined}
+                      >
+                        {isMultiItem && (
+                          <td className="p-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedItemIds.includes(item.id)}
+                              onChange={() => toggleItem(item.id)}
+                              className="rounded"
+                            />
+                          </td>
+                        )}
+                        <td className="p-2 font-medium">
+                          {item.corrected_name || item.athlete_name}
+                        </td>
+                        <td className="p-2">{item.shirt_size}</td>
+                        <td className="p-2">
+                          <StatusBadge status={item.production_status} type="item" />
+                        </td>
+                        <td className="p-2 text-xs">
+                          {item.shirt_backs?.level_group_label || "Unassigned"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Reason */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Reason for re-batch (required)
+                </label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g., Defective print, wrong size, misspelled name"
+                  rows={2}
+                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm text-orange-800">
+                  {selectedItemIds.length} item(s) will be returned to pending and
+                  removed from their current batch. They will reappear on the By Back
+                  page for inclusion in the next print batch.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            {rebatchableItems.length > 0 && (
+              <button
+                onClick={handleConfirm}
+                disabled={loading || selectedItemIds.length === 0 || !reason.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {loading ? "Processing..." : `Re-batch ${selectedItemIds.length} Item(s)`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN COMPONENT
 // ============================================================
 
-export function OrderActions({ order }: { order: OrderDetail }) {
+export function OrderActions({
+  order,
+  userRole = "admin",
+}: {
+  order: OrderDetail;
+  userRole?: AdminRole;
+}) {
   const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
+  const [showRebatch, setShowRebatch] = useState(false);
 
   const canCancel = CANCELLABLE.includes(order.status);
+  const hasRebatchableItems = order.order_items?.some(
+    (i) => i.production_status !== "pending" && i.production_status !== "cancelled"
+  );
+
+  // Role-based visibility (Unit 9c)
+  const isAdmin = userRole === "admin";
+  const isShippingOrAdmin = userRole === "admin" || userRole === "shipping";
 
   function handleSuccess() {
     setShowCancel(false);
     setShowOverride(false);
+    setShowRebatch(false);
     router.refresh();
+  }
+
+  // Viewer sees no action buttons at all
+  if (userRole === "viewer") {
+    return (
+      <div className="mb-6">
+        <div className={`rounded-lg border p-3 ${statusColor(order.status)}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide opacity-70">Order Status</p>
+              <p className="text-lg font-semibold capitalize">{order.status}</p>
+            </div>
+            <span className="font-mono text-sm opacity-70">{order.order_number}</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -407,34 +613,49 @@ export function OrderActions({ order }: { order: OrderDetail }) {
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons — role-gated */}
       <div className="flex gap-2">
-        <button
-          onClick={() => setShowCancel(true)}
-          disabled={!canCancel}
-          className={`px-3 py-1.5 rounded text-xs font-medium border ${
-            canCancel
-              ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-              : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-          }`}
-          title={canCancel ? "Cancel and refund this order" : `Cannot cancel a ${order.status} order`}
-        >
-          Cancel &amp; Refund
-        </button>
-        <button
-          onClick={() => setShowOverride(true)}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100"
-        >
-          Override Status
-        </button>
-        {/* Re-batch button placeholder -- wired in Unit 6 */}
-        <button
-          disabled
-          className="px-3 py-1.5 rounded text-xs font-medium bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
-          title="Coming soon"
-        >
-          Re-batch
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowCancel(true)}
+            disabled={!canCancel}
+            className={`px-3 py-1.5 rounded text-xs font-medium border ${
+              canCancel
+                ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+            }`}
+            title={canCancel ? "Cancel and refund this order" : `Cannot cancel a ${order.status} order`}
+          >
+            Cancel &amp; Refund
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            onClick={() => setShowOverride(true)}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100"
+          >
+            Override Status
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            onClick={() => setShowRebatch(true)}
+            disabled={!hasRebatchableItems}
+            className={`px-3 py-1.5 rounded text-xs font-medium border ${
+              hasRebatchableItems
+                ? "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
+                : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+            }`}
+            title={hasRebatchableItems ? "Return items to pending for re-batching" : "No items available for re-batch"}
+          >
+            Re-batch
+          </button>
+        )}
+        {isShippingOrAdmin && !isAdmin && (
+          <p className="text-xs text-gray-400 italic self-center">
+            Shipping role: view-only for order actions
+          </p>
+        )}
       </div>
 
       {/* Cancel dialog */}
@@ -451,6 +672,15 @@ export function OrderActions({ order }: { order: OrderDetail }) {
         <OverrideDialog
           order={order}
           onClose={() => setShowOverride(false)}
+          onSuccess={handleSuccess}
+        />
+      )}
+
+      {/* Re-batch dialog */}
+      {showRebatch && (
+        <RebatchDialog
+          order={order}
+          onClose={() => setShowRebatch(false)}
           onSuccess={handleSuccess}
         />
       )}

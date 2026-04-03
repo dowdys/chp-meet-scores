@@ -100,7 +100,34 @@ export async function getPrinterBatches() {
     .select("*, printer_batch_backs(*, shirt_backs(meet_name, level_group_label))")
     .order("created_at", { ascending: false });
 
-  return { data: data || [], error };
+  if (!data) return { data: [], error };
+
+  // Enrich batches with item status breakdown and jewel counts
+  const enriched = await Promise.all(
+    data.map(async (batch) => {
+      const { data: items } = await db
+        .from("order_items")
+        .select("production_status, has_jewel")
+        .eq("printer_batch_id", batch.id);
+
+      const statusBreakdown: Record<string, number> = {};
+      let jewelCount = 0;
+      for (const item of items || []) {
+        statusBreakdown[item.production_status] =
+          (statusBreakdown[item.production_status] || 0) + 1;
+        if (item.has_jewel) jewelCount++;
+      }
+
+      return {
+        ...batch,
+        item_count: (items || []).length,
+        status_breakdown: statusBreakdown,
+        jewel_count: jewelCount,
+      };
+    })
+  );
+
+  return { data: enriched, error };
 }
 
 export async function getShippingQueue() {
@@ -127,6 +154,43 @@ export async function getShippingQueue() {
     }) || [];
 
   return { data: ready, error };
+}
+
+/**
+ * Get orders where SOME items are printed but not ALL.
+ * These are "waiting on production" — multi-back orders where some backs
+ * have returned from the printer but others haven't.
+ */
+export async function getPartiallyPrintedOrders() {
+  const db = supabase();
+  const { data: orders } = await db
+    .from("orders")
+    .select("*, order_items(*, printer_batches:printer_batch_id(id, batch_name, status))")
+    .in("status", ["paid", "processing"])
+    .order("created_at", { ascending: true });
+
+  if (!orders) return { data: [] };
+
+  const partial = orders.filter((order) => {
+    const items = (order.order_items || []).filter(
+      (i: { production_status: string }) => i.production_status !== "cancelled"
+    );
+    if (items.length === 0) return false;
+
+    const hasPrinted = items.some(
+      (i: { production_status: string }) =>
+        i.production_status === "printed" || i.production_status === "packed"
+    );
+    const allPrinted = items.every(
+      (i: { production_status: string }) =>
+        i.production_status === "printed" || i.production_status === "packed"
+    );
+
+    // Has some printed items but not all
+    return hasPrinted && !allPrinted;
+  });
+
+  return { data: partial };
 }
 
 export async function getNameCorrections() {
