@@ -115,7 +115,7 @@ export async function publishMeetData(meetName: string): Promise<PublishResult> 
     };
 
     // Call the atomic publish RPC
-    const { data, error } = await supabase.rpc('publish_meet', {
+    const { data, error } = await supabase.rpc('publish_meet_v2', {
       p_meet: meetData,
       p_results: roundedResults,
       p_winners: convertedWinners,
@@ -125,7 +125,7 @@ export async function publishMeetData(meetName: string): Promise<PublishResult> 
       return { success: false, reason: error.message };
     }
 
-    const result = data as { version: number; results_count: number; winners_count: number };
+    const result = data as { version: number; results_count: number; winners_count: number; meet_id?: string };
     return {
       success: true,
       version: result.version,
@@ -218,14 +218,19 @@ export async function uploadMeetFiles(meetName: string): Promise<{ uploaded: str
         failed.push(filename);
       } else {
         // Record file metadata in meet_files table
-        await supabase.from('meet_files').upsert({
+        const { error: upsertError } = await supabase.from('meet_files').upsert({
           meet_name: meetName,
           filename,
           storage_path: `${storagePath}/${filename}`,
           file_size: fileBuffer.length,
         }, { onConflict: 'meet_name,filename' });
 
-        uploaded.push(filename);
+        if (upsertError) {
+          console.warn(`[supabase-sync] meet_files upsert failed for ${filename}:`, upsertError.message);
+          failed.push(filename);
+        } else {
+          uploaded.push(filename);
+        }
       }
     } catch (err) {
       console.warn(`[supabase-sync] Upload error for ${filename}:`, err);

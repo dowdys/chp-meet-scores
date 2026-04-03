@@ -8,9 +8,12 @@ order via --division-order. This module handles:
 """
 
 import json
+import logging
 import os
 import re
 import sqlite3
+
+logger = logging.getLogger(__name__)
 
 
 def detect_division_order(db_path: str, meet_name: str,
@@ -31,14 +34,30 @@ def detect_division_order(db_path: str, meet_name: str,
         cur = conn.cursor()
         cur.execute('SELECT DISTINCT division FROM results WHERE meet_name = ?',
                     (meet_name,))
-        raw_divisions = [row[0] for row in cur.fetchall() if row[0]]
+        all_result_rows = cur.fetchall()
+        null_results_count = sum(1 for row in all_result_rows if not row[0])
+        if null_results_count:
+            logger.warning(
+                "WARNING: %d row(s) in results have NULL division for meet %r. "
+                "These athletes will be skipped in division ordering.",
+                null_results_count, meet_name
+            )
+        raw_divisions = [row[0] for row in all_result_rows if row[0]]
 
         # Also collect divisions from winners table
         winner_divisions = []
         try:
             cur.execute('SELECT DISTINCT division FROM winners WHERE meet_name = ?',
                         (meet_name,))
-            winner_divisions = [row[0] for row in cur.fetchall() if row[0]]
+            all_winner_rows = cur.fetchall()
+            null_winners_count = sum(1 for row in all_winner_rows if not row[0])
+            if null_winners_count:
+                logger.warning(
+                    "WARNING: %d row(s) in winners have NULL division for meet %r. "
+                    "These athletes will be skipped in division ordering.",
+                    null_winners_count, meet_name
+                )
+            winner_divisions = [row[0] for row in all_winner_rows if row[0]]
         except sqlite3.OperationalError:
             pass  # winners table may not exist yet during initial build
     finally:

@@ -77,3 +77,6 @@ ScoreKing uses these division abbreviations:
 
 ## Multiple Meets
 A single ScoreKing page may have multiple meets available (e.g. separate meets for compulsory levels, optional levels, and Xcel). Each is a different option in the dropdown. Extract each one separately, then combine into a single JSON file for the database build.
+
+## Next Steps
+After extraction, use the `build_database` tool with `source: "generic"` and the extracted JSON file path. The GenericAdapter handles ScoreKing's JSON format.

@@ -325,7 +325,10 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
       let msg = `Renamed "${oldName}" → "${newName}" locally: ${resultsChanged} results, ${winnersChanged} winners updated.`;
 
       // Also update Supabase so pull_meet won't overwrite the fix
-      if (isSupabaseEnabled()) {
+      // Skip Supabase sync when operating on a staging DB — staging data is not yet canonical
+      if (getStagingDbPath()) {
+        msg += ' Skipped Supabase sync — operating on staging DB.';
+      } else if (isSupabaseEnabled()) {
         try {
           const supabase = await getSupabaseClient();
           if (supabase) {
@@ -354,6 +357,72 @@ export const dbToolExecutors: Record<string, (args: Record<string, unknown>) => 
       return msg;
     } catch (err) {
       return `Error renaming gym: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+
+  fix_names: async (args) => {
+    let corrections: Array<{ original: string; corrected: string }>;
+    try {
+      const raw = typeof args.corrections === 'string' ? JSON.parse(args.corrections) : args.corrections;
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return 'No corrections to apply. Pass a JSON array of {original, corrected} objects.';
+      }
+      corrections = raw;
+    } catch {
+      return 'Error: corrections must be a valid JSON array of {original, corrected} objects.';
+    }
+
+    const stagingPath = getStagingDbPath();
+    const centralPath = getCentralDbPath();
+    const dbPath = stagingPath || centralPath;
+
+    if (!fs.existsSync(dbPath)) {
+      return 'Error: No database found (no staging or central DB).';
+    }
+
+    const db = new Database(dbPath);
+    try {
+      const applied: string[] = [];
+      const skipped: string[] = [];
+
+      db.exec('BEGIN IMMEDIATE');
+      const updateStmt = db.prepare('UPDATE results SET name = ? WHERE name = ? AND meet_name = (SELECT meet_name FROM meets LIMIT 1)');
+
+      for (const { original, corrected } of corrections) {
+        if (!original || !corrected || original === corrected) {
+          skipped.push(`"${original}" — no change needed`);
+          continue;
+        }
+        const result = updateStmt.run(corrected, original);
+        if (result.changes > 0) {
+          applied.push(`"${original}" → "${corrected}" (${result.changes} rows)`);
+        } else {
+          skipped.push(`"${original}" — not found in database`);
+        }
+      }
+
+      // Rebuild winners table to stay in sync with corrected names
+      // The winners table is rebuilt by calling the Python pipeline's build logic,
+      // but for a quick fix we can just update the winners table directly too.
+      const updateWinnersStmt = db.prepare('UPDATE winners SET name = ? WHERE name = ? AND meet_name = (SELECT meet_name FROM meets LIMIT 1)');
+      for (const { original, corrected } of corrections) {
+        if (original && corrected && original !== corrected) {
+          updateWinnersStmt.run(corrected, original);
+        }
+      }
+
+      db.exec('COMMIT');
+
+      let msg = `Fixed ${applied.length} name(s) in ${stagingPath ? 'staging' : 'central'} DB.`;
+      if (applied.length > 0) msg += '\n\nApplied:\n' + applied.map(a => `  ✓ ${a}`).join('\n');
+      if (skipped.length > 0) msg += '\n\nSkipped:\n' + skipped.map(s => `  - ${s}`).join('\n');
+      msg += '\n\nBoth results and winners tables updated. You can now call regenerate_output.';
+      return msg;
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      return `Error fixing names: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      db.close();
     }
   },
 };

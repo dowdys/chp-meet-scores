@@ -26,12 +26,7 @@ Gyms with only 1 athlete are likely PDF name-wrapping artifacts where the second
 ```sql
 SELECT gym, COUNT(*) as cnt FROM results GROUP BY gym HAVING cnt = 1;
 ```
-**Fix**: For each suspicious entry, look up the actual PDF page to find the correct full name and real gym:
-```sql
-UPDATE results SET name = 'Full Name', gym = 'Real Gym'
-WHERE name = 'Partial' AND gym = 'NameFragment';
-```
-Then rebuild the winners table.
+**Fix**: For each suspicious entry, look up the actual PDF page to find the correct full name and real gym. Use the `fix_names` tool for name corrections and `rename_gym` for gym corrections. Do NOT use raw SQL UPDATEs — the tools keep both results and winners tables in sync.
 
 ## Check 4: Gym Name Variants
 Similar gym names that should be merged (e.g., "ARK WinGS" vs "ARK WinGs").
@@ -88,11 +83,28 @@ LEFT JOIN winners w ON r.session = w.session AND r.level = w.level
   AND r.division = w.division AND w.event = 'vault'
 WHERE w.id IS NULL
 UNION ALL
--- Repeat for bars, beam, floor, aa
 SELECT r.session, r.level, r.division, 'bars'
 FROM (SELECT DISTINCT session, level, division FROM results) r
 LEFT JOIN winners w ON r.session = w.session AND r.level = w.level
   AND r.division = w.division AND w.event = 'bars'
+WHERE w.id IS NULL
+UNION ALL
+SELECT r.session, r.level, r.division, 'beam'
+FROM (SELECT DISTINCT session, level, division FROM results) r
+LEFT JOIN winners w ON r.session = w.session AND r.level = w.level
+  AND r.division = w.division AND w.event = 'beam'
+WHERE w.id IS NULL
+UNION ALL
+SELECT r.session, r.level, r.division, 'floor'
+FROM (SELECT DISTINCT session, level, division FROM results) r
+LEFT JOIN winners w ON r.session = w.session AND r.level = w.level
+  AND r.division = w.division AND w.event = 'floor'
+WHERE w.id IS NULL
+UNION ALL
+SELECT r.session, r.level, r.division, 'aa'
+FROM (SELECT DISTINCT session, level, division FROM results) r
+LEFT JOIN winners w ON r.session = w.session AND r.level = w.level
+  AND r.division = w.division AND w.event = 'aa'
 WHERE w.id IS NULL;
 ```
 **Action**: Missing winners for an event means no one had a valid score > 0 for that event in that group. This is unusual — verify against source.

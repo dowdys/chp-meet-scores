@@ -31,6 +31,7 @@ const electronStorage = {
 
 let client: SupabaseClient | null = null;
 let authInitialized = false;
+let authListenerRegistered = false;
 
 /**
  * Returns true if Supabase cloud sync is enabled.
@@ -56,6 +57,19 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
     });
   }
 
+  // Register auth state listener once at client-creation time (prevent duplicate registrations)
+  if (!authListenerRegistered) {
+    authListenerRegistered = true;
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        authInitialized = false;
+      }
+      if (event === 'TOKEN_REFRESHED' && !session) {
+        authInitialized = false;
+      }
+    });
+  }
+
   // Ensure we have an authenticated session
   if (!authInitialized) {
     const { data: { session } } = await client.auth.getSession();
@@ -67,13 +81,6 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
       }
     }
     authInitialized = true;
-
-    // Re-auth if session is lost
-    client.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        authInitialized = false;
-      }
-    });
   }
 
   return client;
@@ -86,6 +93,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
 export function resetSupabaseClient(): void {
   client = null;
   authInitialized = false;
+  authListenerRegistered = false;
 }
 
 /**

@@ -10,10 +10,12 @@ import { allToolExecutors, setAskUserHandler } from './tools/index';
 import { resetStagingDb } from './tools/python-tools';
 import { getDataDir } from './paths';
 import { autoUpdater } from 'electron-updater';
+import { clearQueryHistory } from './query-engine';
 
 let mainWindow: BrowserWindow | null = null;
 let activeAgentLoop: AgentLoop | null = null;
 let agentRunning = false;
+let deferredUpdate = false;
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -101,7 +103,7 @@ function askUserForChoice(question: string, options: string[]): Promise<string> 
       cleanup();
       resolve(response.choice);
     };
-    ipcMain.on('user-choice-response', handler);
+    ipcMain.once('user-choice-response', handler);
     mainWindow.on('closed', onWindowClosed);
 
     // Send the question to the renderer
@@ -185,7 +187,6 @@ function setupIPC(): void {
       agentRunning = true;
 
       const result = await agentLoop.processMeet(meetName);
-      agentRunning = false;
 
       // Notify renderer that a meet finished processing
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -200,10 +201,15 @@ function setupIPC(): void {
 
       return { success: result.success, message: result.message, outputName: result.outputName };
     } catch (err) {
-      agentRunning = false;
       const message = err instanceof Error ? err.message : String(err);
       sendActivityLog(`Error: ${message}`, 'error');
       return { success: false, error: message };
+    } finally {
+      agentRunning = false;
+      if (deferredUpdate) {
+        deferredUpdate = false;
+        autoUpdater.quitAndInstall();
+      }
     }
   });
 
@@ -212,6 +218,7 @@ function setupIPC(): void {
     if (!activeAgentLoop) {
       return { success: false, error: 'No previous conversation to continue.' };
     }
+    agentRunning = true;
     try {
       sendActivityLog(`Continuing conversation...`, 'info');
 
@@ -229,6 +236,12 @@ function setupIPC(): void {
       const errMsg = err instanceof Error ? err.message : String(err);
       sendActivityLog(`Error: ${errMsg}`, 'error');
       return { success: false, error: errMsg };
+    } finally {
+      agentRunning = false;
+      if (deferredUpdate) {
+        deferredUpdate = false;
+        autoUpdater.quitAndInstall();
+      }
     }
   });
 
@@ -272,6 +285,8 @@ function setupIPC(): void {
       configStore.setAll(settings);
       // Reset agent loop so it picks up new settings
       activeAgentLoop = null;
+      // Clear query history so it doesn't persist stale context across settings changes
+      clearQueryHistory();
       // Reset Supabase client so it picks up new credentials
       const { resetSupabaseClient } = await import('./supabase-client');
       resetSupabaseClient();
@@ -290,6 +305,7 @@ function setupIPC(): void {
 
   // List all meets in the central Supabase database
   ipcMain.handle('list-cloud-meets', async () => {
+    if (!configStore.get('supabaseEnabled')) return { success: false, error: 'Cloud sync disabled' };
     try {
       const { getSupabaseClient } = await import('./supabase-client');
       const supabase = await getSupabaseClient();
@@ -307,6 +323,7 @@ function setupIPC(): void {
 
   // Get files for a specific cloud meet
   ipcMain.handle('get-cloud-meet-files', async (_event, meetName: string) => {
+    if (!configStore.get('supabaseEnabled')) return { success: false, error: 'Cloud sync disabled' };
     try {
       const { getSupabaseClient } = await import('./supabase-client');
       const supabase = await getSupabaseClient();
@@ -325,6 +342,7 @@ function setupIPC(): void {
 
   // Download a file from Supabase Storage to the local output directory
   ipcMain.handle('download-cloud-file', async (_event, meetName: string, storagePath: string, filename: string) => {
+    if (!configStore.get('supabaseEnabled')) return { success: false, error: 'Cloud sync disabled' };
     try {
       const { getSupabaseClient } = await import('./supabase-client');
       const { getOutputDir, assertSafeMeetName, assertSafeFilename } = await import('./paths');
@@ -349,6 +367,10 @@ function setupIPC(): void {
 
   // Pull a published meet's data from Supabase into the local database
   ipcMain.handle('pull-cloud-meet', async (_event, meetName: string) => {
+    if (agentRunning) {
+      return { success: false, reason: 'Cannot pull while agent is running' };
+    }
+    if (!configStore.get('supabaseEnabled')) return { success: false, reason: 'Cloud sync disabled' };
     try {
       const { pullMeetData } = await import('./supabase-sync');
       const result = await pullMeetData(meetName);
@@ -386,9 +408,10 @@ function setupIPC(): void {
           const { getSupabaseClient } = await import('./supabase-client');
           const supabase = await getSupabaseClient();
           if (supabase) {
-            await supabase.from('results').delete().eq('meet_name', meetName);
-            await supabase.from('winners').delete().eq('meet_name', meetName);
-            await supabase.from('meets').delete().eq('meet_name', meetName);
+            const installationId = configStore.get('installationId');
+            await supabase.from('results').delete().eq('meet_name', meetName).eq('published_by', installationId);
+            await supabase.from('winners').delete().eq('meet_name', meetName).eq('published_by', installationId);
+            await supabase.from('meets').delete().eq('meet_name', meetName).eq('published_by', installationId);
           }
           cloudDeleted = true;
         } catch (err) {
@@ -631,10 +654,9 @@ function setupIPC(): void {
   // Get output files for a meet
   ipcMain.handle('get-output-files', async (_event, meetName: string) => {
     try {
-      const { assertSafeMeetName } = await import('./paths');
+      const { assertSafeMeetName, getOutputBase } = await import('./paths');
       assertSafeMeetName(meetName);
-      const outputDir = configStore.get('outputDir');
-      const meetDir = path.join(outputDir, meetName);
+      const meetDir = path.join(getOutputBase(), meetName);
 
       if (!fs.existsSync(meetDir)) {
         return { success: true, files: [] };
@@ -822,11 +844,16 @@ function setupIPC(): void {
     if (mainWindow) {
       mainWindow.webContents.send('update-ready');
     }
-    sendActivityLog('Update downloaded. Restarting to apply...', 'success');
-    // Auto-relaunch after a short delay (whether user-triggered or background)
-    setTimeout(() => {
-      autoUpdater.quitAndInstall();
-    }, 2000);
+    if (agentRunning) {
+      deferredUpdate = true;
+      sendActivityLog('Update downloaded. Will restart once the agent finishes.', 'info');
+    } else {
+      sendActivityLog('Update downloaded. Restarting to apply...', 'success');
+      // Auto-relaunch after a short delay (whether user-triggered or background)
+      setTimeout(() => {
+        autoUpdater.quitAndInstall();
+      }, 2000);
+    }
   });
 
   ipcMain.handle('get-version', () => {

@@ -152,6 +152,8 @@ async function executeTool(name: string, args: Record<string, any>): Promise<str
       case 'run_sql': {
         let sql = (args.sql || '').replace(/;\s*$/, '').trim();
         if (!/^select/i.test(sql)) return JSON.stringify({ error: 'Only SELECT queries allowed' });
+        if (sql.includes(';')) return JSON.stringify({ error: 'Multiple statements not allowed' });
+        if (/--|\/\*/.test(sql)) return JSON.stringify({ error: 'SQL comments not allowed' });
         const { data, error } = await supabase.rpc('exec_query', { p_sql: sql });
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify(data || []);

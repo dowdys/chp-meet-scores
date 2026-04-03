@@ -68,12 +68,7 @@ Read the saved file and check:
 
 ## Step 4: Build Database
 
-Pass to the standard pipeline:
-```
-run_python --source generic --data "path/to/mymeetscores_extract_92680.json" --state Michigan --meet "MI State Championships"
-```
-
-The GenericAdapter handles this JSON format automatically.
+Use the `build_database` tool with `source: "generic"`, the extracted data file path, state, and meet name. The GenericAdapter handles this JSON format automatically.
 
 ## Notes
 

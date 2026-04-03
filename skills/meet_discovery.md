@@ -62,7 +62,7 @@ JSON.stringify(
 
 The meetId from `data-meetid` is what you need. **Go directly to `mso_extract`** — do NOT manually check the JSON API with `http_fetch` + `run_script`. The `mso_extract` tool handles API calls, data validation, and reports per-meet athlete counts automatically.
 
-- If `mso_extract` returns athletes → proceed to level verification and `run_python`
+- If `mso_extract` returns athletes → proceed to level verification and `build_database`
 - If `mso_extract` returns 0 athletes for a meet → it may use Report Builder (PDF) format. Load `mso_pdf_extraction` skill.
 
 ### After Extraction: Verify Levels

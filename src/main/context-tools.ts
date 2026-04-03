@@ -76,6 +76,7 @@ export interface ProgressData {
   ship_date?: string;
   build_database_failed?: boolean;
   suspicious_names?: Array<{ raw: string; cleaned: string }>;
+  discovered_meet_ids?: string[];
 }
 
 // --- Helper functions ---
@@ -154,6 +155,43 @@ export function toolSetPhase(
     return 'Error: Cannot advance — build_database has not completed successfully. Fix the build error and re-run build_database.';
   }
 
+  // --- Phase transition precondition guards ---
+  const warnings: string[] = [];
+  const dataDir = getDataDir();
+
+  // Hard block: database phase requires extraction data files
+  if (phase === 'database') {
+    const extractionFiles = fs.readdirSync(dataDir).filter(f =>
+      f.endsWith('.json') && (f.startsWith('mso_extract') || f.startsWith('scorecat_extract') || f.startsWith('extract'))
+    );
+    if (extractionFiles.length === 0) {
+      return 'Error: Cannot enter database phase — no extraction data files found. Complete extraction first.';
+    }
+    // Soft warn: no discovered meet IDs
+    if (!context.discoveredMeetIds || context.discoveredMeetIds.length === 0) {
+      warnings.push('Warning: No meet IDs were recorded during discovery. Proceeding anyway.');
+    }
+  }
+
+  // Hard block: output_finalize requires staging DB
+  if (phase === 'output_finalize') {
+    if (!getStagingDbPath()) {
+      return 'Error: Cannot enter output_finalize phase — no staging database found. Run build_database first.';
+    }
+  }
+
+  // Hard block: import_backs requires staging DB
+  if (phase === 'import_backs') {
+    if (!getStagingDbPath()) {
+      return 'Error: Cannot enter import_backs phase — no staging database found. Run build_database first.';
+    }
+  }
+
+  // Soft warn: extraction phase without output name set
+  if (phase === 'extraction' && !context.outputName) {
+    warnings.push('Warning: Output name not set. Call set_output_name before extraction completes.');
+  }
+
   const oldPhase = context.currentPhase;
   context.currentPhase = phase;
   context.unlockedTools = []; // Clear unlocked tools on phase change
@@ -161,7 +199,11 @@ export function toolSetPhase(
   context.onActivity(`Phase: ${oldPhase} → ${phase} (${reason})`, 'info');
 
   const phaseDef = getPhaseDefinition(phase);
-  return `Transitioned to phase: ${phase} — ${phaseDef.description}\n\nAvailable tools for this phase are now active. Previous unlocked tools have been cleared.`;
+  let result = `Transitioned to phase: ${phase} — ${phaseDef.description}\n\nAvailable tools for this phase are now active. Previous unlocked tools have been cleared.`;
+  if (warnings.length > 0) {
+    result = warnings.join('\n') + '\n\n' + result;
+  }
+  return result;
 }
 
 export function toolUnlockTool(
@@ -374,10 +416,10 @@ export async function toolRegenerateOutput(
 
   // Block if suspicious names were detected on a PREVIOUS call and not yet fixed
   if (context.suspiciousNames && context.suspiciousNames.length > 0) {
-    const fixCommands = context.suspiciousNames.map(n =>
-      `UPDATE results SET name = '${n.cleaned.replace(/'/g, "''")}' WHERE name = '${n.raw.replace(/'/g, "''")}' AND meet_name = '${(context.outputName || meetName).replace(/'/g, "''")}'`
-    ).join(';\n');
-    return `Error: Regeneration blocked — suspicious names from previous run are unfixed.\n\nRun these SQL updates via query_db first, then call regenerate_output again:\n${fixCommands}`;
+    const nameList = context.suspiciousNames.map(n =>
+      `  { original: "${n.raw}", corrected: "${n.cleaned}" }`
+    ).join('\n');
+    return `Error: Regeneration blocked — suspicious names from previous run are unfixed.\n\nReview each name below. For each one, decide if the correction is right (event code suffixes like BB, VT should be removed, but be careful with names like "Cobb" that end in real letters).\n\nSuggested corrections:\n${nameList}\n\nUse the fix_names tool with your corrections array, then call regenerate_output again.`;
   }
 
   // Use staging DB if it exists on disk, otherwise central
@@ -402,10 +444,10 @@ export async function toolRegenerateOutput(
 
   // First detection: warn with fix commands but return the full result
   if (context.suspiciousNames && context.suspiciousNames.length > 0) {
-    const fixCommands = context.suspiciousNames.map(n =>
-      `UPDATE results SET name = '${n.cleaned.replace(/'/g, "''")}' WHERE name = '${n.raw.replace(/'/g, "''")}' AND meet_name = '${(context.outputName || meetName).replace(/'/g, "''")}'`
-    ).join(';\n');
-    return result + `\n\nSUSPICIOUS_NAMES detected — these names have event code suffixes that will appear on the shirt.\nFIX REQUIRED before next regeneration: run these SQL updates via query_db, then call regenerate_output again:\n${fixCommands}`;
+    const nameList = context.suspiciousNames.map(n =>
+      `  { original: "${n.raw}", corrected: "${n.cleaned}" }`
+    ).join('\n');
+    return result + `\n\nSUSPICIOUS_NAMES detected — these names have event code suffixes that will appear on the shirt.\nReview each name carefully (e.g., "Anna NicklowBB" should be "Anna Nicklow", but "Emily Cobb" should NOT be changed).\n\nSuggested corrections:\n${nameList}\n\nUse the fix_names tool with your corrections, then call regenerate_output again.`;
   }
 
   return result;
@@ -645,6 +687,7 @@ export async function toolSaveProgress(
     ship_date: context.shipDate,
     build_database_failed: context.buildDatabaseFailed || undefined,
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
+    discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -702,6 +745,7 @@ export async function autoSaveProgress(
     ship_date: context.shipDate,
     build_database_failed: context.buildDatabaseFailed || undefined,
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
+    discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
   };
 
   const filePath = getProgressFilePath();

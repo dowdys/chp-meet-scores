@@ -99,7 +99,8 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
                              level_groups: str = None,
                              exclude_levels: str = None,
                              shirt_pdf_path: str = None,
-                             precomputed: dict = None):
+                             precomputed: dict = None,
+                             division_order: list = None):
     """Generate per-athlete order form PDF using the template overlay approach.
 
     Each athlete gets an order form page (template with filled-in variables)
@@ -114,7 +115,11 @@ def generate_order_forms_pdf(db_path: str, meet_name: str, output_path: str,
     online_date = _format_date(online_date, fallback_year=year)
     ship_date = _format_date(ship_date, fallback_year=year)
 
-    gym_athletes = _get_gym_athletes(db_path, meet_name)
+    # Resolve explicit division order: prefer what's stored in precomputed data
+    # (since it was already used to sort shirt backs), fall back to the caller-
+    # supplied list, then None (which triggers alphabetical fallback with a warning).
+    _div_order = (precomputed.get('division_order') if precomputed is not None else None) or division_order
+    gym_athletes = _get_gym_athletes(db_path, meet_name, explicit_order=_div_order)
     if not gym_athletes:
         doc = fitz.open()
         doc.new_page(width=PAGE_W, height=PAGE_H)
@@ -366,15 +371,22 @@ def _extract_state(meet_name: str) -> str:
     return ''
 
 
-def _get_gym_athletes(db_path: str, meet_name: str):
-    """Get winners grouped by gym, then by athlete with events per level."""
+def _get_gym_athletes(db_path: str, meet_name: str, explicit_order: list = None):
+    """Get winners grouped by gym, then by athlete with events per level.
+
+    Args:
+        explicit_order: Optional list of division names youngest-to-oldest
+            (same format as --division-order). When provided, overrides the
+            alphabetical fallback in detect_division_order so within-gym sort
+            reflects the correct age ordering used on shirt backs.
+    """
     from python.core.division_detector import detect_division_order
 
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
 
-        div_order, _warnings = detect_division_order(db_path, meet_name)
+        div_order, _warnings = detect_division_order(db_path, meet_name, explicit_order=explicit_order)
 
         cur.execute('''
             SELECT gym, name, level, division, event

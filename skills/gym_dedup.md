@@ -37,15 +37,11 @@ Options:
 ```
 Present the Perplexity result to the user and ask again.
 
-**If "Yes, merge"**: Apply the merge using `run_script`:
-```python
-import sqlite3, os
-db = sqlite3.connect(os.environ['STAGING_DB_PATH'])
-db.execute("UPDATE results SET gym = ? WHERE gym = ?", (canonical, alias))
-db.execute("UPDATE winners SET gym = ? WHERE gym = ?", (canonical, alias))
-db.commit()
-db.close()
+**If "Yes, merge"**: Use the `rename_gym` tool:
 ```
+rename_gym(meet_name: "...", old_name: "TCT", new_name: "Twin City Twisters")
+```
+This updates both the local database AND Supabase atomically, preventing the overwrite-on-pull problem. Do NOT use `run_script` with raw SQL for gym merges.
 
 **Batch approach**: If there are many suspects (>5), present them all at once in a single `ask_user` prompt listing each pair, with options:
 - "Merge all confirmed pairs"

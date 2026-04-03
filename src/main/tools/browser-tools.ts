@@ -106,6 +106,13 @@ export const browserToolExecutors: Record<string, (args: Record<string, unknown>
       await chromeController.ensureConnected();
       await chromeController.navigate(url);
       await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check if MSO redirected away (e.g. to Results.All when meet ID is not found)
+      const currentUrl = String(await chromeController.executeJS('window.location.href'));
+      if (!currentUrl.includes(meetId) && currentUrl.includes('Results.All')) {
+        return `Error: Meet ID not found — MSO redirected to the results list.`;
+      }
+
       const screenshotPath = await chromeController.screenshot();
 
       // Extract key page text

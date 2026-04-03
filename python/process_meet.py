@@ -117,7 +117,6 @@ def _safe_move(tmp_path, final_path):
             pass
         return final_path
     except PermissionError:
-        pass  # Fall through to _NEW pattern
         dir_name = os.path.dirname(final_path)
         base, ext = os.path.splitext(os.path.basename(final_path))
         new_path = os.path.join(dir_name, f'{base}_NEW{ext}')
@@ -682,6 +681,7 @@ def main():
             try:
                 order_path = os.path.join(args.output, 'order_forms.pdf')
                 tmp = _tmp_path_for(order_path)
+                _imp_of_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
                 generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                          year=args.year, state=args.state,
                                          state_abbrev=args.state_abbrev,
@@ -692,7 +692,8 @@ def main():
                                          name_sort=import_layout.name_sort,
                                          level_groups=args.level_groups,
                                          exclude_levels=args.exclude_levels,
-                                         shirt_pdf_path=_main_shirt)
+                                         shirt_pdf_path=_main_shirt,
+                                         division_order=_imp_of_div_list)
                 actual = _safe_move(tmp, order_path)
                 print(f"Generated {actual}")
             except Exception as e:
@@ -1106,6 +1107,7 @@ def main():
             existing_shirt_pdf = os.path.join(args.output, 'back_of_shirt.pdf')
             _shirt_path = existing_shirt_pdf if os.path.exists(existing_shirt_pdf) else None
             tmp = _tmp_path_for(order_pdf_path)
+            _of_div_list = [s.strip() for s in args.division_order.split(',') if s.strip()] if args.division_order else None
             generate_order_forms_pdf(db_path, config.meet_name, tmp,
                                      year=args.year, state=args.state,
                                      state_abbrev=args.state_abbrev,
@@ -1116,7 +1118,8 @@ def main():
                                      level_groups=args.level_groups,
                                      exclude_levels=args.exclude_levels,
                                      shirt_pdf_path=_shirt_path,
-                                     precomputed=pre)
+                                     precomputed=pre,
+                                     division_order=_of_div_list)
             actual = _safe_move(tmp, order_pdf_path)
             print(f"Generated {actual}")
         except Exception as e:

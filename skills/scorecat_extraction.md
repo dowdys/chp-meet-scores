@@ -95,6 +95,12 @@ ff.where('meetName', '==', '2025 Iowa Dev State Championships')
 
 ## Step 4: Retrieve Data in Chunks and Save to File
 
+**IMPORTANT**: ScoreCat's Flutter app frequently reloads and destroys the JS execution context. Before each chunk retrieval, verify `window.__allAthletes` still exists:
+```javascript
+typeof window.__allAthletes !== 'undefined' ? window.__allAthletes.length : 'CONTEXT_LOST'
+```
+If it returns `'CONTEXT_LOST'`, re-run Step 3 before continuing.
+
 Retrieve in chunks of 100, save each to build a complete JSON array:
 
 ```javascript
@@ -106,9 +112,9 @@ JSON.stringify(window.__allAthletes.slice(100, 200))
 
 Continue until all athletes are retrieved. Concatenate all chunks and save to a file using `save_to_file`.
 
-## Step 5: Process with Python
+## Step 5: Build Database
 
-Run the Python adapter: `run_python --source scorecat --data athletes.json --meet "MEET NAME" --state "STATE"`
+After extraction, use the `build_database` tool with `source: "scorecat"` and the extracted data file path.
 
 ## WAG Event Mapping (Women's Artistic Gymnastics)
 

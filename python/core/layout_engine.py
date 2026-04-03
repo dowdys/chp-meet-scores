@@ -171,6 +171,7 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
         'names_start_y': names_start,
         'page_h': _page_h,
         'flagged_names': [], 'modified_names': [],
+        'division_order': division_order,
         **style,
     }
 
@@ -262,6 +263,7 @@ def precompute_shirt_data(db_path: str, meet_name: str, name_sort: str = None,
             'page_h': _page_h,
             'flagged_names': _flagged,
             'modified_names': _modified,
+            'division_order': division_order,
             **style}
 
 
@@ -454,6 +456,23 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
         div_order, _warnings = detect_division_order(db_path, meet_name, explicit_order=explicit_division_order)
         logger.debug("WINNERS_DIAG: div_order has %d entries: %s", len(div_order), div_order)
 
+        # Completeness validation: if the caller provided an explicit division_order,
+        # every distinct non-NULL division in the query results must appear in it.
+        # Missing divisions cause silent data ordering corruption — hard error here.
+        if explicit_division_order is not None:
+            cur.execute('''SELECT DISTINCT division FROM winners
+                           WHERE meet_name = ? AND division IS NOT NULL''',
+                        (meet_name,))
+            all_data_divisions = {row[0] for row in cur.fetchall() if row[0]}
+            explicit_upper_set = {d.strip().upper() for d in explicit_division_order}
+            missing_divs = [d for d in sorted(all_data_divisions)
+                            if d.strip().upper() not in explicit_upper_set]
+            if missing_divs:
+                raise ValueError(
+                    f"ERROR: Division order is missing divisions: {missing_divs}. "
+                    f"All divisions in the data must be included in division_order."
+                )
+
         # Build score lookups keyed by (name, level, session) for tie-breaking.
         # Tie-breaking only applies within the same division+session.
         aa_scores = {}          # (name, level, session) -> AA score
@@ -506,6 +525,15 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                     if name_sort == 'alpha':
                         rows.sort(key=lambda r: r[0])
                     else:
+                        # Warn if any athletes in this batch have no division assigned
+                        _null_div_rows = [r for r in rows if r[1] is None]
+                        if _null_div_rows:
+                            logger.warning(
+                                "WARNING: Found athletes with no division assigned "
+                                "(level=%s, event=%s, count=%d). "
+                                "They will be sorted to the end.",
+                                level, event, len(_null_div_rows)
+                            )
                         # Sort by: 1) division age (youngest first),
                         #          2) session ascending,
                         #          3) for event ties: AA score descending,
@@ -527,22 +555,40 @@ def get_winners_by_event_and_level(db_path: str, meet_name: str,
                                 r[0]
                             )
                         rows.sort(key=_tiebreak_key)
-                    # Clean names for shirt display (strip parenthetical annotations)
-                    seen = set()
+                    # Clean names for shirt display (strip parenthetical annotations).
+                    # When two different raw names clean to the same string, keep
+                    # both by appending a disambiguator (session, then gym fallback).
+                    seen: dict[str, str] = {}  # cleaned -> first raw name that produced it
                     clean_names = []
                     for r in rows:
                         raw = r[0]
+                        session = r[2]
                         cleaned = clean_name_for_shirt(raw)
-                        if cleaned and cleaned not in seen:
-                            seen.add(cleaned)
+                        if not cleaned:
+                            continue
+                        if cleaned not in seen:
+                            seen[cleaned] = raw
                             clean_names.append(cleaned)
-                            # Flag suspicious names
                             reason = flag_suspicious_name(cleaned)
                             if reason:
                                 flagged.append((cleaned, raw, event, level, reason))
                             elif cleaned != raw.strip():
-                                # Name was modified by cleaning -- note it
                                 modified.append((raw.strip(), cleaned, event, level))
+                        else:
+                            # Collision: two distinct raw names cleaned to the same string.
+                            # Disambiguate with session; fall back to a counter if absent.
+                            disambig = str(session) if session else ''
+                            deduped = f"{cleaned} ({disambig})" if disambig else f"{cleaned} (2)"
+                            logger.warning(
+                                "NAME_DEDUP: raw names %r and %r both clean to %r "
+                                "(level=%s, event=%s). Keeping both: %r and %r.",
+                                seen[cleaned], raw, cleaned, level, event,
+                                cleaned, deduped
+                            )
+                            clean_names.append(deduped)
+                            reason = flag_suspicious_name(deduped)
+                            if reason:
+                                flagged.append((deduped, raw, event, level, reason))
                     data[event][level] = clean_names
     finally:
         conn.close()
@@ -632,6 +678,19 @@ def bin_pack_levels(levels: list, data: dict, available_height: float,
 
     if current:
         balanced_pages.append(current)
+
+    # Safety check: balanced pass must produce exactly num_pages groups.
+    # If it produces fewer (e.g. due to edge cases in remaining_pages logic),
+    # the data is still all present but pages are under-utilized. Fall back to
+    # the greedy result which is always correct.
+    if len(balanced_pages) != num_pages:
+        logger.warning(
+            "BIN_PACK: balanced redistribution produced %d groups (expected %d). "
+            "Falling back to greedy packing.",
+            len(balanced_pages), num_pages
+        )
+        return greedy_pages
+
     return balanced_pages
 
 

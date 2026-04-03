@@ -49,6 +49,7 @@ class HtmlAdapter(BaseAdapter):
                 athletes.append({
                     'name': name,
                     'gym': gym,
+                    'club_num': '',
                     'session': session,
                     'level': level,
                     'division': division,

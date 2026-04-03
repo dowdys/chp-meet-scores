@@ -60,7 +60,7 @@ The `build_database` tool automatically:
 
 ## Normalize BEFORE Building
 
-**Build the database exactly ONCE.** Before calling `build_database`:
+**Build the database once per source data set.** Re-running `build_database` with corrected `division_order` or `gym_map` is expected and normal. Avoid running it multiple times with different source data files. Before calling `build_database`:
 
 1. **Divisions are consistent** — If combining data from multiple sources
 2. **Gym names are normalized** — Use `--gym-map` with a JSON file mapping variants

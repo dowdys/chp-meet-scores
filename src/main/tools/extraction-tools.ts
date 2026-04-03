@@ -52,21 +52,12 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
         return 'Error: meet_ids parameter is required (array of string MSO meet IDs)';
       }
 
-      // Clean up old extract files to prevent data bloat
+      // Direct HTTP API call — no Chrome needed
       const dataDir = getDataDir();
-      const prefix = 'mso_extract_';
-      if (fs.existsSync(dataDir)) {
-        for (const f of fs.readdirSync(dataDir)) {
-          if (f.startsWith(prefix) && f.endsWith('.json')) {
-            try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
-          }
-        }
-      }
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
 
-      // Direct HTTP API call — no Chrome needed
       const allAthletes: Record<string, unknown>[] = [];
       const counts: Record<string, number> = {};
       const errors: Array<{ meetId: string; error: string }> = [];
@@ -115,10 +106,36 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
         }
       }
 
-      // Save to file
+      // Only write (and clean up old files) if extraction produced data
+      if (allAthletes.length === 0) {
+        return `Error: mso_extract returned 0 athletes across all meet IDs. Old extraction files preserved. Errors: ${JSON.stringify(errors)}`;
+      }
+
+      // Write to temp file first, verify it's readable, then atomically replace old files
+      const tempFilename = `mso_extract_${Date.now()}.tmp.json`;
+      const tempFilePath = path.join(dataDir, tempFilename);
+      fs.writeFileSync(tempFilePath, JSON.stringify(allAthletes, null, 2), 'utf8');
+
+      // Verify the temp file is non-empty and parseable
+      const tempContents = fs.readFileSync(tempFilePath, 'utf8');
+      const verified = JSON.parse(tempContents) as unknown[];
+      if (!Array.isArray(verified) || verified.length === 0) {
+        fs.unlinkSync(tempFilePath);
+        return 'Error: mso_extract wrote an empty or invalid file. Old extraction files preserved.';
+      }
+
+      // Success — clean up old extract files and rename temp to final
+      const prefix = 'mso_extract_';
+      if (fs.existsSync(dataDir)) {
+        for (const f of fs.readdirSync(dataDir)) {
+          if (f.startsWith(prefix) && f.endsWith('.json') && !f.endsWith('.tmp.json')) {
+            try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
+          }
+        }
+      }
       const filename = `mso_extract_${Date.now()}.json`;
       const filePath = path.join(dataDir, filename);
-      fs.writeFileSync(filePath, JSON.stringify(allAthletes, null, 2), 'utf8');
+      fs.renameSync(tempFilePath, filePath);
 
       const parsed = { athletes: allAthletes, counts, errors };
 
@@ -187,16 +204,13 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
         return 'Error: meet_ids parameter is required (array of string Algolia meet IDs)';
       }
 
-      // Clean up old extract files to prevent data bloat
-      const dataDir = getDataDir();
-      const prefix = 'scorecat_extract_';
-      if (fs.existsSync(dataDir)) {
-        for (const f of fs.readdirSync(dataDir)) {
-          if (f.startsWith(prefix) && f.endsWith('.json')) {
-            try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
-          }
-        }
+      // Validate each ID: only alphanumeric characters are allowed
+      const invalidIds = meetIds.filter(id => !/^[A-Za-z0-9]+$/.test(id));
+      if (invalidIds.length > 0) {
+        return `Error: Invalid meet ID format: ${invalidIds.map(id => JSON.stringify(id)).join(', ')}. IDs must be alphanumeric only.`;
       }
+
+      const dataDir = getDataDir();
 
       await chromeController.ensureConnected();
 
@@ -289,13 +303,13 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
 })()
 `;
 
-      const filename = `scorecat_extract_${Date.now()}.json`;
-      const filePath = path.join(dataDir, filename);
+      const tempFilename = `scorecat_extract_${Date.now()}.tmp.json`;
+      const tempFilePath = path.join(dataDir, tempFilename);
 
-      const { size } = await chromeController.saveJSToFile(script, filePath, 120000);
+      const { size } = await chromeController.saveJSToFile(script, tempFilePath, 120000);
 
-      // Read back the wrapper and overwrite with just the athletes array
-      const raw = fs.readFileSync(filePath, 'utf8');
+      // Read back the wrapper and parse into structured result
+      const raw = fs.readFileSync(tempFilePath, 'utf8');
       let parsed: { athletes: unknown[]; counts: Record<string, number>; errors: Array<{ meetId: string; error: string }> };
       try {
         const first = JSON.parse(raw);
@@ -305,11 +319,31 @@ export const extractionToolExecutors: Record<string, (args: Record<string, unkno
           parsed = first;
         }
       } catch (parseErr) {
-        return `Error parsing extraction result: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}. Raw file saved at ${filePath}`;
+        // Leave temp file in place so caller can inspect it
+        return `Error parsing extraction result: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}. Raw file saved at ${tempFilePath}`;
       }
 
-      // Overwrite file with just the athletes array
+      // Guard: only replace old files if extraction produced data
+      if (!parsed.athletes || parsed.athletes.length === 0) {
+        fs.unlinkSync(tempFilePath);
+        return `Error: scorecat_extract returned 0 athletes. Old extraction files preserved. Errors: ${JSON.stringify(parsed.errors)}`;
+      }
+
+      // Success — clean up old extract files and write final file
+      const scPrefix = 'scorecat_extract_';
+      if (fs.existsSync(dataDir)) {
+        for (const f of fs.readdirSync(dataDir)) {
+          if (f.startsWith(scPrefix) && f.endsWith('.json') && !f.endsWith('.tmp.json')) {
+            try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
+          }
+        }
+      }
+      const filename = `scorecat_extract_${Date.now()}.json`;
+      const filePath = path.join(dataDir, filename);
+
+      // Write final file with just the athletes array, then remove temp
       fs.writeFileSync(filePath, JSON.stringify(parsed.athletes, null, 2), 'utf8');
+      try { fs.unlinkSync(tempFilePath); } catch {}
 
       const sizeKB = (size / 1024).toFixed(1);
       const totalAthletes = parsed.athletes.length;

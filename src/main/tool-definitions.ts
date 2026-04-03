@@ -12,11 +12,11 @@ export function getToolDefinitions(): ToolDefinition[] {
     // --- Phase management ---
     {
       name: 'set_phase',
-      description: 'Advance to a workflow phase. Each phase has focused tools and instructions. Phases: discovery → extraction → database → output_finalize. You can go back to an earlier phase if needed.',
+      description: 'Advance to a workflow phase. Each phase has focused tools and instructions. Phases: discovery → extraction → database → output_finalize → import_backs. You can go back to an earlier phase if needed.',
       input_schema: {
         type: 'object',
         properties: {
-          phase: { type: 'string', enum: ['discovery', 'extraction', 'database', 'output_finalize'], description: 'The phase to transition to' },
+          phase: { type: 'string', enum: ['discovery', 'extraction', 'database', 'output_finalize', 'import_backs'], description: 'The phase to transition to' },
           reason: { type: 'string', description: 'Brief reason for the transition (logged for debugging)' },
         },
         required: ['phase', 'reason'],
@@ -384,6 +384,17 @@ export function getToolDefinitions(): ToolDefinition[] {
           new_name: { type: 'string', description: 'The corrected gym name' },
         },
         required: ['meet_name', 'old_name', 'new_name'],
+      },
+    },
+    {
+      name: 'fix_names',
+      description: 'Fix athlete name issues in the staging database. Use when regenerate_output detects suspicious names (e.g., event code suffixes like "Anna NicklowBB" → "Anna Nicklow"). Pass corrections as a JSON string array of {original, corrected} objects. Applies corrections to results and winners tables.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          corrections: { type: 'string', description: 'JSON array of corrections: [{"original": "Anna NicklowBB", "corrected": "Anna Nicklow"}, ...]' },
+        },
+        required: ['corrections'],
       },
     },
     {

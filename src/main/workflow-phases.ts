@@ -36,6 +36,8 @@ const ALWAYS_AVAILABLE_TOOLS = [
   'run_script',
   'save_progress',
   'load_progress',
+  'list_skills',
+  'load_skill',
 ];
 
 // --- Phase definitions ---
@@ -67,7 +69,7 @@ const PHASES: Record<WorkflowPhase, PhaseDefinition> = {
     tools: [
       'search_meets', 'lookup_meet', 'http_fetch',
       'browse_mso', 'browse_scorecat',
-      'set_output_name',
+      'set_output_name', 'web_search',
     ],
     prompt: `## Current Phase: DISCOVERY
 Find the meet results online and prepare for extraction.
@@ -118,7 +120,7 @@ Use the 2-letter state abbreviation (MS, NV, AL, etc.). Get dates from \`lookup_
 - After extraction, verify levels cover what the user requested — if levels are missing, there may be a separate meet on a different platform
 
 ### Recognizing File Paths (IDML Import)
-If the user's input looks like a **file path** (starts with \`/\`, \`C:\\\`, \`~\`, \`/mnt/\`, or contains \`.idml\`), do NOT treat it as a meet name. Instead, use \`set_phase("output_finalize")\` and then use the \`import_idml\` tool.`,
+If the user's input looks like a **file path** (starts with \`/\`, \`C:\\\`, \`~\`, \`/mnt/\`, or contains \`.pdf\`), do NOT treat it as a meet name. Instead, use \`set_phase("import_backs")\` to enter the PDF import phase.`,
   },
 
   extraction: {
@@ -158,7 +160,7 @@ If \`mso_extract\` or \`scorecat_extract\` return no data, do NOT start browsing
     description: 'Build the SQLite database, run quality checks, normalize gym names',
     tools: [
       'build_database', 'query_db', 'query_db_to_file', 'get_meet_summary',
-      'list_meets', 'list_skills', 'load_skill', 'perplexity_gym_lookup', 'rename_gym',
+      'list_meets', 'list_skills', 'load_skill', 'perplexity_gym_lookup', 'rename_gym', 'fix_names',
     ],
     prompt: `## Current Phase: DATABASE
 Build the database from extracted data and verify quality.
@@ -233,7 +235,7 @@ If the user gives dates without a year, use the meet year (from the output name 
     tools: [
       'regenerate_output', 'render_pdf_page', 'open_file',
       'list_output_files', 'query_db', 'query_db_to_file', 'finalize_meet', 'pull_meet',
-      'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill', 'rename_gym',
+      'get_meet_summary', 'set_output_name', 'list_skills', 'load_skill', 'rename_gym', 'fix_names',
     ],
     prompt: `## Current Phase: OUTPUT & FINALIZE
 Generate deliverables from the database, review with user, and finalize.

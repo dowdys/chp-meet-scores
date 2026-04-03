@@ -137,7 +137,7 @@ class GenericAdapter(BaseAdapter):
                 # Strip ScoreCat dash-notes like "Short-VT, FX" -> "Short"
                 last = re.sub(r'\s*-\s*[A-Z, ]+$', '', last)
                 if first and last:
-                    mapped['name'] = f"{last}, {first}"
+                    mapped['name'] = f"{first} {last}"
                 elif first or last:
                     mapped['name'] = first or last
 

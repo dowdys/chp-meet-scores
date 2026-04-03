@@ -316,6 +316,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
 
           // Copy winners from staging to central
           let winnerCount = { changes: 0 };
+          let missingWinnersTable = false;
           try {
             winnerCount = centralDb.prepare(
               `INSERT INTO winners (state, meet_name, association, name, gym, session, level, division,
@@ -328,6 +329,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             // Only tolerate "table doesn't exist" — anything else is real data loss
             const msg = err instanceof Error ? err.message : String(err);
             if (msg.includes('no such table')) {
+              missingWinnersTable = true;
               console.warn('finalize_meet: staging has no winners table (incomplete processing)');
             } else {
               throw err; // Re-throw — will roll back the transaction
@@ -355,7 +357,7 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
             }
           }
 
-          return { results: resultCount.changes, winners: winnerCount.changes };
+          return { results: resultCount.changes, winners: winnerCount.changes, missingWinnersTable };
         });
 
         const counts = transaction();
@@ -373,6 +375,9 @@ export const pythonToolExecutors: Record<string, (args: Record<string, unknown>)
         currentStagingDbPath = null;
 
         let finalMsg = `Finalized "${meetName}" into central database: ${counts.results} athletes, ${counts.winners} winners merged.`;
+        if (counts.missingWinnersTable) {
+          finalMsg += ' WARNING: No winners table found in staging — meet may have incomplete processing. Run the quality/winners step before generating output.';
+        }
 
         // Supabase cloud sync (non-blocking: failure never prevents local finalization)
         if (isSupabaseEnabled()) {

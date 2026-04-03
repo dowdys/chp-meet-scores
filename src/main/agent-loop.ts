@@ -49,6 +49,20 @@ function switchPhase(context: AgentContext, phase: WorkflowPhase): void {
   setDbToolsPhase(phase);
 }
 
+/**
+ * Detect whether text contains a user-provided PDF file path (not system-generated).
+ * Used by both runAgentLoop (tool results) and continueConversation (user message).
+ */
+function containsUserPdfPath(text: string): boolean {
+  if (!text.includes('.pdf')) return false;
+  // Must have a path-like prefix (drive letter, home dir, Downloads, Desktop, quoted path)
+  const hasPathContext = /[A-Za-z]:\\|\/home\/|~\/|\/mnt\/|Downloads|Desktop/.test(text) || text.includes('"');
+  if (!hasPathContext) return false;
+  // Exclude system-generated paths (e.g., "Generated C:\...\back_of_shirt.pdf")
+  if (text.includes('Generated ') && text.includes('back_of_shirt')) return false;
+  return true;
+}
+
 // --- Types ---
 
 interface ToolExecutor {
@@ -147,6 +161,7 @@ export class AgentLoop {
           if (savedProgress.ship_date) context.shipDate = savedProgress.ship_date;
           if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
           if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
+          if (savedProgress.discovered_meet_ids?.length) context.discoveredMeetIds = savedProgress.discovered_meet_ids;
 
           const dataDir = getDataDir();
           let fileInventory = '';
@@ -246,11 +261,9 @@ export class AgentLoop {
 
     try {
       // Auto-switch to import_backs phase if user provides PDF file paths
-      if (message.includes('.pdf') && (/[A-Za-z]:\\|\/mnt\/|\/home\/|~\//.test(message) || message.includes('"'))) {
-        if (context.currentPhase !== 'import_backs') {
-          switchPhase(context, 'import_backs');
-          this.onActivity('Detected PDF file paths — switching to import_backs phase', 'info');
-        }
+      if (context.currentPhase !== 'import_backs' && containsUserPdfPath(message)) {
+        switchPhase(context, 'import_backs');
+        this.onActivity('Detected PDF file paths — switching to import_backs phase', 'info');
       }
 
       // Auto-trust ScoreCat meet IDs from user-provided URLs
@@ -462,26 +475,15 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         // Check ask_user results AND any tool result that looks like a user message
         // (the user might provide PDFs via ask_user or via continueConversation).
         if (context.currentPhase !== 'import_backs') {
-          // Check ALL tool results for PDF paths from the user
-          // (ask_user results are the user's direct response)
           const allResultText = toolResults
             .filter((b): b is import('./llm-client').ToolResultBlock => b.type === 'tool_result')
             .map(b => typeof b.content === 'string' ? b.content : '')
             .join(' ');
 
-          // Only trigger on user-provided paths, not system-generated ones.
-          // User paths typically: are in quotes, come from Downloads/Desktop, or have "custom" nearby
-          const hasUserPdfPath = allResultText.includes('.pdf') &&
-            (/[A-Za-z]:\\Users\\|\/home\/|~\/|Downloads|Desktop/.test(allResultText));
-
-          if (hasUserPdfPath) {
-            // Verify this isn't a system-generated path (like "Generated C:\...\back_of_shirt.pdf")
-            const isSystemGenerated = allResultText.includes('Generated ') && allResultText.includes('back_of_shirt');
-            if (!isSystemGenerated) {
-              switchPhase(context, 'import_backs');
-              this.onActivity('Detected PDF file paths in user response — switching to import_backs phase', 'info');
-              console.log(`[AGENT] Auto-switch triggered. Result text: ${allResultText.substring(0, 200)}`);
-            }
+          if (containsUserPdfPath(allResultText)) {
+            switchPhase(context, 'import_backs');
+            this.onActivity('Detected PDF file paths in user response — switching to import_backs phase', 'info');
+            console.log(`[AGENT] Auto-switch triggered. Result text: ${allResultText.substring(0, 200)}`);
           }
         }
 
@@ -734,6 +736,16 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       }
     }
 
+    // Clear suspicious names gate after fix_names succeeds
+    if (name === 'fix_names') {
+      const result = await this.toolExecutors[name](args);
+      const resultStr = typeof result === 'string' ? result : '';
+      if (!resultStr.startsWith('Error')) {
+        context.suspiciousNames = undefined;
+      }
+      return result;
+    }
+
     // External tool executors first
     if (this.toolExecutors[name]) {
       return this.toolExecutors[name](args);
@@ -848,7 +860,7 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
     const keyFiles: Set<string> = new Set();
     const toolArgSnapshots: string[] = [];
     const keyToolResults: string[] = [];
-    const filePattern = /(?:\/[\w./_-]+\.(?:json|pdf|db|idml|txt|csv))/g;
+    const filePattern = /(?:(?:[A-Za-z]:\\[\w\\. -]+|\/[\w./_-]+)\.(?:json|pdf|db|idml|txt|csv))/g;
 
     // Tools whose RESULTS contain critical data (IDs, counts, file paths) that must survive pruning
     const HANDOFF_RESULT_TOOLS = new Set([
@@ -1025,6 +1037,31 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
         } else {
           parts.push('Continue with extraction using the appropriate dedicated tool.');
         }
+      }
+    } else if (context.currentPhase === 'import_backs') {
+      // Dedicated handoff for import_backs: surface PDF paths from tool results
+      const pdfPaths: string[] = [];
+      for (const f of keyFiles) {
+        if (f.toLowerCase().endsWith('.pdf')) pdfPaths.push(f);
+      }
+      // Also scan recent messages for PDF paths that may have been in user text
+      for (const msg of messages.slice(-5)) {
+        const msgText = typeof msg.content === 'string' ? msg.content :
+          msg.content.filter((b): b is import('./llm-client').TextBlock => b.type === 'text').map(b => b.text).join(' ');
+        const pdfMatches = msgText.match(/(?:[A-Za-z]:\\[\w\\. -]+|\/[\w./_-]+|~\/[\w./_-]+)\.pdf/gi);
+        if (pdfMatches) pdfMatches.forEach(p => { if (!pdfPaths.includes(p)) pdfPaths.push(p); });
+      }
+
+      parts.push('');
+      parts.push('## Next Step');
+      if (pdfPaths.length > 0) {
+        parts.push(`The user provided PDF file(s) for import:`);
+        for (const p of pdfPaths) parts.push(`  - ${p}`);
+        parts.push('');
+        parts.push('Use the `import_pdf_backs` tool with these PDF paths. Do NOT manually copy files with run_script.');
+      } else {
+        parts.push('You are in the import_backs phase. Use `import_pdf_backs` to import edited PDF back pages.');
+        parts.push('If the user has not yet provided PDF file paths, use `ask_user` to request them.');
       }
     } else {
       parts.push('');

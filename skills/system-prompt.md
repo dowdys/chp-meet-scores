@@ -1,6 +1,6 @@
 # Gymnastics Meet Scoring System — Reference
 
-> **Note**: This file is a reference document. The active system prompt is built dynamically from phase-specific prompts in `workflow-phases.ts`. You do not need to load this skill — the relevant instructions for your current phase are already in your system prompt.
+> **DO NOT LOAD THIS FILE.** It is outdated and will give you incorrect information. The active system prompt is built dynamically from phase-specific prompts in `workflow-phases.ts`. The relevant instructions for your current phase are already in your system prompt.
 
 ## Architecture
 
