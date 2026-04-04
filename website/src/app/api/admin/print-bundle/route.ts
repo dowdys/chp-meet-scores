@@ -177,9 +177,10 @@ export async function GET(request: NextRequest) {
 
     // Within same back, sort by name position
     if (a.namePosition && b.namePosition) {
-      // y descending (top of shirt = higher y in PDF), then x ascending (left to right)
-      if (Math.abs(a.namePosition.y - b.namePosition.y) > 5) {
-        return b.namePosition.y - a.namePosition.y; // higher y first
+      // y descending (top of shirt = higher y in PDF coords where y=0 is bottom), then x ascending
+      // Use 15-unit threshold for same-row grouping (~0.2 inches at 72dpi, accounts for font baseline variance)
+      if (Math.abs(a.namePosition.y - b.namePosition.y) > 15) {
+        return b.namePosition.y - a.namePosition.y; // higher y first (top of shirt)
       }
       return a.namePosition.x - b.namePosition.x; // left to right
     }
@@ -276,6 +277,9 @@ async function resolveNamePositions(orders: OrderWithItems[]) {
     if (!pdfUrl) continue;
 
     try {
+      // Validate URL — only allow Supabase storage URLs (our own bucket)
+      const pdfUrlObj = new URL(pdfUrl);
+      if (!pdfUrlObj.hostname.endsWith("supabase.co")) continue;
       const response = await fetch(pdfUrl, { signal: AbortSignal.timeout(10000) });
       if (!response.ok) continue;
       const pdfBytes = new Uint8Array(await response.arrayBuffer());
@@ -321,16 +325,8 @@ async function resolveNamePositions(orders: OrderWithItems[]) {
 
     const athleteName = (jewelItem.corrected_name ?? jewelItem.athlete_name).toUpperCase().trim();
 
-    // Try exact match first, then partial match
-    let pos = positions.get(athleteName);
-    if (!pos) {
-      for (const [name, namePos] of positions) {
-        if (name.includes(athleteName) || athleteName.includes(name)) {
-          pos = namePos;
-          break;
-        }
-      }
-    }
+    // Exact match only — partial matching is too permissive and non-deterministic
+    const pos = positions.get(athleteName);
 
     if (pos) {
       order.namePosition = pos;
