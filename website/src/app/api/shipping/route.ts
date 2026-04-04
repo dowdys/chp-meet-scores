@@ -17,6 +17,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (orderIds.length > 100) {
+      return NextResponse.json(
+        { error: "Maximum 100 orders per batch" },
+        { status: 400 }
+      );
+    }
+
     const supabase = createServiceClient();
 
     // Fetch orders
