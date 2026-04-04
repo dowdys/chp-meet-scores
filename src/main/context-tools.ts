@@ -416,9 +416,10 @@ export async function toolRegenerateOutput(
   }
 
   // Division order — store on context when provided, auto-inject when omitted
-  if (args.division_order) {
-    context.divisionOrder = String(args.division_order).split(',').map(s => s.trim()).filter(Boolean);
-    argParts.push('--division-order', String(args.division_order));
+  const divisionOrderStr = optionalString(args, 'division_order');
+  if (divisionOrderStr) {
+    context.divisionOrder = divisionOrderStr.split(',').map(s => s.trim()).filter(Boolean);
+    argParts.push('--division-order', divisionOrderStr);
   } else if (context.divisionOrder?.length && !argParts.includes('--division-order')) {
     argParts.push('--division-order', context.divisionOrder.join(','));
   }

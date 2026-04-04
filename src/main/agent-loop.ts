@@ -407,7 +407,6 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const loopRetryDelays = [30000, 60000, 120000]; // 30s, 60s, 120s
       const maxLoopRetries = loopRetryDelays.length;   // 3 retries after initial attempt
       let lastLoopError = '';
-      let loopRetrySuccess = false;
       for (let loopAttempt = 0; loopAttempt < maxLoopRetries + 1; loopAttempt++) {
         try {
           console.log(`[AGENT] Sending LLM request with ${phaseTools.length} tools (phase: ${context.currentPhase})...`);
@@ -416,7 +415,6 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
             messages: context.messages,
             tools: phaseTools,
           });
-          loopRetrySuccess = true;
           break;
         } catch (err) {
           const isTransient = err instanceof RateLimitError ||
@@ -442,10 +440,8 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
-      if (!loopRetrySuccess) {
-        await this.doAutoSaveProgress(context);
-        return { success: false, message: `LLM error: all retry attempts exhausted. Last error: ${lastLoopError}` };
-      }
+      // loopRetrySuccess is always true here: the loop exits via break (success)
+      // or early return (non-transient error / retries exhausted in catch block).
 
       context.totalInputTokens = response.usage.input_tokens;
       context.totalOutputTokens += response.usage.output_tokens;
@@ -705,22 +701,20 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       const preview = textPreview.length > 200 ? textPreview.substring(0, 200) + '...' : textPreview;
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
 
-      // Track search_meets results: discover IDs and gate Chrome tools
-      if (toolName === 'search_meets') {
+      // Track search_meets results: discover IDs and gate extraction tools
+      if (toolName === 'search_meets' && typeof result === 'string' && !result.startsWith('Error')) {
         context.searchMeetsReturned = true;
-        // Extract discovered meet IDs from the result (only when result is a string)
-        if (typeof result === 'string') {
-          const idPattern = /ID:\s*(\S+)/g;
-          let idMatch;
-          if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
-          while ((idMatch = idPattern.exec(result)) !== null) {
-            const id = idMatch[1].replace(/[|,]/g, '');
-            if (id && !context.discoveredMeetIds.includes(id)) {
-              context.discoveredMeetIds.push(id);
-            }
+        // Extract discovered meet IDs from the result
+        const idPattern = /ID:\s*(\S+)/g;
+        let idMatch;
+        if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
+        while ((idMatch = idPattern.exec(result)) !== null) {
+          const id = idMatch[1].replace(/[|,]/g, '');
+          if (id && !context.discoveredMeetIds.includes(id)) {
+            context.discoveredMeetIds.push(id);
           }
         }
-        if (context.discoveredMeetIds && context.discoveredMeetIds.length > 0) {
+        if (context.discoveredMeetIds.length > 0) {
           console.log(`[AGENT] Discovered meet IDs: ${context.discoveredMeetIds.join(', ')}`);
         }
       }
