@@ -117,9 +117,9 @@ export function OrderDetailPanel({
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h2 className="text-lg font-semibold">{order!.order_number}</h2>
+              <h2 className="text-lg font-semibold">{order.order_number}</h2>
               <p className="text-sm text-gray-500">
-                {new Date(order!.created_at).toLocaleDateString("en-US", {
+                {new Date(order.created_at).toLocaleDateString("en-US", {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
@@ -137,16 +137,16 @@ export function OrderDetailPanel({
           </div>
 
           {/* Order Actions (status + action buttons) */}
-          <OrderActions order={order!} userRole={userRole} />
+          <OrderActions order={order} userRole={userRole} />
 
           {/* Customer Info */}
           <section className="mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Customer</h3>
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
-              <p className="font-medium">{order!.customer_name}</p>
-              <p className="text-gray-600">{order!.customer_email}</p>
-              {order!.customer_phone && (
-                <p className="text-gray-600">{order!.customer_phone}</p>
+              <p className="font-medium">{order.customer_name}</p>
+              <p className="text-gray-600">{order.customer_email}</p>
+              {order.customer_phone && (
+                <p className="text-gray-600">{order.customer_phone}</p>
               )}
             </div>
           </section>
@@ -155,29 +155,29 @@ export function OrderDetailPanel({
           <section className="mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Shipping Address</h3>
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
-              <p>{order!.shipping_name}</p>
-              <p>{order!.shipping_address_line1}</p>
-              {order!.shipping_address_line2 && (
-                <p>{order!.shipping_address_line2}</p>
+              <p>{order.shipping_name}</p>
+              <p>{order.shipping_address_line1}</p>
+              {order.shipping_address_line2 && (
+                <p>{order.shipping_address_line2}</p>
               )}
               <p>
-                {order!.shipping_city}, {order!.shipping_state} {order!.shipping_zip}
+                {order.shipping_city}, {order.shipping_state} {order.shipping_zip}
               </p>
             </div>
           </section>
 
           {/* Tracking Info */}
-          {order!.tracking_number && (
+          {order.tracking_number && (
             <section className="mb-6">
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Tracking</h3>
               <div className="bg-blue-50 rounded-lg p-4 text-sm space-y-1">
                 <p>
                   <span className="text-gray-600">Carrier:</span>{" "}
-                  <span className="font-medium">{order!.carrier || "USPS"}</span>
+                  <span className="font-medium">{order.carrier || "USPS"}</span>
                 </p>
                 <p>
                   <span className="text-gray-600">Tracking #:</span>{" "}
-                  <span className="font-mono text-xs">{order!.tracking_number}</span>
+                  <span className="font-mono text-xs">{order.tracking_number}</span>
                 </p>
               </div>
             </section>
@@ -186,9 +186,9 @@ export function OrderDetailPanel({
           {/* Order Items */}
           <section className="mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">
-              Items ({order!.order_items.length})
+              Items ({order.order_items.length})
             </h3>
-            {order!.order_items.length === 0 ? (
+            {order.order_items.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No items in this order.</p>
             ) : (
               <div className="bg-white rounded-lg border overflow-hidden">
@@ -204,7 +204,7 @@ export function OrderDetailPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {order!.order_items.map((item) => (
+                    {order.order_items.map((item) => (
                       <tr key={item.id} className="border-b last:border-b-0">
                         <td className="p-2">
                           <div>
@@ -235,7 +235,7 @@ export function OrderDetailPanel({
                           )}
                         </td>
                         <td className="p-2">
-                          <StatusBadge status={item.production_status} />
+                          <StatusBadge status={item.production_status} type="item" />
                         </td>
                       </tr>
                     ))}
@@ -251,25 +251,25 @@ export function OrderDetailPanel({
             <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
               <div className="flex justify-between">
                 <span className="text-gray-600">Subtotal</span>
-                <span>{formatPrice(order!.subtotal)}</span>
+                <span>{formatPrice(order.subtotal)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Shipping</span>
-                <span>{formatPrice(order!.shipping_cost)}</span>
+                <span>{formatPrice(order.shipping_cost)}</span>
               </div>
-              {order!.tax > 0 && (
+              {order.tax > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Tax</span>
-                  <span>{formatPrice(order!.tax)}</span>
+                  <span>{formatPrice(order.tax)}</span>
                 </div>
               )}
               <div className="flex justify-between border-t pt-2 font-semibold">
                 <span>Total</span>
-                <span>{formatPrice(order!.total)}</span>
+                <span>{formatPrice(order.total)}</span>
               </div>
-              {order!.paid_at && (
+              {order.paid_at && (
                 <p className="text-xs text-gray-400 pt-1">
-                  Paid {new Date(order!.paid_at).toLocaleDateString("en-US", {
+                  Paid {new Date(order.paid_at).toLocaleDateString("en-US", {
                     year: "numeric",
                     month: "short",
                     day: "numeric",
@@ -284,11 +284,11 @@ export function OrderDetailPanel({
           {/* Status History */}
           <section className="mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Status History</h3>
-            {order!.status_history.length === 0 ? (
+            {order.status_history.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No status changes recorded.</p>
             ) : (
               <div className="space-y-3">
-                {order!.status_history.map((entry) => (
+                {order.status_history.map((entry) => (
                   <div key={entry.id} className="flex gap-3 text-sm">
                     <div className="flex flex-col items-center">
                       <div className="w-2 h-2 rounded-full bg-gray-400 mt-1.5" />

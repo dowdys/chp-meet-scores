@@ -25,7 +25,7 @@ export default async function BacksPage() {
   const backGroups = new Map<number, { label: string; meetName: string; items: typeof items }>();
   for (const item of items) {
     const backId = item.back_id || 0;
-    const back = (item as any).shirt_backs;
+    const back = (item as { shirt_backs?: { meet_name?: string; level_group_label?: string } }).shirt_backs;
     // Fall back to order_items.meet_name when shirt_backs not published yet
     // Strip the date portion from meet name: "USAG W Gymnastics - 2026 MN - March 20" -> "USAG W Gymnastics - 2026 MN"
     const rawMeetName = back?.meet_name || item.meet_name || "Unknown";

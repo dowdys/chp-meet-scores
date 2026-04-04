@@ -390,6 +390,15 @@ export async function overrideOrderStatus(
     return { success: true };
   }
 
+  // Warn about Stripe-inconsistent transitions (but still allow — that's the point of override)
+  const stripeInconsistent =
+    (order.status === "refunded" && ["paid", "processing"].includes(newStatus)) ||
+    (order.status === "cancelled" && ["paid", "processing"].includes(newStatus));
+
+  const warningPrefix = stripeInconsistent
+    ? "WARNING: This creates a Stripe-inconsistent state (order was refunded/cancelled in Stripe). "
+    : "";
+
   await db.from("orders").update({ status: newStatus }).eq("id", orderId);
 
   await db.from("order_status_history").insert({
@@ -397,10 +406,15 @@ export async function overrideOrderStatus(
     old_status: order.status,
     new_status: newStatus,
     changed_by: "admin-override",
-    reason: reason.trim(),
+    reason: `${warningPrefix}${reason.trim()}`,
   });
 
-  return { success: true };
+  return {
+    success: true,
+    ...(stripeInconsistent
+      ? { error: "Status overridden, but this order was already refunded/cancelled in Stripe. Manual Stripe reconciliation may be needed." }
+      : {}),
+  };
 }
 
 export async function overrideItemStatus(

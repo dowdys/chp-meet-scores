@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+
+/** Strip control characters from user input before rendering to PDF */
+function sanitizeForPdf(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\x00-\x1F\x7F]/g, "").trim();
+}
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
 import { easypost, SHIRT_PARCEL, FROM_ADDRESS } from "@/lib/easypost";
@@ -228,14 +234,16 @@ async function buildPrintBundlePdf(
     drawOrderSheet(doc, font, boldFont, order);
 
     // ─── Pages 3+: Per-Shirt Slips ─────────────────────────
-    const batchItemCount = order.items.length;
+    // Use totalItemsInOrder (not batch count) to determine if this is a multi-shirt order.
+    // A 3-shirt order split across batches should still get numbered slips in each batch.
+    const isMultiShirtOrder = order.totalItemsInOrder >= 2;
 
-    if (batchItemCount >= 2) {
-      // Multi-shirt: one slip per shirt
+    if (isMultiShirtOrder) {
+      // Multi-shirt: one slip per shirt in this batch, numbered against the order total
       for (let i = 0; i < order.items.length; i++) {
-        drawShirtSlip(doc, font, boldFont, order, order.items[i], i + 1, batchItemCount);
+        drawShirtSlip(doc, font, boldFont, order, order.items[i], i + 1, order.totalItemsInOrder);
       }
-    } else if (batchItemCount === 1 && order.items[0].has_jewel) {
+    } else if (order.items.length === 1 && order.items[0].has_jewel) {
       // Single shirt with jewel: one jewel flag page
       drawJewelFlagPage(doc, font, boldFont, order, order.items[0]);
     }
@@ -472,7 +480,7 @@ function drawOrderSheet(
 
   for (let i = 0; i < batchItems.length; i++) {
     const item = batchItems[i];
-    const displayName = item.corrected_name ?? item.athlete_name;
+    const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
     const jewelMark = item.has_jewel ? " -- Jewel" : "";
     const sizeColor = `${item.shirt_size} ${capitalize(item.shirt_color)}`;
     const line = `  ${i + 1}. ${displayName} -- ${sizeColor}${jewelMark}`;
@@ -560,7 +568,7 @@ function drawShirtSlip(
   nl(1.5);
 
   // Athlete
-  const displayName = item.corrected_name ?? item.athlete_name;
+  const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
   draw(`Athlete: ${displayName}`, { size: 14 });
   nl();
 
@@ -604,7 +612,7 @@ function drawJewelFlagPage(
     size: 14,
     font: boldFont,
   });
-  const displayName = item.corrected_name ?? item.athlete_name;
+  const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
   page.drawText(`Athlete: ${displayName}`, {
     x: MARGIN,
     y: PAGE_H - MARGIN - LINE_H * 1.5,

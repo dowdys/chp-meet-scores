@@ -3,6 +3,12 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
 
+/** Strip control characters from user input before rendering to PDF */
+function sanitizeForPdf(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\x00-\x1F\x7F]/g, "").trim();
+}
+
 const SIZE_ORDER = ["YS", "YM", "YL", "S", "M", "L", "XL", "XXL"];
 
 interface OrderItem {
@@ -244,7 +250,7 @@ async function buildManifestPdf(
     for (const item of items) {
       ensureSpace(LINE_H + 4);
 
-      const displayName = item.corrected_name ?? item.athlete_name;
+      const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
       const truncName = displayName.length > 28 ? displayName.slice(0, 27) + "…" : displayName;
       const jewelLabel = item.has_jewel ? "YES" : "no";
       const jewelColor = item.has_jewel ? rgb(0.1, 0.5, 0.1) : rgb(0.6, 0.6, 0.6);
