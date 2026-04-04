@@ -325,12 +325,15 @@ export class LLMClient {
    * Send a message to the LLM and return the response.
    * Retries up to 3 times on transient network errors (fetch failed, timeouts).
    */
+  // Status codes that indicate transient server errors worth retrying
+  private static readonly TRANSIENT_STATUS_CODES = new Set([500, 502, 503, 520, 529]);
+
   async sendMessage(options: {
     system: string;
     messages: LLMMessage[];
     tools: ToolDefinition[];
   }): Promise<LLMResponse> {
-    const maxRetries = 3;
+    const maxRetries = 5;
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -353,24 +356,30 @@ export class LLMClient {
           continue;
         }
 
-        const msg = lastError.message.toLowerCase();
-        // Only retry on transient network/server errors, not auth/validation errors
-        const isTransient = msg.includes('fetch failed') ||
-          msg.includes('econnreset') ||
-          msg.includes('etimedout') ||
-          msg.includes('socket hang up') ||
-          msg.includes('network') ||
-          msg.includes('api error (500)') ||
-          msg.includes('api error (502)') ||
-          msg.includes('api error (520)') ||
-          msg.includes('api error (529)');
+        // Detect transient errors via typed ApiError or fallback string matching
+        let isTransient = false;
+        if (err instanceof ApiError) {
+          isTransient = LLMClient.TRANSIENT_STATUS_CODES.has(err.statusCode);
+        } else {
+          const msg = lastError.message.toLowerCase();
+          isTransient = msg.includes('fetch failed') ||
+            msg.includes('econnreset') ||
+            msg.includes('etimedout') ||
+            msg.includes('socket hang up') ||
+            msg.includes('network') ||
+            msg.includes('api error (500)') ||
+            msg.includes('api error (502)') ||
+            msg.includes('api error (520)') ||
+            msg.includes('api error (529)');
+        }
 
         if (!isTransient || attempt === maxRetries) {
           throw lastError;
         }
-        // Exponential backoff: 2s, 4s, 8s
-        const delay = Math.pow(2, attempt) * 1000;
-        console.log(`[LLM] Transient error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries}): ${msg.substring(0, 100)}`);
+        // Exponential backoff with 60s cap and jitter to prevent thundering herd
+        const baseDelay = Math.min(Math.pow(2, attempt) * 2000, 60000);
+        const delay = Math.round(baseDelay * (0.5 + Math.random() * 0.5));
+        console.log(`[LLM] Transient error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries}): ${lastError.message.substring(0, 100)}`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -601,8 +610,16 @@ export class LLMClient {
     });
 
     if (!response.ok) {
+      // Use typed errors so the retry loop handles OpenRouter identically to Anthropic
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 30000;
+        throw new RateLimitError(waitMs);
+      }
       const errorText = await response.text();
-      throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
+      // Truncate error body — Cloudflare 502 pages can be 100KB+ of HTML
+      const truncated = errorText.length > 500 ? errorText.substring(0, 500) + '...[truncated]' : errorText;
+      throw new ApiError(response.status, `OpenRouter API error (${response.status}): ${truncated}`);
     }
 
     const data = await response.json() as OpenRouterResponseBody;

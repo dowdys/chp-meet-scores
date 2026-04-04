@@ -5,7 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { LLMClient, LLMMessage, ContentBlock, LLMResponse, ToolResultContent } from './llm-client';
+import { LLMClient, LLMMessage, ContentBlock, LLMResponse, ToolResultContent, RateLimitError, ApiError } from './llm-client';
 import { resetStagingDb } from './tools/python-tools';
 import { setDbToolsPhase } from './tools/db-tools';
 import { getDataDir, getOutputDir } from './paths';
@@ -162,6 +162,7 @@ export class AgentLoop {
           if (savedProgress.build_database_failed) context.buildDatabaseFailed = true;
           if (savedProgress.suspicious_names?.length) context.suspiciousNames = savedProgress.suspicious_names;
           if (savedProgress.discovered_meet_ids?.length) context.discoveredMeetIds = savedProgress.discovered_meet_ids;
+          if (savedProgress.search_meets_returned) context.searchMeetsReturned = true;
           if (savedProgress.division_order?.length) context.divisionOrder = savedProgress.division_order;
 
           // Restore import state from shirt_layout.json on disk (survives session restarts)
@@ -400,19 +401,46 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       // Chrome tools removed from discovery phase entirely (2.6) — no gating needed.
       // browse_mso and browse_scorecat provide URL-safe site access.
 
-      let response: LLMResponse;
-      try {
-        console.log(`[AGENT] Sending LLM request with ${phaseTools.length} tools (phase: ${context.currentPhase})...`);
-        response = await this.llmClient.sendMessage({
-          system: buildSystem(),
-          messages: context.messages,
-          tools: phaseTools,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.onActivity(`LLM API error: ${message}`, 'error');
+      let response!: LLMResponse;  // assigned inside loop; early return guards unassigned case
+      const loopRetryDelays = [30000, 60000, 120000]; // 30s, 60s, 120s
+      let loopRetrySuccess = false;
+      for (let loopAttempt = 0; loopAttempt <= loopRetryDelays.length; loopAttempt++) {
+        try {
+          console.log(`[AGENT] Sending LLM request with ${phaseTools.length} tools (phase: ${context.currentPhase})...`);
+          response = await this.llmClient.sendMessage({
+            system: buildSystem(),
+            messages: context.messages,
+            tools: phaseTools,
+          });
+          loopRetrySuccess = true;
+          break;
+        } catch (err) {
+          const isTransient = err instanceof RateLimitError ||
+            (err instanceof ApiError && [500, 502, 503, 520, 529].includes(err.statusCode)) ||
+            (err instanceof Error && /fetch failed|econnreset|etimedout|socket hang up|network/i.test(err.message));
+
+          if (!isTransient || loopAttempt >= loopRetryDelays.length) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.onActivity(`LLM API error: ${message}`, 'error');
+            await this.doAutoSaveProgress(context);
+            return { success: false, message: `LLM error: ${message}` };
+          }
+
+          // Transient error — save progress and retry after delay
+          const delay = loopRetryDelays[loopAttempt];
+          const errMsg = err instanceof Error ? err.message.substring(0, 100) : String(err);
+          this.onActivity(
+            `LLM provider error, retrying in ${delay / 1000}s (attempt ${loopAttempt + 1}/${loopRetryDelays.length})... ${errMsg}`,
+            'warning'
+          );
+          console.log(`[AGENT] Loop-level retry ${loopAttempt + 1}/${loopRetryDelays.length}, waiting ${delay}ms`);
+          await this.doAutoSaveProgress(context);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+      if (!loopRetrySuccess) {
         await this.doAutoSaveProgress(context);
-        return { success: false, message: `LLM error: ${message}` };
+        return { success: false, message: 'LLM error: all retry attempts exhausted' };
       }
 
       context.totalInputTokens = response.usage.input_tokens;
@@ -674,19 +702,21 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       this.onActivity(`Tool ${toolName} result: ${preview}`, 'info');
 
       // Track search_meets results: discover IDs and gate Chrome tools
-      if (toolName === 'search_meets' && typeof result === 'string' && !result.includes('No meets found')) {
+      if (toolName === 'search_meets') {
         context.searchMeetsReturned = true;
-        // Extract discovered meet IDs from the result
-        const idPattern = /ID:\s*(\S+)/g;
-        let idMatch;
-        if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
-        while ((idMatch = idPattern.exec(result)) !== null) {
-          const id = idMatch[1].replace(/[|,]/g, '');
-          if (id && !context.discoveredMeetIds.includes(id)) {
-            context.discoveredMeetIds.push(id);
+        // Extract discovered meet IDs from the result (only when result is a string)
+        if (typeof result === 'string') {
+          const idPattern = /ID:\s*(\S+)/g;
+          let idMatch;
+          if (!context.discoveredMeetIds) context.discoveredMeetIds = [];
+          while ((idMatch = idPattern.exec(result)) !== null) {
+            const id = idMatch[1].replace(/[|,]/g, '');
+            if (id && !context.discoveredMeetIds.includes(id)) {
+              context.discoveredMeetIds.push(id);
+            }
           }
         }
-        if (context.discoveredMeetIds.length > 0) {
+        if (context.discoveredMeetIds && context.discoveredMeetIds.length > 0) {
           console.log(`[AGENT] Discovered meet IDs: ${context.discoveredMeetIds.join(', ')}`);
         }
       }
@@ -720,13 +750,18 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       }
     }
 
-    // Extraction tools: reject IDs not discovered by search_meets (prevents brute-force guessing)
-    if ((name === 'mso_extract' || name === 'scorecat_extract') && context.discoveredMeetIds && context.discoveredMeetIds.length > 0) {
-      const meetIds = Array.isArray(args.meet_ids) ? args.meet_ids as string[] : [];
-      const undiscovered = meetIds.filter(id => !context.discoveredMeetIds!.includes(id));
-      if (undiscovered.length > 0) {
-        return `Error: Meet ID(s) ${undiscovered.join(', ')} were not found by search_meets. ` +
-          'Do NOT guess meet IDs. Use search_meets to find the correct IDs first.';
+    // Extraction tools: require search_meets to have been called first, then reject unrecognized IDs
+    if (name === 'mso_extract' || name === 'scorecat_extract') {
+      if (context.searchMeetsReturned !== true) {
+        return 'You must call search_meets first to discover valid meet IDs before using extraction tools.';
+      }
+      if (context.discoveredMeetIds && context.discoveredMeetIds.length > 0) {
+        const meetIds = Array.isArray(args.meet_ids) ? args.meet_ids as string[] : [];
+        const undiscovered = meetIds.filter(id => !context.discoveredMeetIds!.includes(id));
+        if (undiscovered.length > 0) {
+          return `Error: Meet ID(s) ${undiscovered.join(', ')} were not found by search_meets. ` +
+            'Do NOT guess meet IDs. Use search_meets to find the correct IDs first.';
+        }
       }
     }
 

@@ -80,6 +80,7 @@ export interface ProgressData {
   suspicious_names?: Array<{ raw: string; cleaned: string }>;
   discovered_meet_ids?: string[];
   division_order?: string[];
+  search_meets_returned?: boolean;
 }
 
 // --- Helper functions ---
@@ -417,6 +418,7 @@ export async function toolRegenerateOutput(
   // Division order — store on context when provided, auto-inject when omitted
   if (args.division_order) {
     context.divisionOrder = String(args.division_order).split(',').map(s => s.trim()).filter(Boolean);
+    argParts.push('--division-order', String(args.division_order));
   } else if (context.divisionOrder?.length && !argParts.includes('--division-order')) {
     argParts.push('--division-order', context.divisionOrder.join(','));
   }
@@ -709,6 +711,7 @@ export async function toolSaveProgress(
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
     discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
     division_order: context.divisionOrder?.length ? context.divisionOrder : undefined,
+    search_meets_returned: context.searchMeetsReturned || undefined,
   };
 
   const filePath = getProgressFilePath();
@@ -768,6 +771,7 @@ export async function autoSaveProgress(
     suspicious_names: context.suspiciousNames?.length ? context.suspiciousNames : undefined,
     discovered_meet_ids: context.discoveredMeetIds?.length ? context.discoveredMeetIds : undefined,
     division_order: context.divisionOrder?.length ? context.divisionOrder : undefined,
+    search_meets_returned: context.searchMeetsReturned || undefined,
   };
 
   const filePath = getProgressFilePath();

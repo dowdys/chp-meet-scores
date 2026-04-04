@@ -68,6 +68,27 @@ def clean_athlete_name(name: str) -> str:
     return result
 
 
+def _to_float(val):
+    """Cast a score value to float at the SQLite INSERT boundary.
+
+    Returns float(val) for numeric values, None for None/empty/non-numeric.
+    Prints a warning when a non-empty, non-numeric string is encountered —
+    this indicates a bug in the upstream adapter that should be fixed.
+    """
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        print(f"SCORE_TYPE_WARNING: Non-numeric score value '{val}' cast to NULL")
+        return None
+
+
 def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> str:
     """Build a SQLite database from parsed athlete data.
 
@@ -157,7 +178,7 @@ def build_database(db_path: str, config: MeetConfig, athletes: list[dict]) -> st
                     (config.state, config.meet_name, config.association,
                      cleaned_name, a['gym'], a.get('club_num', ''),
                      a['session'], a['level'], a['division'],
-                     a['vault'], a['bars'], a['beam'], a['floor'], a['aa'],
+                     _to_float(a['vault']), _to_float(a['bars']), _to_float(a['beam']), _to_float(a['floor']), _to_float(a['aa']),
                      a.get('rank'), a.get('num')))
             if names_cleaned > 0:
                 print(f"Name cleaning: stripped event code suffixes from {names_cleaned} athlete names")
