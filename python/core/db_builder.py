@@ -8,6 +8,7 @@ both rank 1.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import os
@@ -79,12 +80,19 @@ def _to_float(val: Any) -> float | None:
     if val is None:
         return None
     if isinstance(val, (int, float)):
-        return float(val)
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     s = str(val).strip()
     if not s:
         return None
     try:
-        return float(s)
+        f = float(s)
+        if math.isnan(f) or math.isinf(f):
+            print(f"SCORE_TYPE_WARNING: NaN/Infinity score value '{val}' cast to NULL")
+            return None
+        return f
     except (ValueError, TypeError):
         print(f"SCORE_TYPE_WARNING: Non-numeric score value '{val}' cast to NULL")
         return None

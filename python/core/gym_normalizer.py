@@ -77,12 +77,14 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None,
     # ========================================
     alias_canonical_values: set[str] = set()
     if aliases:
-        alias_lower = {k.lower().strip(): v for k, v in aliases.items()}
+        # Normalize curly apostrophes in alias keys so they match incoming data with either type
+        alias_lower = {k.replace('\u2019', "'").replace('\u2018', "'").lower().strip(): v
+                       for k, v in aliases.items()}
         alias_canonical_values = set(aliases.values())
         applied = 0
         for a in athletes:
             gym = a.get('gym', '') or ''
-            key = gym.strip().lower()
+            key = gym.replace('\u2019', "'").replace('\u2018', "'").strip().lower()
             if key in alias_lower:
                 canonical = alias_lower[key]
                 if gym.strip() != canonical:
