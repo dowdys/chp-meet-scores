@@ -356,21 +356,19 @@ export class LLMClient {
           continue;
         }
 
-        // Detect transient errors via typed ApiError or fallback string matching
+        // Detect transient errors: typed ApiError for HTTP status codes,
+        // string matching only for raw Node.js network failures (not wrapped in ApiError)
         let isTransient = false;
         if (err instanceof ApiError) {
           isTransient = LLMClient.TRANSIENT_STATUS_CODES.has(err.statusCode);
         } else {
+          // Node.js fetch throws plain Error/TypeError for network-level failures
           const msg = lastError.message.toLowerCase();
           isTransient = msg.includes('fetch failed') ||
             msg.includes('econnreset') ||
             msg.includes('etimedout') ||
             msg.includes('socket hang up') ||
-            msg.includes('network') ||
-            msg.includes('api error (500)') ||
-            msg.includes('api error (502)') ||
-            msg.includes('api error (520)') ||
-            msg.includes('api error (529)');
+            msg.includes('network');
         }
 
         if (!isTransient || attempt === maxRetries) {

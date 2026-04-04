@@ -401,10 +401,14 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
       // Chrome tools removed from discovery phase entirely (2.6) — no gating needed.
       // browse_mso and browse_scorecat provide URL-safe site access.
 
+      // Two-layer retry: sendMessage retries individual HTTP requests (5 attempts, ~2 min).
+      // This loop retries the full iteration on sustained outages (3 retries, 30s/60s/120s).
       let response!: LLMResponse;  // assigned inside loop; early return guards unassigned case
       const loopRetryDelays = [30000, 60000, 120000]; // 30s, 60s, 120s
+      const maxLoopRetries = loopRetryDelays.length;   // 3 retries after initial attempt
+      let lastLoopError = '';
       let loopRetrySuccess = false;
-      for (let loopAttempt = 0; loopAttempt <= loopRetryDelays.length; loopAttempt++) {
+      for (let loopAttempt = 0; loopAttempt < maxLoopRetries + 1; loopAttempt++) {
         try {
           console.log(`[AGENT] Sending LLM request with ${phaseTools.length} tools (phase: ${context.currentPhase})...`);
           response = await this.llmClient.sendMessage({
@@ -418,8 +422,9 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
           const isTransient = err instanceof RateLimitError ||
             (err instanceof ApiError && [500, 502, 503, 520, 529].includes(err.statusCode)) ||
             (err instanceof Error && /fetch failed|econnreset|etimedout|socket hang up|network/i.test(err.message));
+          lastLoopError = err instanceof Error ? err.message.substring(0, 150) : String(err);
 
-          if (!isTransient || loopAttempt >= loopRetryDelays.length) {
+          if (!isTransient || loopAttempt >= maxLoopRetries) {
             const message = err instanceof Error ? err.message : String(err);
             this.onActivity(`LLM API error: ${message}`, 'error');
             await this.doAutoSaveProgress(context);
@@ -428,19 +433,18 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
 
           // Transient error — save progress and retry after delay
           const delay = loopRetryDelays[loopAttempt];
-          const errMsg = err instanceof Error ? err.message.substring(0, 100) : String(err);
           this.onActivity(
-            `LLM provider error, retrying in ${delay / 1000}s (attempt ${loopAttempt + 1}/${loopRetryDelays.length})... ${errMsg}`,
+            `LLM provider error, retrying in ${delay / 1000}s (attempt ${loopAttempt + 1}/${maxLoopRetries})... ${lastLoopError}`,
             'warning'
           );
-          console.log(`[AGENT] Loop-level retry ${loopAttempt + 1}/${loopRetryDelays.length}, waiting ${delay}ms`);
+          console.log(`[AGENT] Loop-level retry ${loopAttempt + 1}/${maxLoopRetries}, waiting ${delay}ms`);
           await this.doAutoSaveProgress(context);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
       if (!loopRetrySuccess) {
         await this.doAutoSaveProgress(context);
-        return { success: false, message: 'LLM error: all retry attempts exhausted' };
+        return { success: false, message: `LLM error: all retry attempts exhausted. Last error: ${lastLoopError}` };
       }
 
       context.totalInputTokens = response.usage.input_tokens;
