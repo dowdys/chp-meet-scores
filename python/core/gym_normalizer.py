@@ -406,6 +406,6 @@ def print_gym_report(report: dict) -> None:
     # Print full gym list with athlete counts for agent dedup review
     counts = report.get('gym_athlete_counts', {})
     if counts and (dupes or initials):
-        print(f"\nAll gyms ({len(gyms)}) with athlete counts — review for possible duplicates:")
-        for g in gyms:
-            print(f'  {g} ({counts.get(g, 0)} athletes)')
+        _print_section('All gyms with athlete counts — review for possible duplicates',
+                       [f'{g} ({counts.get(g, 0)} athletes)' for g in gyms],
+                       max_show=30)

@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 import os
+from typing import Any
 from .models import MeetConfig
 from .constants import EVENTS
 
@@ -68,7 +69,7 @@ def clean_athlete_name(name: str) -> str:
     return result
 
 
-def _to_float(val):
+def _to_float(val: Any) -> float | None:
     """Cast a score value to float at the SQLite INSERT boundary.
 
     Returns float(val) for numeric values, None for None/empty/non-numeric.

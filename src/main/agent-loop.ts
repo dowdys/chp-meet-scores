@@ -762,6 +762,13 @@ You have ~100 tool call iterations. If you hit the limit, explain progress via a
           return `Error: Meet ID(s) ${undiscovered.join(', ')} were not found by search_meets. ` +
             'Do NOT guess meet IDs. Use search_meets to find the correct IDs first.';
         }
+      } else {
+        // search_meets was called but returned no results — block extraction with any IDs
+        const meetIds = Array.isArray(args.meet_ids) ? args.meet_ids as string[] : [];
+        if (meetIds.length > 0) {
+          return 'Error: search_meets returned no results, so no valid meet IDs exist. ' +
+            'Try a different search query or ask the user for the meet NAME or URL.';
+        }
       }
     }
 
