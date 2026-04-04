@@ -119,7 +119,7 @@ export function getToolDefinitions(): ToolDefinition[] {
     // --- Extraction tools ---
     {
       name: 'mso_extract',
-      description: 'Extract athlete data from MeetScoresOnline.com via direct API (no Chrome needed). Handles name cleaning, field mapping. Reports level distribution automatically.',
+      description: 'Extract athlete data from MeetScoresOnline.com via direct API (no Chrome needed). Handles name cleaning, field mapping. Reports level distribution automatically. IDs must come from search_meets results.',
       input_schema: {
         type: 'object',
         properties: {
@@ -134,7 +134,7 @@ export function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'scorecat_extract',
-      description: 'Extract athlete data from ScoreCat/Firebase. Handles Firebase SDK, Firestore queries, field mapping. Reports level distribution automatically.',
+      description: 'Extract athlete data from ScoreCat/Firebase. Handles Firebase SDK, Firestore queries, field mapping. Reports level distribution automatically. IDs must come from search_meets results.',
       input_schema: {
         type: 'object',
         properties: {

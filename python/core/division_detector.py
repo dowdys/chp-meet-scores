@@ -82,16 +82,31 @@ def detect_division_order(db_path: str, meet_name: str,
         explicit_upper = {name.strip().upper(): i for i, name in enumerate(explicit_order)}
 
         # Separate known (in explicit list) from unknown (not in list)
+        # Supports both exact match and prefix expansion ("Ch" matches "Ch A", "Ch B", etc.)
         known = []
         unknown = []
+        div_to_position = {}  # maps division -> sort key (position, alpha tiebreak)
         for div in divisions:
-            if div.strip().upper() in explicit_upper:
+            div_upper = div.strip().upper()
+            if div_upper in explicit_upper:
+                # Exact match
                 known.append(div)
+                div_to_position[div] = (explicit_upper[div_upper], div_upper)
             else:
-                unknown.append(div)
+                # Try prefix match: find an explicit entry where div starts with "entry "
+                # Trailing space prevents "Ch" from matching "Charlie"
+                matched = False
+                for entry, pos in explicit_upper.items():
+                    if div_upper.startswith(entry + ' '):
+                        known.append(div)
+                        div_to_position[div] = (pos, div_upper)  # same group position, alpha tiebreak
+                        matched = True
+                        break
+                if not matched:
+                    unknown.append(div)
 
-        # Sort known by their explicit position, unknown alphabetically after
-        known.sort(key=lambda d: explicit_upper[d.strip().upper()])
+        # Sort known by explicit position, then alphabetically within each prefix group
+        known.sort(key=lambda d: div_to_position[d])
         unknown.sort()
 
         if unknown:

@@ -101,6 +101,7 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None,
     for a in athletes:
         gym = a.get('gym', '') or ''
         key = gym.strip().lower()
+        key = key.replace('\u2019', "'").replace('\u2018', "'")  # curly → straight apostrophe
         key = key.replace('-', ' ')          # "win-win" → "win win"
         key = re.sub(r'\s+', ' ', key)
         if not key:
@@ -325,6 +326,13 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None,
             and not (g1.lower().strip() in mapped_values and g2.lower().strip() in mapped_values)
         ]
 
+    # Build athlete counts per gym for agent context during dedup review
+    gym_athlete_counts: dict[str, int] = {}
+    for a in athletes:
+        g = a.get('gym', '')
+        if g:
+            gym_athlete_counts[g] = gym_athlete_counts.get(g, 0) + 1
+
     return {
         'normalized_athletes': athletes,
         'gym_report': {
@@ -335,6 +343,7 @@ def normalize(athletes: list[dict], gym_map_path: str | None = None,
             'alias_applied': alias_applied,
             'clubnum_merged': clubnum_merged,
             'initials_suspects': initials_suspects,
+            'gym_athlete_counts': gym_athlete_counts,
         },
     }
 
@@ -393,3 +402,10 @@ def print_gym_report(report: dict) -> None:
             print(f'  "{g1}" / "{g2}" ({int(ratio*100)}% similar)')
         if len(dupes) > 15:
             print(f"  ... and {len(dupes) - 15} more")
+
+    # Print full gym list with athlete counts for agent dedup review
+    counts = report.get('gym_athlete_counts', {})
+    if counts and (dupes or initials):
+        print(f"\nAll gyms ({len(gyms)}) with athlete counts — review for possible duplicates:")
+        for g in gyms:
+            print(f'  {g} ({counts.get(g, 0)} athletes)')
