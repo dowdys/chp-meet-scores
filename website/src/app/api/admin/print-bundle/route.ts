@@ -175,51 +175,16 @@ export async function GET(request: NextRequest) {
           shipment.lowestRate()
         );
 
-        // Update items in this batch to packed
-        await supabase
-          .from("order_items")
-          .update({ production_status: "packed" })
-          .eq("order_id", order.id)
-          .eq("printer_batch_id", batchId);
-
-        // Only mark order as shipped if ALL non-cancelled items are now packed/printed.
-        // For multi-back orders, some items may still be in other batches.
-        const { data: allItems } = await supabase
-          .from("order_items")
-          .select("production_status")
-          .eq("order_id", order.id)
-          .neq("production_status", "cancelled");
-
-        const allReady = (allItems || []).every(
-          (i: { production_status: string }) =>
-            i.production_status === "printed" || i.production_status === "packed"
-        );
-
-        // Save shipment info on the order
-        const orderUpdate: Record<string, unknown> = {
-          easypost_shipment_id: boughtShipment.id,
-          tracking_number: boughtShipment.tracking_code,
-          carrier: boughtShipment.selected_rate?.carrier || "USPS",
-        };
-        if (allReady) {
-          orderUpdate.status = "shipped";
-          orderUpdate.shipped_at = new Date().toISOString();
-        }
-        await supabase
-          .from("orders")
-          .update(orderUpdate)
-          .eq("id", order.id);
-
-        // Record status change only if actually shipped
-        if (allReady) {
-          await supabase.from("order_status_history").insert({
-            order_id: order.id,
-            old_status: order.status,
-            new_status: "shipped",
-            changed_by: "system",
-            reason: "Shipping label created via print bundle — all items ready",
-          });
-        }
+        // Atomically: pack items in this batch, conditionally ship order,
+        // save shipment info — all in one transaction via RPC.
+        // Prevents orphaned shipments if DB update fails.
+        await supabase.rpc("save_shipment_and_pack", {
+          p_order_id: order.id,
+          p_batch_id: batchId,
+          p_easypost_shipment_id: boughtShipment.id,
+          p_tracking_number: boughtShipment.tracking_code || "",
+          p_carrier: boughtShipment.selected_rate?.carrier || "USPS",
+        });
 
         order.labelUrl = boughtShipment.postage_label?.label_url || null;
       }

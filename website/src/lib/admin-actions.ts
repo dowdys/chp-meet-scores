@@ -80,75 +80,24 @@ export async function createPrinterBatch(
   const seq = (existingCount || 0) + 1;
   const batchName = seq === 1 ? baseName : `${baseName} (#${seq})`;
 
-  // Create batch
-  const { data: batch, error } = await db
-    .from("printer_batches")
-    .insert({ batch_name: batchName, screen_printer: printer })
-    .select("id")
-    .single();
+  // Use atomic RPC to create batch + backs + items in one transaction.
+  // This prevents partial state (batch created but items not updated).
+  const { data: rpcResult, error } = await db.rpc("create_printer_batch_atomic", {
+    p_batch_name: batchName,
+    p_screen_printer: printer,
+    p_back_ids: backIds,
+  });
 
-  if (error || !batch) return { success: false, error: error?.message };
+  if (error) return { success: false, error: error.message };
 
-  // Track affected order IDs for processing status transition
-  const affectedOrderIds = new Set<number>();
+  const result = rpcResult as { success: boolean; batch_id?: number };
+  if (!result.success) return { success: false, error: "Batch creation failed" };
 
-  // Add backs to batch with shirt counts
-  for (const backId of backIds) {
-    // Get items that will be batched (to collect order IDs)
-    const { data: pendingItems, count } = await db
-      .from("order_items")
-      .select("id, order_id", { count: "exact" })
-      .eq("back_id", backId)
-      .in("production_status", ["pending"]);
+  // The RPC handles: create batch, insert backs with counts, update items
+  // to queued, transition orders from paid→processing, and record history.
+  // Everything in one transaction.
 
-    if (pendingItems) {
-      for (const item of pendingItems) {
-        affectedOrderIds.add(item.order_id);
-      }
-    }
-
-    await db.from("printer_batch_backs").insert({
-      batch_id: batch.id,
-      back_id: backId,
-      shirt_count: count || 0,
-    });
-
-    // Update order items to queued
-    await db
-      .from("order_items")
-      .update({
-        production_status: "queued",
-        printer_batch_id: batch.id,
-      })
-      .eq("back_id", backId)
-      .eq("production_status", "pending");
-  }
-
-  // Unit 7d: Transition affected orders from "paid" to "processing"
-  for (const orderId of affectedOrderIds) {
-    const { data: order } = await db
-      .from("orders")
-      .select("status")
-      .eq("id", orderId)
-      .single();
-
-    if (order && order.status === "paid") {
-      await db
-        .from("orders")
-        .update({ status: "processing" })
-        .eq("id", orderId);
-
-      await db.from("order_status_history").insert({
-        order_id: orderId,
-        old_status: "paid",
-        new_status: "processing",
-        changed_by: "system",
-        reason: "Items batched for printing",
-      });
-    }
-  }
-
-  return { success: true, batchId: batch.id };
+  return { success: true, batchId: result.batch_id };
 }
 
 export async function updateBatchStatus(
@@ -315,7 +264,7 @@ export async function cancelOrder(
   await ensureRole("admin");
   const db = getDb();
 
-  // Fetch order with items
+  // Fetch order for refund amount calculation
   const { data: order, error: fetchErr } = await db
     .from("orders")
     .select("*, order_items(*)")
@@ -326,124 +275,80 @@ export async function cancelOrder(
     return { success: false, error: "Order not found" };
   }
 
-  if (!["paid", "processing"].includes(order.status)) {
-    return {
-      success: false,
-      error: `Cannot cancel a ${order.status} order. Only paid or processing orders can be cancelled.`,
-    };
-  }
-
   if (!order.stripe_payment_intent_id) {
     return { success: false, error: "No payment intent found for this order" };
   }
 
-  // Optimistic lock: verify order is still in cancellable state (prevents double-cancel race)
-  const { data: lockCheck } = await db
-    .from("orders")
-    .update({ status: order.status }) // no-op update to verify state hasn't changed
-    .eq("id", orderId)
-    .eq("status", order.status) // WHERE status = current status
-    .select("id");
-
-  if (!lockCheck || lockCheck.length === 0) {
-    return { success: false, error: "Order status changed — someone else may have already cancelled it. Please refresh." };
-  }
-
-  const stripe = getStripe();
   const activeItems = (order.order_items || []).filter(
     (i: { production_status: string }) => i.production_status !== "cancelled"
   );
 
-  try {
-    if (!itemIds || itemIds.length === 0) {
-      // FULL CANCEL
-      await stripe.refunds.create({
-        payment_intent: order.stripe_payment_intent_id,
-      });
+  // Calculate refund details for partial cancel
+  let refundAmount: number | undefined;
+  let newSubtotal: number | undefined;
+  let newShipping: number | undefined;
+  let newTotal: number | undefined;
+  let reason = "Full cancellation and refund";
 
-      await db
-        .from("order_items")
-        .update({ production_status: "cancelled" })
-        .eq("order_id", orderId);
-
-      await db
-        .from("orders")
-        .update({ status: "refunded" })
-        .eq("id", orderId);
-
-      await db.from("order_status_history").insert({
-        order_id: orderId,
-        old_status: order.status,
-        new_status: "refunded",
-        changed_by: "admin",
-        reason: "Full cancellation and refund",
-      });
-    } else {
-      // PARTIAL CANCEL
-      const selectedItems = activeItems.filter((i: { id: number }) =>
-        itemIds.includes(i.id)
-      );
-      if (selectedItems.length === 0) {
-        return { success: false, error: "No valid items selected" };
-      }
-
-      const itemRefund = selectedItems.reduce(
-        (sum: number, i: { unit_price: number; jewel_price: number }) =>
-          sum + i.unit_price + i.jewel_price,
-        0
-      );
-      const remainingCount = activeItems.length - selectedItems.length;
-      const newShipping = remainingCount > 0 ? calculateShipping(remainingCount) : 0;
-      const shippingRefund = Math.max(0, order.shipping_cost - newShipping);
-      const refundAmount = itemRefund + shippingRefund;
-      const newSubtotal = order.subtotal - itemRefund;
-
-      await stripe.refunds.create({
-        payment_intent: order.stripe_payment_intent_id,
-        amount: refundAmount,
-      });
-
-      for (const item of selectedItems) {
-        await db
-          .from("order_items")
-          .update({ production_status: "cancelled" })
-          .eq("id", item.id);
-      }
-
-      if (remainingCount === 0) {
-        await db
-          .from("orders")
-          .update({ status: "refunded" })
-          .eq("id", orderId);
-
-        await db.from("order_status_history").insert({
-          order_id: orderId,
-          old_status: order.status,
-          new_status: "refunded",
-          changed_by: "admin",
-          reason: `All items cancelled (partial cancellation of ${selectedItems.length} items)`,
-        });
-      } else {
-        await db
-          .from("orders")
-          .update({ subtotal: newSubtotal, shipping_cost: newShipping, total: newSubtotal + newShipping + order.tax })
-          .eq("id", orderId);
-
-        await db.from("order_status_history").insert({
-          order_id: orderId,
-          old_status: order.status,
-          new_status: order.status,
-          changed_by: "admin",
-          reason: `Partial cancellation: ${selectedItems.length} item(s) refunded (${formatPrice(refundAmount)})`,
-        });
-      }
+  if (itemIds && itemIds.length > 0) {
+    const selectedItems = activeItems.filter((i: { id: number }) =>
+      itemIds.includes(i.id)
+    );
+    if (selectedItems.length === 0) {
+      return { success: false, error: "No valid items selected" };
     }
+
+    const itemRefund = selectedItems.reduce(
+      (sum: number, i: { unit_price: number; jewel_price: number }) =>
+        sum + i.unit_price + i.jewel_price,
+      0
+    );
+    const remainingCount = activeItems.length - selectedItems.length;
+    newShipping = remainingCount > 0 ? calculateShipping(remainingCount) : 0;
+    const shippingRefund = Math.max(0, order.shipping_cost - newShipping);
+    refundAmount = itemRefund + shippingRefund;
+    newSubtotal = order.subtotal - itemRefund;
+    newTotal = newSubtotal + newShipping + order.tax;
+    reason = `Partial cancellation: ${selectedItems.length} item(s) refunded (${formatPrice(refundAmount!)})`;
+  }
+
+  try {
+    // Step 1: Atomically lock the order row and update DB state in a transaction.
+    // This uses SELECT FOR UPDATE inside the RPC to prevent double-cancel races.
+    const { data: rpcResult, error: rpcError } = await db.rpc("begin_cancel_order", {
+      p_order_id: orderId,
+      p_item_ids: itemIds && itemIds.length > 0 ? itemIds : null,
+      p_new_subtotal: newSubtotal ?? null,
+      p_new_shipping: newShipping ?? null,
+      p_new_total: newTotal ?? null,
+      p_reason: reason,
+    });
+
+    if (rpcError) {
+      return { success: false, error: rpcError.message };
+    }
+
+    const result = rpcResult as { success: boolean; error?: string; payment_intent_id?: string };
+    if (!result.success) {
+      return { success: false, error: result.error || "Cancel failed" };
+    }
+
+    // Step 2: DB is updated. Now issue the Stripe refund.
+    // If Stripe fails, the DB state is already 'refunded' — we log the Stripe
+    // failure but don't rollback DB (the refund can be retried or reconciled).
+    const stripe = getStripe();
+    await stripe.refunds.create({
+      payment_intent: order.stripe_payment_intent_id,
+      ...(refundAmount ? { amount: refundAmount } : {}),
+    });
 
     return { success: true };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Stripe refund failed";
-    return { success: false, error: message };
+    // DB already shows refunded — log the Stripe failure for manual reconciliation
+    console.error(`Stripe refund failed for order ${orderId} after DB update:`, message);
+    return { success: false, error: `Order cancelled in DB but Stripe refund failed: ${message}. Manual reconciliation needed.` };
   }
 }
 
