@@ -26,7 +26,12 @@ interface OrderItem {
   production_status: string;
   back_id: number | null;
   printer_batch_id: number | null;
-  shirt_backs: { id: number; meet_name: string; level_group_label: string } | null;
+  shirt_backs: {
+    id: number;
+    meet_name: string;
+    level_group_label: string;
+    design_pdf_url: string | null;
+  } | null;
 }
 
 interface Order {
@@ -51,9 +56,11 @@ interface Order {
 
 interface OrderWithItems extends Order {
   items: OrderItem[];
-  totalItemsInOrder: number; // total items across ALL batches
+  totalItemsInOrder: number;
   labelUrl: string | null;
   labelError: string | null;
+  hasJewel: boolean; // true if ANY item in the order has a jewel
+  namePosition: { x: number; y: number } | null; // position of first jeweled item's name on back PDF
 }
 
 // ─── Main handler ───────────────────────────────────────────────
@@ -84,7 +91,7 @@ export async function GET(request: NextRequest) {
   // 2. Fetch all non-cancelled order items in this batch, with shirt_backs join
   const { data: rawItems, error: itemsError } = await supabase
     .from("order_items")
-    .select("*, shirt_backs(id, meet_name, level_group_label)")
+    .select("*, shirt_backs(id, meet_name, level_group_label, design_pdf_url)")
     .eq("printer_batch_id", batchId)
     .not("production_status", "eq", "cancelled");
 
@@ -136,28 +143,64 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 6. Build order list with items, sorted by order_number
-  const orders: OrderWithItems[] = (rawOrders as Order[])
-    .map((order) => ({
+  // 6. Build order list with items
+  const orders: OrderWithItems[] = (rawOrders as Order[]).map((order) => {
+    const items = allItems.filter((i) => i.order_id === order.id);
+    return {
       ...order,
-      items: allItems.filter((i) => i.order_id === order.id),
+      items,
       totalItemsInOrder: totalItemsByOrder.get(order.id) ?? 0,
       labelUrl: null as string | null,
       labelError: null as string | null,
-    }))
-    .sort((a, b) => a.order_number.localeCompare(b.order_number));
+      hasJewel: items.some((i) => i.has_jewel),
+      namePosition: null,
+    };
+  });
 
-  // 7. Create/fetch EasyPost labels for each order
-  for (const order of orders) {
+  // 7. Sort: non-jewel first (by order number), then jewel (by name position on shirt)
+  const nonJewelOrders = orders.filter((o) => !o.hasJewel);
+  const jewelOrders = orders.filter((o) => o.hasJewel);
+
+  // Sort non-jewel by order number
+  nonJewelOrders.sort((a, b) => a.order_number.localeCompare(b.order_number));
+
+  // For jewel orders, extract name positions from back PDFs for sorting
+  await resolveNamePositions(jewelOrders);
+
+  // Sort jewel orders: group by back_id, then within each back sort by position (y desc, x asc)
+  // This creates reading order: across then down the shirt
+  jewelOrders.sort((a, b) => {
+    // Group by back_id first (keeps same-design shirts together)
+    const backA = a.items.find((i) => i.has_jewel)?.back_id ?? 0;
+    const backB = b.items.find((i) => i.has_jewel)?.back_id ?? 0;
+    if (backA !== backB) return backA - backB;
+
+    // Within same back, sort by name position
+    if (a.namePosition && b.namePosition) {
+      // y descending (top of shirt = higher y in PDF), then x ascending (left to right)
+      if (Math.abs(a.namePosition.y - b.namePosition.y) > 5) {
+        return b.namePosition.y - a.namePosition.y; // higher y first
+      }
+      return a.namePosition.x - b.namePosition.x; // left to right
+    }
+    // Orders without position go to end, sorted by order number
+    if (a.namePosition && !b.namePosition) return -1;
+    if (!a.namePosition && b.namePosition) return 1;
+    return a.order_number.localeCompare(b.order_number);
+  });
+
+  // Combine: non-jewel first, then jewel
+  const sortedOrders = [...nonJewelOrders, ...jewelOrders];
+
+  // 8. Create/fetch EasyPost labels for each order
+  for (const order of sortedOrders) {
     try {
       if (order.easypost_shipment_id) {
-        // Already has a shipment — retrieve the existing label
         const existing = await easypost.Shipment.retrieve(
           order.easypost_shipment_id
         );
         order.labelUrl = existing.postage_label?.label_url || null;
       } else {
-        // Create new shipment + buy label
         const itemCount = order.items.length;
         const shipment = await easypost.Shipment.create({
           from_address: FROM_ADDRESS,
@@ -181,9 +224,6 @@ export async function GET(request: NextRequest) {
           shipment.lowestRate()
         );
 
-        // Atomically: pack items in this batch, conditionally ship order,
-        // save shipment info — all in one transaction via RPC.
-        // Prevents orphaned shipments if DB update fails.
         await supabase.rpc("save_shipment_and_pack", {
           p_order_id: order.id,
           p_batch_id: batchId,
@@ -200,8 +240,8 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 8. Generate the PDF
-  const pdfBytes = await buildPrintBundlePdf(batch.batch_name, orders);
+  // 9. Generate the PDF — exactly 2 pages per order (label + order sheet)
+  const pdfBytes = await buildPrintBundlePdf(batch.batch_name, sortedOrders);
 
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {
@@ -209,6 +249,93 @@ export async function GET(request: NextRequest) {
       "Content-Disposition": `inline; filename="print-bundle-batch-${batchId}.pdf"`,
     },
   });
+}
+
+// ─── Name Position Resolution ───────────────────────────────────
+// Extract where athlete names appear on the shirt back PDFs.
+// Cached per back_id so each design PDF is fetched only once.
+
+async function resolveNamePositions(orders: OrderWithItems[]) {
+  // Group by back_id to avoid duplicate PDF fetches
+  const backIds = new Set<number>();
+  for (const order of orders) {
+    const jewelItem = order.items.find((i) => i.has_jewel);
+    if (jewelItem?.back_id) backIds.add(jewelItem.back_id);
+  }
+
+  // Cache: back_id -> Map<uppercased name -> {x, y}>
+  const positionCache = new Map<number, Map<string, { x: number; y: number }>>();
+
+  for (const backId of backIds) {
+    // Find the PDF URL from any order's item with this back_id
+    const sampleItem = orders
+      .flatMap((o) => o.items)
+      .find((i) => i.back_id === backId && i.shirt_backs?.design_pdf_url);
+
+    const pdfUrl = sampleItem?.shirt_backs?.design_pdf_url;
+    if (!pdfUrl) continue;
+
+    try {
+      const response = await fetch(pdfUrl, { signal: AbortSignal.timeout(10000) });
+      if (!response.ok) continue;
+      const pdfBytes = new Uint8Array(await response.arrayBuffer());
+
+      // Use pdfjs-dist to extract text positions
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice() });
+      const pdfDoc = await loadingTask.promise;
+
+      const namePositions = new Map<string, { x: number; y: number }>();
+
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+
+        for (const item of textContent.items) {
+          if (!("str" in item)) continue;
+          const ti = item as { str: string; transform: number[] };
+          if (ti.str.trim().length > 0) {
+            // Store position keyed by uppercase name
+            namePositions.set(ti.str.toUpperCase().trim(), {
+              x: ti.transform[4],
+              y: ti.transform[5],
+            });
+          }
+        }
+      }
+
+      positionCache.set(backId, namePositions);
+    } catch {
+      // PDF fetch/parse failed — skip this back, orders will fall back to order_number sort
+      continue;
+    }
+  }
+
+  // Assign positions to orders
+  for (const order of orders) {
+    const jewelItem = order.items.find((i) => i.has_jewel);
+    if (!jewelItem?.back_id) continue;
+
+    const positions = positionCache.get(jewelItem.back_id);
+    if (!positions) continue;
+
+    const athleteName = (jewelItem.corrected_name ?? jewelItem.athlete_name).toUpperCase().trim();
+
+    // Try exact match first, then partial match
+    let pos = positions.get(athleteName);
+    if (!pos) {
+      for (const [name, namePos] of positions) {
+        if (name.includes(athleteName) || athleteName.includes(name)) {
+          pos = namePos;
+          break;
+        }
+      }
+    }
+
+    if (pos) {
+      order.namePosition = pos;
+    }
+  }
 }
 
 // ─── PDF Generation ─────────────────────────────────────────────
@@ -219,7 +346,7 @@ const MARGIN = 48;
 const LINE_H = 16;
 
 async function buildPrintBundlePdf(
-  batchName: string,
+  _batchName: string,
   orders: OrderWithItems[]
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -227,26 +354,11 @@ async function buildPrintBundlePdf(
   const boldFont = await doc.embedFont(StandardFonts.CourierBold);
 
   for (const order of orders) {
-    // ─── Page 1: Shipping Label ─────────────────────────────
+    // Page 1: Shipping Label
     await drawLabelPage(doc, font, boldFont, order);
 
-    // ─── Page 2: Order Sheet ────────────────────────────────
+    // Page 2: Order Sheet (with jewel indicators)
     drawOrderSheet(doc, font, boldFont, order);
-
-    // ─── Pages 3+: Per-Shirt Slips ─────────────────────────
-    // Use totalItemsInOrder (not batch count) to determine if this is a multi-shirt order.
-    // A 3-shirt order split across batches should still get numbered slips in each batch.
-    const isMultiShirtOrder = order.totalItemsInOrder >= 2;
-
-    if (isMultiShirtOrder) {
-      // Multi-shirt: one slip per shirt in this batch, numbered against the order total
-      for (let i = 0; i < order.items.length; i++) {
-        drawShirtSlip(doc, font, boldFont, order, order.items[i], i + 1, order.totalItemsInOrder);
-      }
-    } else if (order.items.length === 1 && order.items[0].has_jewel) {
-      // Single shirt with jewel: one jewel flag page
-      drawJewelFlagPage(doc, font, boldFont, order, order.items[0]);
-    }
   }
 
   return doc.save();
@@ -272,14 +384,13 @@ async function drawLabelPage(
       const labelResponse = await fetch(order.labelUrl, { signal: AbortSignal.timeout(15000) });
       const labelBytes = new Uint8Array(await labelResponse.arrayBuffer());
 
-      // Determine format from URL or content type
       const contentType = labelResponse.headers.get("content-type") || "";
       const isPng =
         order.labelUrl.toLowerCase().includes(".png") ||
         contentType.includes("png");
       const isJpg =
-        order.labelUrl.toLowerCase().includes(".jpg") ||
         order.labelUrl.toLowerCase().includes(".jpeg") ||
+        order.labelUrl.toLowerCase().includes(".jpg") ||
         contentType.includes("jpeg");
 
       let labelImage;
@@ -288,7 +399,6 @@ async function drawLabelPage(
       } else if (isJpg) {
         labelImage = await doc.embedJpg(labelBytes);
       } else {
-        // Try PNG first, fall back to JPEG
         try {
           labelImage = await doc.embedPng(labelBytes);
         } catch {
@@ -296,97 +406,32 @@ async function drawLabelPage(
         }
       }
 
-      // Scale to fit the page with margins
       const maxW = PAGE_W - MARGIN * 2;
       const maxH = PAGE_H - MARGIN * 2;
-      const imgW = labelImage.width;
-      const imgH = labelImage.height;
-      const scale = Math.min(maxW / imgW, maxH / imgH, 1);
-      const drawW = imgW * scale;
-      const drawH = imgH * scale;
-
-      // Center on page
+      const scale = Math.min(maxW / labelImage.width, maxH / labelImage.height, 1);
+      const drawW = labelImage.width * scale;
+      const drawH = labelImage.height * scale;
       const x = (PAGE_W - drawW) / 2;
       const y = (PAGE_H - drawH) / 2;
-
       page.drawImage(labelImage, { x, y, width: drawW, height: drawH });
     } catch {
-      // If fetching/embedding fails, show error text
-      drawCenteredText(
-        page,
-        boldFont,
-        "LABEL FETCH FAILED",
-        PAGE_H / 2 + 40,
-        18,
-        rgb(0.8, 0, 0)
-      );
-      drawCenteredText(
-        page,
-        font,
-        `Order: ${order.order_number}`,
-        PAGE_H / 2,
-        14
-      );
-      drawCenteredText(
-        page,
-        font,
-        "Print label manually from EasyPost",
-        PAGE_H / 2 - 30,
-        12,
-        rgb(0.4, 0.4, 0.4)
-      );
+      drawCenteredText(page, boldFont, "LABEL FETCH FAILED", PAGE_H / 2 + 40, 18, rgb(0.8, 0, 0));
+      drawCenteredText(page, font, `Order: ${order.order_number}`, PAGE_H / 2, 14);
+      drawCenteredText(page, font, "Print label manually from EasyPost", PAGE_H / 2 - 30, 12, rgb(0.4, 0.4, 0.4));
     }
   } else if (order.labelError) {
-    // Label creation failed
-    drawCenteredText(
-      page,
-      boldFont,
-      "LABEL ERROR",
-      PAGE_H / 2 + 60,
-      20,
-      rgb(0.8, 0, 0)
-    );
-    drawCenteredText(
-      page,
-      font,
-      `Order: ${order.order_number}`,
-      PAGE_H / 2 + 20,
-      14
-    );
-
-    // Word-wrap the error message
+    drawCenteredText(page, boldFont, "LABEL ERROR", PAGE_H / 2 + 60, 20, rgb(0.8, 0, 0));
+    drawCenteredText(page, font, `Order: ${order.order_number}`, PAGE_H / 2 + 20, 14);
     const errLines = wrapText(order.labelError, font, 10, PAGE_W - MARGIN * 2);
     let errY = PAGE_H / 2 - 20;
     for (const line of errLines) {
       drawCenteredText(page, font, line, errY, 10, rgb(0.5, 0, 0));
       errY -= LINE_H;
     }
-
-    drawCenteredText(
-      page,
-      font,
-      "Create label manually and re-generate bundle",
-      errY - 20,
-      10,
-      rgb(0.4, 0.4, 0.4)
-    );
+    drawCenteredText(page, font, "Create label manually and re-generate bundle", errY - 20, 10, rgb(0.4, 0.4, 0.4));
   } else {
-    // No label and no error (shouldn't happen, but handle gracefully)
-    drawCenteredText(
-      page,
-      boldFont,
-      "NO LABEL AVAILABLE",
-      PAGE_H / 2,
-      18,
-      rgb(0.6, 0, 0)
-    );
-    drawCenteredText(
-      page,
-      font,
-      `Order: ${order.order_number}`,
-      PAGE_H / 2 - 30,
-      14
-    );
+    drawCenteredText(page, boldFont, "NO LABEL AVAILABLE", PAGE_H / 2, 18, rgb(0.6, 0, 0));
+    drawCenteredText(page, font, `Order: ${order.order_number}`, PAGE_H / 2 - 30, 14);
   }
 }
 
@@ -425,6 +470,26 @@ function drawOrderSheet(
     draw(char.repeat(width), { size: 10 });
     nl();
   };
+
+  // ─── JEWEL ORDER header (if any item has jewel) ───
+  if (order.hasJewel) {
+    // Draw a prominent JEWEL ORDER banner at the very top
+    page.drawRectangle({
+      x: MARGIN,
+      y: y - 5,
+      width: PAGE_W - MARGIN * 2,
+      height: 30,
+      color: rgb(0.15, 0.15, 0.15),
+    });
+    page.drawText("★  JEWEL ORDER  ★", {
+      x: MARGIN + 10,
+      y: y + 3,
+      size: 16,
+      font: boldFont,
+      color: rgb(1, 1, 1),
+    });
+    nl(2.5);
+  }
 
   // Header
   rule("=", 43);
@@ -471,7 +536,7 @@ function drawOrderSheet(
   nl();
   nl();
 
-  // Items
+  // Items with jewel indicators
   const batchItems = order.items;
   draw(`ITEMS (${batchItems.length} shirt${batchItems.length !== 1 ? "s" : ""}):`, {
     bold: true,
@@ -481,10 +546,25 @@ function drawOrderSheet(
   for (let i = 0; i < batchItems.length; i++) {
     const item = batchItems[i];
     const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
-    const jewelMark = item.has_jewel ? " -- Jewel" : "";
     const sizeColor = `${item.shirt_size} ${capitalize(item.shirt_color)}`;
-    const line = `  ${i + 1}. ${displayName} -- ${sizeColor}${jewelMark}`;
-    draw(line, { indent: MARGIN + 10, size: 10 });
+
+    if (item.has_jewel) {
+      // Prominent jewel marker: ★ JEWEL ★ next to the item
+      const line = `  ${i + 1}. ${displayName} -- ${sizeColor}`;
+      draw(line, { indent: MARGIN + 10, size: 10 });
+      // Draw jewel marker to the right
+      const lineWidth = font.widthOfTextAtSize(line, 10);
+      page.drawText("  ★ JEWEL", {
+        x: MARGIN + 10 + lineWidth,
+        y,
+        size: 10,
+        font: boldFont,
+        color: rgb(0.7, 0, 0),
+      });
+    } else {
+      const line = `  ${i + 1}. ${displayName} -- ${sizeColor}`;
+      draw(line, { indent: MARGIN + 10, size: 10 });
+    }
     nl();
   }
   nl(0.5);
@@ -516,166 +596,6 @@ function drawOrderSheet(
   draw("Thank you for your order!", { size: 10 });
   nl();
   rule("=", 43);
-}
-
-// ─── Per-Shirt Slip (multi-shirt orders) ────────────────────────
-
-function drawShirtSlip(
-  doc: PDFDocument,
-  font: Awaited<ReturnType<typeof PDFDocument.prototype.embedFont>>,
-  boldFont: Awaited<ReturnType<typeof PDFDocument.prototype.embedFont>>,
-  order: OrderWithItems,
-  item: OrderItem,
-  index: number,
-  total: number
-) {
-  const page = doc.addPage([PAGE_W, PAGE_H]);
-  let y = PAGE_H - MARGIN;
-
-  const draw = (
-    text: string,
-    opts?: {
-      size?: number;
-      bold?: boolean;
-      color?: ReturnType<typeof rgb>;
-      x?: number;
-    }
-  ) => {
-    const size = opts?.size ?? 12;
-    const f = opts?.bold ? boldFont : font;
-    page.drawText(text, {
-      x: opts?.x ?? MARGIN,
-      y,
-      size,
-      font: f,
-      color: opts?.color ?? rgb(0, 0, 0),
-    });
-  };
-
-  const nl = (count = 1) => {
-    y -= LINE_H * count;
-  };
-
-  // Shirt number header
-  draw(`SHIRT ${index} of ${total}`, { size: 18, bold: true });
-  nl();
-  const rule = "=".repeat(33);
-  draw(rule, { size: 12 });
-  nl(1.5);
-
-  // Order number
-  draw(`Order: ${order.order_number}`, { size: 14, bold: true });
-  nl(1.5);
-
-  // Athlete
-  const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
-  draw(`Athlete: ${displayName}`, { size: 14 });
-  nl();
-
-  // Size
-  draw(`Size: ${item.shirt_size}`, { size: 14 });
-  nl();
-
-  // Color
-  draw(`Color: ${capitalize(item.shirt_color)}`, { size: 14 });
-  nl();
-
-  // Back design
-  if (item.shirt_backs) {
-    draw(`Back: ${item.shirt_backs.level_group_label}`, { size: 14 });
-    nl();
-  }
-
-  nl(2);
-
-  // JEWEL NEEDED box (if applicable)
-  if (item.has_jewel) {
-    drawJewelBox(page, boldFont, y);
-  }
-}
-
-// ─── Jewel Flag Page (single-shirt with jewel) ─────────────────
-
-function drawJewelFlagPage(
-  doc: PDFDocument,
-  font: Awaited<ReturnType<typeof PDFDocument.prototype.embedFont>>,
-  boldFont: Awaited<ReturnType<typeof PDFDocument.prototype.embedFont>>,
-  order: OrderWithItems,
-  item: OrderItem
-) {
-  const page = doc.addPage([PAGE_W, PAGE_H]);
-
-  // Order info at top
-  page.drawText(`Order: ${order.order_number}`, {
-    x: MARGIN,
-    y: PAGE_H - MARGIN,
-    size: 14,
-    font: boldFont,
-  });
-  const displayName = sanitizeForPdf(item.corrected_name ?? item.athlete_name);
-  page.drawText(`Athlete: ${displayName}`, {
-    x: MARGIN,
-    y: PAGE_H - MARGIN - LINE_H * 1.5,
-    size: 12,
-    font,
-  });
-  page.drawText(`Size: ${item.shirt_size}  Color: ${capitalize(item.shirt_color)}`, {
-    x: MARGIN,
-    y: PAGE_H - MARGIN - LINE_H * 3,
-    size: 12,
-    font,
-  });
-
-  // Big JEWEL box centered in page
-  drawJewelBox(page, boldFont, PAGE_H / 2 + 40);
-}
-
-// ─── Shared: Draw the large JEWEL NEEDED box ────────────────────
-
-function drawJewelBox(
-  page: ReturnType<typeof PDFDocument.prototype.addPage>,
-  boldFont: Awaited<ReturnType<typeof PDFDocument.prototype.embedFont>>,
-  centerY: number
-) {
-  const boxW = 280;
-  const boxH = 160;
-  const boxX = (PAGE_W - boxW) / 2;
-  const boxY = centerY - boxH / 2;
-
-  // Thick border rectangle
-  page.drawRectangle({
-    x: boxX,
-    y: boxY,
-    width: boxW,
-    height: boxH,
-    borderWidth: 4,
-    borderColor: rgb(0, 0, 0),
-    color: rgb(0.95, 0.95, 0.95),
-  });
-
-  // "JEWEL" text — large
-  const jewelText = "JEWEL";
-  const jewelSize = 36;
-  const jewelW = boldFont.widthOfTextAtSize(jewelText, jewelSize);
-  page.drawText(jewelText, {
-    x: (PAGE_W - jewelW) / 2,
-    y: centerY + 10,
-    size: jewelSize,
-    font: boldFont,
-    color: rgb(0, 0, 0),
-  });
-
-  // "NEEDED" text — large
-  const neededText = "NEEDED";
-  const neededSize = 36;
-  const neededW = boldFont.widthOfTextAtSize(neededText, neededSize);
-  page.drawText(neededText, {
-    x: (PAGE_W - neededW) / 2,
-    y: centerY - 35,
-    size: neededSize,
-    font: boldFont,
-    color: rgb(0, 0, 0),
-  });
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
