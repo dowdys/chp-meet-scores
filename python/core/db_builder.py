@@ -82,6 +82,7 @@ def _to_float(val: Any) -> float | None:
     if isinstance(val, (int, float)):
         f = float(val)
         if math.isnan(f) or math.isinf(f):
+            print(f"SCORE_TYPE_WARNING: NaN/Infinity score value {val!r} cast to NULL")
             return None
         return f
     s = str(val).strip()
